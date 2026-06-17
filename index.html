@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="theme-color" content="#0ea5c4">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Depósito de Água">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Depósito de Água | Gestão</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root {
+  --bg: #f4f7fb;
+  --surface: #ffffff;
+  --card: #ffffff;
+  --accent: #0ea5c4;
+  --accent2: #075985;
+  --green: #16a34a;
+  --yellow: #d97706;
+  --red: #dc2626;
+  --text: #1f2937;
+  --muted: #6b7280;
+  --border: #e2e8f0;
+  --radius: 12px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  padding-bottom: 80px;
+}
+/* HEADER */
+.header {
+  background: var(--surface);
+  padding: 16px 20px;
+  display: flex; align-items: center; justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; z-index: 100;
+}
+.header h1 { font-size: 1.2rem; font-weight: 700; color: var(--accent2); }
+.header .subtitle { font-size: 0.75rem; color: var(--muted); }
+.role-badge {
+  font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: .5px;
+  padding: 3px 8px; border-radius: 20px; background: rgba(14,165,196,.12); color: var(--accent2);
+}
+/* NAV */
+.nav {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  display: flex; z-index: 100;
+  box-shadow: 0 -2px 10px rgba(0,0,0,.04);
+}
+.nav-btn {
+  flex: 1; padding: 10px 4px; border: none; background: none;
+  color: var(--muted); font-size: 0.65rem; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  transition: color .2s;
+}
+.nav-btn.active { color: var(--accent); }
+.nav-btn svg { width: 22px; height: 22px; }
+/* PAGES */
+.page { display: none; padding: 16px; }
+.page.active { display: block; }
+/* CARDS */
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px; margin-bottom: 12px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.03);
+}
+.card-header {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  margin-bottom: 10px;
+}
+.card-title { font-size: 0.95rem; font-weight: 600; }
+.card-sub { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
+/* BADGES */
+.badge {
+  font-size: 0.65rem; font-weight: 700; padding: 3px 8px;
+  border-radius: 20px; text-transform: uppercase; letter-spacing: .5px;
+}
+.badge-green  { background: rgba(22,163,74,.12); color: var(--green); }
+.badge-yellow { background: rgba(217,119,6,.12); color: var(--yellow); }
+.badge-red    { background: rgba(220,38,38,.12); color: var(--red); }
+.badge-blue   { background: rgba(7,89,133,.10); color: var(--accent2); }
+/* STATS ROW */
+.stats { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; margin-bottom: 16px; }
+.stat-card {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 14px 10px; text-align: center;
+}
+.stat-val { font-size: 1.3rem; font-weight: 800; color: var(--accent2); }
+.stat-lbl { font-size: 0.65rem; color: var(--muted); margin-top: 3px; }
+/* BUTTONS */
+.btn {
+  border: none; border-radius: 8px; padding: 10px 18px;
+  font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: opacity .2s;
+}
+.btn:hover { opacity: .85; }
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-success { background: var(--green); color: #fff; }
+.btn-outline { background: none; border: 1px solid var(--border); color: var(--text); }
+.btn-sm { padding: 6px 12px; font-size: 0.75rem; }
+.btn-block { width: 100%; }
+/* FAB */
+.fab {
+  position: fixed; bottom: 90px; right: 20px;
+  width: 52px; height: 52px; border-radius: 50%;
+  background: var(--accent); color: #fff; border: none;
+  font-size: 1.6rem; cursor: pointer; box-shadow: 0 4px 20px rgba(14,165,196,.4);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 99;
+}
+/* FORM */
+.form-group { margin-bottom: 14px; }
+.form-label { font-size: 0.78rem; color: var(--muted); margin-bottom: 5px; display: block; }
+.form-control {
+  width: 100%; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 8px; padding: 10px 12px; color: var(--text);
+  font-size: 0.9rem; font-family: inherit; transition: border-color .2s;
+}
+textarea.form-control { resize: vertical; }
+.form-control:focus { outline: none; border-color: var(--accent); }
+.form-control:disabled { opacity: .6; cursor: not-allowed; }
+select.form-control option { background: var(--surface); }
+/* MODAL */
+.modal-overlay {
+  display: none; position: fixed; inset: 0;
+  background: rgba(15,23,42,.45); z-index: 200;
+  align-items: flex-end; justify-content: center;
+}
+.modal-overlay.open { display: flex; }
+.modal {
+  background: var(--surface); border-radius: 20px 20px 0 0;
+  padding: 24px 20px 32px; width: 100%; max-width: 520px;
+  max-height: 90vh; overflow-y: auto;
+}
+.modal-title { font-size: 1.1rem; font-weight: 700; margin-bottom: 20px; }
+/* LIST ITEMS */
+.list-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 0; border-bottom: 1px solid var(--border);
+}
+.list-item:last-child { border-bottom: none; }
+.avatar {
+  width: 40px; height: 40px; border-radius: 50%;
+  background: rgba(7,89,133,.10); display: flex; align-items: center;
+  justify-content: center; font-weight: 700; font-size: 0.9rem;
+  color: var(--accent2); flex-shrink: 0;
+}
+.item-info { flex: 1; min-width: 0; }
+.item-name { font-size: 0.9rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.item-detail { font-size: 0.75rem; color: var(--muted); }
+.item-value { font-size: 0.95rem; font-weight: 700; }
+.text-green { color: var(--green); }
+.text-red   { color: var(--red); }
+.text-yellow{ color: var(--yellow); }
+/* SEARCH */
+.search-box {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 10px; padding: 0 12px; margin-bottom: 14px;
+}
+.search-box input {
+  flex: 1; background: none; border: none; color: var(--text);
+  font-size: 0.9rem; padding: 10px 0; outline: none;
+}
+/* PICKER */
+.picker-list {
+  max-height: 200px; overflow-y: auto; margin-top: 8px;
+  border: 1px solid var(--border); border-radius: 8px; padding: 0 10px;
+}
+.picker-list .list-item { cursor: pointer; touch-action: manipulation; }
+.picker-list .list-item.selected { background: rgba(14,165,196,.10); border-radius: 8px; }
+.picker-empty { padding: 12px 0; color: var(--muted); font-size: 0.8rem; text-align: center; }
+/* TABS */
+.tabs { display: flex; gap: 6px; margin-bottom: 14px; overflow-x: auto; padding-bottom: 2px; }
+.tab-btn {
+  flex-shrink: 0; padding: 6px 14px; border-radius: 20px;
+  border: 1px solid var(--border); background: none; color: var(--muted);
+  font-size: 0.8rem; cursor: pointer; transition: all .2s;
+}
+.tab-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+/* TOAST */
+.toast {
+  position: fixed; top: 70px; left: 50%; transform: translateX(-50%) translateY(-20px);
+  background: var(--green); color: #fff; padding: 10px 20px;
+  border-radius: 20px; font-size: 0.85rem; font-weight: 600;
+  opacity: 0; transition: all .3s; z-index: 300; pointer-events: none;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.toast.error { background: var(--red); }
+/* LOADING */
+.loading { text-align: center; padding: 40px; color: var(--muted); font-size: 0.9rem; }
+.spinner { width: 32px; height: 32px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; margin: 0 auto 12px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.empty-state { text-align: center; padding: 40px 20px; color: var(--muted); font-size: 0.85rem; }
+/* SALDO */
+.saldo-positive { color: var(--green); font-weight: 800; font-size: 1.1rem; }
+.saldo-negative { color: var(--red); font-weight: 800; font-size: 1.1rem; }
+.divider { height: 1px; background: var(--border); margin: 16px 0; }
+/* LOGIN */
+.login-screen {
+  position: fixed; inset: 0; background: var(--bg);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 500; padding: 20px;
+}
+.login-card {
+  width: 100%; max-width: 360px;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 32px 24px; text-align: center;
+  box-shadow: 0 4px 24px rgba(0,0,0,.06);
+}
+.login-logo { font-size: 1.6rem; font-weight: 800; color: var(--accent2); margin-bottom: 4px; }
+.login-sub { font-size: 0.8rem; color: var(--muted); margin-bottom: 24px; }
+.login-error {
+  color: var(--red); font-size: 0.8rem; margin-top: 10px; min-height: 1.2em;
+}
+.logout-btn {
+  background: none; border: 1px solid var(--border); color: var(--muted);
+  border-radius: 8px; padding: 6px 10px; font-size: 0.7rem; cursor: pointer;
+}
+@media (min-width: 520px) {
+  body { max-width: 520px; margin: 0 auto; }
+  .modal { border-radius: 20px; margin-bottom: 20px; }
+}
+</style>
+</head>
+<body>
+
+<!-- ======= LOGIN ======= -->
+<div class="login-screen" id="login-screen">
+  <div class="login-card">
+    <div class="login-logo">💧 Depósito de Água</div>
+    <div class="login-sub">Faça login para acessar o sistema</div>
+    <div class="form-group">
+      <label class="form-label">E-mail</label>
+      <input class="form-control" id="login-email" type="email" placeholder="seu@email.com" autocomplete="username">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Senha</label>
+      <input class="form-control" id="login-password" type="password" placeholder="••••••••" autocomplete="current-password">
+    </div>
+    <button class="btn btn-primary btn-block" onclick="doLogin()">Entrar</button>
+    <div class="login-error" id="login-error"></div>
+  </div>
+</div>
+
+<!-- ======= APP ======= -->
+<div id="app" style="display:none">
+
+<div class="header">
+  <div>
+    <h1>Depósito de Água</h1>
+    <div class="subtitle">Gestão de garrafões e pedidos</div>
+  </div>
+  <div style="display:flex;align-items:center;gap:8px">
+    <span class="role-badge" id="header-role-badge"></span>
+    <button class="logout-btn" onclick="doLogout()">Sair</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- ======= PAGE: DASHBOARD ======= -->
+<div class="page active" id="page-dash">
+  <div class="empty-state">Dashboard (estoque, devedores e caixa do dia) — Fase 4</div>
+</div>
+
+<!-- ======= PAGE: PEDIDOS ======= -->
+<div class="page" id="page-pedidos">
+  <div class="empty-state">Lista de pedidos — Fase 4</div>
+  <button class="fab" id="fab-pedidos" onclick="toast('Novo pedido chega na Fase 4')">+</button>
+</div>
+
+<!-- ======= PAGE: ESTOQUE ======= -->
+<div class="page" id="page-estoque">
+  <div class="empty-state">Lotes de garrafão e marcas — Fase 3</div>
+  <button class="fab" id="fab-estoque" onclick="toast('Novo lote chega na Fase 3')">+</button>
+</div>
+
+<!-- ======= PAGE: CLIENTES ======= -->
+<div class="page" id="page-clientes">
+  <div class="empty-state">Cadastro de clientes, fiado e comodato — Fase 3</div>
+  <button class="fab" id="fab-clientes" onclick="toast('Novo cliente chega na Fase 3')">+</button>
+</div>
+
+<!-- ======= PAGE: ENTREGAS (entregador) ======= -->
+<div class="page" id="page-entregas">
+  <div class="empty-state">Lista de entregas de hoje — Fase 4</div>
+</div>
+
+<!-- ======= NAV (administrador/caixa) ======= -->
+<nav class="nav" id="main-nav">
+  <button class="nav-btn active" onclick="goPage('dash')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+    Dashboard
+  </button>
+  <button class="nav-btn" onclick="goPage('pedidos')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 2h6l1 4H8l1-4z"/><path d="M5 6h14l-1.5 14a2 2 0 0 1-2 2h-7a2 2 0 0 1-2-2L5 6z"/></svg>
+    Pedidos
+  </button>
+  <button class="nav-btn" onclick="goPage('estoque')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+    Estoque
+  </button>
+  <button class="nav-btn" onclick="goPage('clientes')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+    Clientes
+  </button>
+</nav>
+
+<!-- ======= NAV (entregador) ======= -->
+<nav class="nav" id="entregador-nav" style="display:none">
+  <button class="nav-btn active" onclick="goPage('entregas')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+    Entregas
+  </button>
+</nav>
+
+</div>
+
+<script>
+// ============================================================
+// CONFIG SUPABASE
+// ============================================================
+const SUPABASE_URL = 'https://aueepetytodhxaakvhrk.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_WjAxG5DYstcE-aa7XiUsRg_KNkCsH4z';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// ============================================================
+// STATE
+// ============================================================
+let currentUserRole = null; // 'administrador' | 'caixa' | 'entregador'
+const PAGES_ADMIN_CAIXA = ['dash', 'pedidos', 'estoque', 'clientes'];
+
+// ============================================================
+// NAVIGATION
+// ============================================================
+function goPage(name) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById('page-' + name).classList.add('active');
+
+  const navId = currentUserRole === 'entregador' ? 'entregador-nav' : 'main-nav';
+  document.querySelectorAll('#' + navId + ' .nav-btn').forEach(b => b.classList.remove('active'));
+  const pages = currentUserRole === 'entregador' ? ['entregas'] : PAGES_ADMIN_CAIXA;
+  const idx = pages.indexOf(name);
+  if (idx >= 0) document.querySelectorAll('#' + navId + ' .nav-btn')[idx].classList.add('active');
+}
+
+// ============================================================
+// MODAL
+// ============================================================
+function openModal(id) {
+  document.getElementById(id).classList.add('open');
+}
+function closeModal(id) {
+  document.getElementById(id).classList.remove('open');
+}
+document.addEventListener('click', e => {
+  document.querySelectorAll('.modal-overlay.open').forEach(el => {
+    if (e.target === el) el.classList.remove('open');
+  });
+});
+
+// ============================================================
+// TOAST
+// ============================================================
+function toast(msg, error = false) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (error ? ' error' : '');
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+// ============================================================
+// HELPERS
+// ============================================================
+const fmtMoeda = v => 'R$ ' + parseFloat(v || 0).toFixed(2).replace('.', ',');
+const fmtData  = d => d ? new Date(d).toLocaleDateString('pt-BR') : '—';
+
+// ============================================================
+// AUTH
+// ============================================================
+async function doLogin() {
+  const email    = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  const errEl    = document.getElementById('login-error');
+  errEl.textContent = '';
+  if (!email || !password) { errEl.textContent = 'Preencha e-mail e senha'; return; }
+  const { error } = await sb.auth.signInWithPassword({ email, password });
+  if (error) { errEl.textContent = 'E-mail ou senha inválidos'; return; }
+  await showApp();
+}
+
+async function doLogout() {
+  await sb.auth.signOut();
+  currentUserRole = null;
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('login-screen').style.display = 'flex';
+  document.getElementById('login-email').value = '';
+  document.getElementById('login-password').value = '';
+}
+
+async function showApp() {
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  await init();
+}
+
+document.getElementById('login-password').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doLogin();
+});
+
+// ============================================================
+// ROLE-AWARE INIT
+// ============================================================
+async function loadCurrentUserRole() {
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) return null;
+  const { data, error } = await sb.from('usuarios').select('role,nome').eq('id', user.id).single();
+  if (error || !data) return null;
+  return data;
+}
+
+function applyRoleUI(role) {
+  const isEntregador = role === 'entregador';
+  document.getElementById('main-nav').style.display = isEntregador ? 'none' : 'flex';
+  document.getElementById('entregador-nav').style.display = isEntregador ? 'flex' : 'none';
+  document.getElementById('header-role-badge').textContent = role;
+
+  if (isEntregador) {
+    goPage('entregas');
+  } else {
+    goPage('dash');
+  }
+
+  // Campos sensíveis a marca/limite de fiado serão bloqueados na UI da
+  // Fase 3 quando role === 'caixa' (RLS + trigger no banco já garantem
+  // o bloqueio mesmo se a UI for contornada).
+}
+
+async function init() {
+  const usuario = await loadCurrentUserRole();
+  if (!usuario) {
+    toast('Usuário sem perfil cadastrado em "usuarios". Avise o administrador.', true);
+    currentUserRole = 'caixa'; // fallback conservador de navegação, sem privilégio real (RLS decide)
+  } else {
+    currentUserRole = usuario.role;
+  }
+  applyRoleUI(currentUserRole);
+}
+
+(async function checkSession() {
+  const { data: { session } } = await sb.auth.getSession();
+  if (session) await showApp();
+})();
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
+}
+</script>
+</body>
+</html>
