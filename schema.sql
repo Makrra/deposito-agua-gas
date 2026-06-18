@@ -151,6 +151,7 @@ CREATE INDEX IF NOT EXISTS idx_mov_estoque_data ON movimentos_estoque(data);
 CREATE TABLE IF NOT EXISTS avarias (
   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   lote_id    UUID NOT NULL REFERENCES lotes_garrafao(id) ON DELETE RESTRICT,
+  tipo       TEXT NOT NULL DEFAULT 'cheio' CHECK (tipo IN ('cheio','vazio')),
   quantidade INTEGER NOT NULL CHECK (quantidade > 0),
   motivo     TEXT,
   data       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -408,6 +409,12 @@ ON CONFLICT (chave) DO NOTHING;
 INSERT INTO configuracoes (chave, valor)
 VALUES ('empresa_nome', 'Depósito de Água')
 ON CONFLICT (chave) DO NOTHING;
+
+-- ============================================================
+-- MIGRAÇÃO (rodar só se você já executou este script antes da
+-- Fase 3, quando a tabela avarias ainda não tinha a coluna "tipo")
+-- ============================================================
+-- ALTER TABLE avarias ADD COLUMN IF NOT EXISTS tipo TEXT NOT NULL DEFAULT 'cheio' CHECK (tipo IN ('cheio','vazio'));
 
 -- Após rodar este script, crie o primeiro usuário em:
 -- Authentication > Users > Add user (email + senha)

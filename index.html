@@ -283,14 +283,33 @@ select.form-control option { background: var(--surface); }
 
 <!-- ======= PAGE: ESTOQUE ======= -->
 <div class="page" id="page-estoque">
-  <div class="empty-state">Lotes de garrafão e marcas — Fase 3</div>
-  <button class="fab" id="fab-estoque" onclick="toast('Novo lote chega na Fase 3')">+</button>
+  <div class="tabs">
+    <button class="tab-btn active" id="tab-estoque-lotes" onclick="estoqueSetView('lotes')">Lotes</button>
+    <button class="tab-btn" id="tab-estoque-marcas" onclick="estoqueSetView('marcas')">Marcas</button>
+  </div>
+
+  <div id="estoque-view-lotes">
+    <div style="display:flex;gap:8px;margin-bottom:14px">
+      <button class="btn btn-primary btn-sm" style="flex:1" onclick="abrirNovoLote()">+ Novo Lote</button>
+      <button class="btn btn-outline btn-sm" style="flex:1" onclick="abrirAvaria()">Registrar Avaria</button>
+    </div>
+    <div id="lotes-list" class="loading"><div class="spinner"></div>Carregando...</div>
+  </div>
+
+  <div id="estoque-view-marcas" style="display:none">
+    <button class="btn btn-primary btn-sm btn-block" style="margin-bottom:14px" id="btn-nova-marca" onclick="abrirNovaMarca()">+ Nova Marca</button>
+    <div id="marcas-list" class="loading"><div class="spinner"></div>Carregando...</div>
+  </div>
 </div>
 
 <!-- ======= PAGE: CLIENTES ======= -->
 <div class="page" id="page-clientes">
-  <div class="empty-state">Cadastro de clientes, fiado e comodato — Fase 3</div>
-  <button class="fab" id="fab-clientes" onclick="toast('Novo cliente chega na Fase 3')">+</button>
+  <div class="search-box">
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    <input type="text" id="busca-cliente" placeholder="Buscar cliente..." oninput="filterClientes()">
+  </div>
+  <div id="clientes-list" class="loading"><div class="spinner"></div>Carregando...</div>
+  <button class="fab" onclick="abrirNovoCliente()">+</button>
 </div>
 
 <!-- ======= PAGE: ENTREGAS (entregador) ======= -->
@@ -326,6 +345,145 @@ select.form-control option { background: var(--surface); }
   </button>
 </nav>
 
+<!-- ===== MODAL: Nova/Editar Marca ===== -->
+<div class="modal-overlay" id="modal-marca">
+  <div class="modal">
+    <div class="modal-title" id="marca-modal-title">Nova Marca</div>
+    <input type="hidden" id="marca-id">
+    <div class="form-group">
+      <label class="form-label">Nome da marca</label>
+      <input class="form-control" id="marca-nome" placeholder="Ex: Indaiá">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Preço de venda (R$)</label>
+      <input class="form-control" id="marca-preco" type="number" step="0.01" placeholder="15.00">
+    </div>
+    <button class="btn btn-primary btn-block" onclick="salvarMarca()">Salvar</button>
+  </div>
+</div>
+
+<!-- ===== MODAL: Novo Lote ===== -->
+<div class="modal-overlay" id="modal-lote">
+  <div class="modal">
+    <div class="modal-title">Novo Lote de Garrafão</div>
+    <div class="form-group">
+      <label class="form-label">Marca</label>
+      <select class="form-control" id="lote-marca"></select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Data de fabricação</label>
+      <input class="form-control" id="lote-data-fabricacao" type="date">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Quantidade de cheios recebidos</label>
+      <input class="form-control" id="lote-qtd-cheios" type="number" min="0" placeholder="0">
+    </div>
+    <button class="btn btn-primary btn-block" onclick="salvarLote()">Salvar</button>
+  </div>
+</div>
+
+<!-- ===== MODAL: Registrar Avaria ===== -->
+<div class="modal-overlay" id="modal-avaria">
+  <div class="modal">
+    <div class="modal-title">Registrar Avaria</div>
+    <div class="form-group">
+      <label class="form-label">Lote</label>
+      <select class="form-control" id="avaria-lote"></select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Tipo</label>
+      <select class="form-control" id="avaria-tipo">
+        <option value="cheio">Cheio</option>
+        <option value="vazio">Vazio</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Quantidade</label>
+      <input class="form-control" id="avaria-quantidade" type="number" min="1" placeholder="1">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Motivo</label>
+      <textarea class="form-control" id="avaria-motivo" rows="2" placeholder="Ex: rachado, vazando..."></textarea>
+    </div>
+    <button class="btn btn-primary btn-block" onclick="salvarAvaria()">Registrar</button>
+  </div>
+</div>
+
+<!-- ===== MODAL: Novo/Editar Cliente ===== -->
+<div class="modal-overlay" id="modal-cliente">
+  <div class="modal">
+    <div class="modal-title" id="cliente-modal-title">Novo Cliente</div>
+    <input type="hidden" id="cliente-id">
+    <div class="form-group">
+      <label class="form-label">Tipo</label>
+      <select class="form-control" id="cliente-tipo">
+        <option value="pf">Pessoa Física</option>
+        <option value="pj">Pessoa Jurídica</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Nome</label>
+      <input class="form-control" id="cliente-nome" placeholder="Nome do cliente">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Telefone</label>
+      <input class="form-control" id="cliente-telefone" placeholder="(00) 00000-0000">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Endereço de entrega</label>
+      <textarea class="form-control" id="cliente-endereco" rows="2" placeholder="Rua, número, bairro..."></textarea>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Limite de fiado (R$)</label>
+      <input class="form-control" id="cliente-limite-fiado" type="number" step="0.01" placeholder="0.00">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Observação</label>
+      <textarea class="form-control" id="cliente-observacao" rows="2"></textarea>
+    </div>
+    <button class="btn btn-primary btn-block" onclick="salvarCliente()">Salvar</button>
+  </div>
+</div>
+
+<!-- ===== MODAL: Extrato do Cliente ===== -->
+<div class="modal-overlay" id="modal-extrato">
+  <div class="modal">
+    <div class="modal-title" id="extrato-cliente-nome">Cliente</div>
+    <input type="hidden" id="extrato-cliente-id">
+
+    <div class="stats" style="grid-template-columns:1fr 1fr">
+      <div class="stat-card"><div class="stat-val" id="extrato-saldo-fiado">—</div><div class="stat-lbl">Saldo fiado</div></div>
+      <div class="stat-card"><div class="stat-val" id="extrato-saldo-comodato">—</div><div class="stat-lbl">Vasilhames em comodato</div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title" style="margin-bottom:10px">Registrar pagamento de fiado</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+        <input class="form-control" id="pagamento-valor" type="number" step="0.01" placeholder="Valor (R$)">
+        <select class="form-control" id="pagamento-forma">
+          <option value="dinheiro">Dinheiro</option>
+          <option value="pix">Pix</option>
+        </select>
+      </div>
+      <button class="btn btn-success btn-block btn-sm" onclick="registrarPagamentoFiado()">Registrar Pagamento</button>
+    </div>
+
+    <div class="card">
+      <div class="card-title" style="margin-bottom:10px">Registrar devolução de vasilhame</div>
+      <div class="form-group">
+        <select class="form-control" id="devolucao-lote"></select>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+        <input class="form-control" id="devolucao-quantidade" type="number" min="1" placeholder="Quantidade">
+      </div>
+      <button class="btn btn-success btn-block btn-sm" onclick="registrarDevolucaoComodato()">Registrar Devolução</button>
+    </div>
+
+    <div class="card-title" style="margin:16px 0 8px">Histórico</div>
+    <div id="extrato-historico"></div>
+  </div>
+</div>
+
 </div>
 
 <script>
@@ -340,7 +498,12 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 // STATE
 // ============================================================
 let currentUserRole = null; // 'administrador' | 'caixa' | 'entregador'
+let currentUserId = null;
 const PAGES_ADMIN_CAIXA = ['dash', 'pedidos', 'estoque', 'clientes'];
+
+let allMarcas = [];
+let allLotes = [];
+let allClientes = [];
 
 // ============================================================
 // NAVIGATION
@@ -354,6 +517,9 @@ function goPage(name) {
   const pages = currentUserRole === 'entregador' ? ['entregas'] : PAGES_ADMIN_CAIXA;
   const idx = pages.indexOf(name);
   if (idx >= 0) document.querySelectorAll('#' + navId + ' .nav-btn')[idx].classList.add('active');
+
+  if (name === 'estoque')  loadEstoque();
+  if (name === 'clientes') loadClientes();
 }
 
 // ============================================================
@@ -386,6 +552,350 @@ function toast(msg, error = false) {
 // ============================================================
 const fmtMoeda = v => 'R$ ' + parseFloat(v || 0).toFixed(2).replace('.', ',');
 const fmtData  = d => d ? new Date(d).toLocaleDateString('pt-BR') : '—';
+
+// ============================================================
+// ESTOQUE: MARCAS
+// ============================================================
+function estoqueSetView(view) {
+  document.getElementById('estoque-view-lotes').style.display  = view === 'lotes'  ? 'block' : 'none';
+  document.getElementById('estoque-view-marcas').style.display = view === 'marcas' ? 'block' : 'none';
+  document.getElementById('tab-estoque-lotes').classList.toggle('active', view === 'lotes');
+  document.getElementById('tab-estoque-marcas').classList.toggle('active', view === 'marcas');
+}
+
+async function loadEstoque() {
+  document.getElementById('btn-nova-marca').style.display = currentUserRole === 'administrador' ? 'block' : 'none';
+
+  const { data: marcas } = await sb.from('marcas').select('*').order('nome');
+  allMarcas = marcas || [];
+  renderMarcasList();
+
+  const { data: lotes } = await sb.from('lotes_garrafao').select('*, marcas(nome)').order('data_validade');
+  allLotes = lotes || [];
+  renderLotesList();
+}
+
+function renderMarcasList() {
+  const el = document.getElementById('marcas-list');
+  if (!allMarcas.length) { el.innerHTML = '<div class="empty-state">Nenhuma marca cadastrada</div>'; return; }
+  const podeEditar = currentUserRole === 'administrador';
+  el.innerHTML = allMarcas.map(m => `
+    <div class="list-item">
+      <div class="item-info">
+        <div class="item-name">${m.nome}${m.ativo ? '' : ' <span class="badge badge-red">inativa</span>'}</div>
+        <div class="item-detail">${fmtMoeda(m.preco_venda_atual)} / garrafão</div>
+      </div>
+      ${podeEditar ? `<button class="btn btn-outline btn-sm" onclick="abrirEditarMarca('${m.id}')">Editar</button>` : ''}
+    </div>
+  `).join('');
+}
+
+function abrirNovaMarca() {
+  if (currentUserRole !== 'administrador') { toast('Só o administrador pode cadastrar marcas', true); return; }
+  document.getElementById('marca-modal-title').textContent = 'Nova Marca';
+  document.getElementById('marca-id').value = '';
+  document.getElementById('marca-nome').value = '';
+  document.getElementById('marca-preco').value = '';
+  openModal('modal-marca');
+}
+
+function abrirEditarMarca(id) {
+  const m = allMarcas.find(x => x.id === id);
+  if (!m) return;
+  document.getElementById('marca-modal-title').textContent = 'Editar Marca';
+  document.getElementById('marca-id').value = m.id;
+  document.getElementById('marca-nome').value = m.nome;
+  document.getElementById('marca-preco').value = m.preco_venda_atual;
+  openModal('modal-marca');
+}
+
+async function salvarMarca() {
+  const id = document.getElementById('marca-id').value;
+  const nome = document.getElementById('marca-nome').value.trim();
+  const preco = parseFloat(document.getElementById('marca-preco').value || 0);
+  if (!nome) { toast('Informe o nome da marca', true); return; }
+
+  const payload = { nome, preco_venda_atual: preco };
+  const { error } = id
+    ? await sb.from('marcas').update(payload).eq('id', id)
+    : await sb.from('marcas').insert(payload);
+
+  if (error) { toast('Erro ao salvar marca: ' + error.message, true); return; }
+  closeModal('modal-marca');
+  toast('Marca salva!');
+  loadEstoque();
+}
+
+// ============================================================
+// ESTOQUE: LOTES DE GARRAFÃO
+// ============================================================
+function diasParaVencer(dataValidade) {
+  const hoje = new Date(); hoje.setHours(0,0,0,0);
+  const val = new Date(dataValidade + 'T00:00:00');
+  return Math.round((val - hoje) / (1000 * 60 * 60 * 24));
+}
+
+function badgeValidade(dataValidade) {
+  const dias = diasParaVencer(dataValidade);
+  if (dias < 0)   return `<span class="badge badge-red">Vencido</span>`;
+  if (dias <= 90) return `<span class="badge badge-yellow">Vence em ${dias}d</span>`;
+  return `<span class="badge badge-green">OK</span>`;
+}
+
+function renderLotesList() {
+  const el = document.getElementById('lotes-list');
+  if (!allLotes.length) { el.innerHTML = '<div class="empty-state">Nenhum lote cadastrado</div>'; return; }
+  el.innerHTML = allLotes.map(l => `
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">${l.marcas ? l.marcas.nome : '—'}</div>
+          <div class="card-sub">Fabricado em ${fmtData(l.data_fabricacao)} · Vence em ${fmtData(l.data_validade)}</div>
+        </div>
+        ${badgeValidade(l.data_validade)}
+      </div>
+      <div style="display:flex;gap:16px">
+        <div><div class="item-value">${l.qtd_cheios}</div><div class="item-detail">cheios</div></div>
+        <div><div class="item-value">${l.qtd_vazios}</div><div class="item-detail">vazios</div></div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function preencherSelectLotes(selectEl, { somenteComCheios = false } = {}) {
+  const lotes = somenteComCheios ? allLotes.filter(l => l.qtd_cheios > 0) : allLotes;
+  selectEl.innerHTML = lotes.map(l =>
+    `<option value="${l.id}">${l.marcas ? l.marcas.nome : '—'} · val. ${fmtData(l.data_validade)} (${l.qtd_cheios} cheios / ${l.qtd_vazios} vazios)</option>`
+  ).join('') || '<option value="">Nenhum lote disponível</option>';
+}
+
+function abrirNovoLote() {
+  const sel = document.getElementById('lote-marca');
+  sel.innerHTML = allMarcas.filter(m => m.ativo).map(m => `<option value="${m.id}">${m.nome}</option>`).join('');
+  document.getElementById('lote-data-fabricacao').value = new Date().toISOString().slice(0, 10);
+  document.getElementById('lote-qtd-cheios').value = '';
+  openModal('modal-lote');
+}
+
+async function salvarLote() {
+  const marca_id = document.getElementById('lote-marca').value;
+  const data_fabricacao = document.getElementById('lote-data-fabricacao').value;
+  const qtd_cheios = parseInt(document.getElementById('lote-qtd-cheios').value || 0, 10);
+  if (!marca_id || !data_fabricacao) { toast('Preencha marca e data de fabricação', true); return; }
+
+  const { data: lote, error } = await sb.from('lotes_garrafao')
+    .insert({ marca_id, data_fabricacao, qtd_cheios })
+    .select().single();
+  if (error) { toast('Erro ao criar lote: ' + error.message, true); return; }
+
+  await sb.from('movimentos_estoque').insert({
+    lote_id: lote.id, tipo: 'entrada_fabrica', quantidade: qtd_cheios, criado_por: currentUserId
+  });
+
+  closeModal('modal-lote');
+  toast('Lote criado!');
+  loadEstoque();
+}
+
+function abrirAvaria() {
+  preencherSelectLotes(document.getElementById('avaria-lote'));
+  document.getElementById('avaria-tipo').value = 'cheio';
+  document.getElementById('avaria-quantidade').value = '';
+  document.getElementById('avaria-motivo').value = '';
+  openModal('modal-avaria');
+}
+
+async function salvarAvaria() {
+  const lote_id = document.getElementById('avaria-lote').value;
+  const tipo = document.getElementById('avaria-tipo').value;
+  const quantidade = parseInt(document.getElementById('avaria-quantidade').value || 0, 10);
+  const motivo = document.getElementById('avaria-motivo').value.trim();
+  if (!lote_id || quantidade <= 0) { toast('Selecione o lote e a quantidade', true); return; }
+
+  const lote = allLotes.find(l => l.id === lote_id);
+  const campo = tipo === 'vazio' ? 'qtd_vazios' : 'qtd_cheios';
+  const novaQtd = Math.max(0, (lote ? lote[campo] : 0) - quantidade);
+
+  const { error: errUpd } = await sb.from('lotes_garrafao').update({ [campo]: novaQtd }).eq('id', lote_id);
+  if (errUpd) { toast('Erro ao atualizar estoque: ' + errUpd.message, true); return; }
+
+  await sb.from('avarias').insert({ lote_id, tipo, quantidade, motivo, criado_por: currentUserId });
+  await sb.from('movimentos_estoque').insert({
+    lote_id, tipo: 'avaria', quantidade: -quantidade, observacao: motivo, criado_por: currentUserId
+  });
+
+  closeModal('modal-avaria');
+  toast('Avaria registrada!');
+  loadEstoque();
+}
+
+// ============================================================
+// CLIENTES
+// ============================================================
+async function loadClientes() {
+  const { data } = await sb.from('clientes').select('*').order('nome');
+  allClientes = data || [];
+  renderClientesList(allClientes);
+}
+
+function filterClientes() {
+  const termo = document.getElementById('busca-cliente').value.trim().toLowerCase();
+  if (!termo) { renderClientesList(allClientes); return; }
+  renderClientesList(allClientes.filter(c =>
+    c.nome.toLowerCase().includes(termo) || (c.telefone || '').includes(termo)
+  ));
+}
+
+function renderClientesList(lista) {
+  const el = document.getElementById('clientes-list');
+  if (!lista.length) { el.innerHTML = '<div class="empty-state">Nenhum cliente encontrado</div>'; return; }
+  el.innerHTML = lista.map(c => `
+    <div class="list-item">
+      <div class="avatar">${c.nome.slice(0, 2).toUpperCase()}</div>
+      <div class="item-info" style="cursor:pointer" onclick="abrirExtratoCliente('${c.id}')">
+        <div class="item-name">${c.nome}</div>
+        <div class="item-detail">${c.telefone || 'sem telefone'}${c.saldo_comodato_garrafoes > 0 ? ` · ${c.saldo_comodato_garrafoes} vasilhame(s) em comodato` : ''}</div>
+      </div>
+      <div style="text-align:right">
+        <div class="${c.saldo_fiado > 0 ? 'saldo-negative' : 'saldo-positive'}" style="font-size:0.85rem">${fmtMoeda(c.saldo_fiado)}</div>
+        <button class="btn btn-outline btn-sm" style="margin-top:4px" onclick="abrirEditarCliente('${c.id}')">Editar</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function aplicarRestricaoLimiteFiado() {
+  document.getElementById('cliente-limite-fiado').disabled = currentUserRole !== 'administrador';
+}
+
+function abrirNovoCliente() {
+  document.getElementById('cliente-modal-title').textContent = 'Novo Cliente';
+  document.getElementById('cliente-id').value = '';
+  document.getElementById('cliente-tipo').value = 'pf';
+  document.getElementById('cliente-nome').value = '';
+  document.getElementById('cliente-telefone').value = '';
+  document.getElementById('cliente-endereco').value = '';
+  document.getElementById('cliente-limite-fiado').value = '0';
+  document.getElementById('cliente-observacao').value = '';
+  aplicarRestricaoLimiteFiado();
+  openModal('modal-cliente');
+}
+
+function abrirEditarCliente(id) {
+  const c = allClientes.find(x => x.id === id);
+  if (!c) return;
+  document.getElementById('cliente-modal-title').textContent = 'Editar Cliente';
+  document.getElementById('cliente-id').value = c.id;
+  document.getElementById('cliente-tipo').value = c.tipo;
+  document.getElementById('cliente-nome').value = c.nome;
+  document.getElementById('cliente-telefone').value = c.telefone || '';
+  document.getElementById('cliente-endereco').value = c.endereco || '';
+  document.getElementById('cliente-limite-fiado').value = c.limite_fiado;
+  document.getElementById('cliente-observacao').value = c.observacao || '';
+  aplicarRestricaoLimiteFiado();
+  openModal('modal-cliente');
+}
+
+async function salvarCliente() {
+  const id = document.getElementById('cliente-id').value;
+  const nome = document.getElementById('cliente-nome').value.trim();
+  if (!nome) { toast('Informe o nome do cliente', true); return; }
+
+  const payload = {
+    tipo: document.getElementById('cliente-tipo').value,
+    nome,
+    telefone: document.getElementById('cliente-telefone').value.trim(),
+    endereco: document.getElementById('cliente-endereco').value.trim(),
+    observacao: document.getElementById('cliente-observacao').value.trim(),
+  };
+  if (currentUserRole === 'administrador') {
+    payload.limite_fiado = parseFloat(document.getElementById('cliente-limite-fiado').value || 0);
+  }
+
+  const { error } = id
+    ? await sb.from('clientes').update(payload).eq('id', id)
+    : await sb.from('clientes').insert(payload);
+
+  if (error) { toast('Erro ao salvar cliente: ' + error.message, true); return; }
+  closeModal('modal-cliente');
+  toast('Cliente salvo!');
+  loadClientes();
+}
+
+// ============================================================
+// EXTRATO DO CLIENTE (fiado + comodato)
+// ============================================================
+async function abrirExtratoCliente(id) {
+  const c = allClientes.find(x => x.id === id);
+  if (!c) return;
+
+  document.getElementById('extrato-cliente-nome').textContent = c.nome;
+  document.getElementById('extrato-cliente-id').value = c.id;
+  document.getElementById('extrato-saldo-fiado').textContent = fmtMoeda(c.saldo_fiado);
+  document.getElementById('extrato-saldo-fiado').className = 'stat-val ' + (c.saldo_fiado > 0 ? 'text-red' : 'text-green');
+  document.getElementById('extrato-saldo-comodato').textContent = c.saldo_comodato_garrafoes;
+
+  document.getElementById('pagamento-valor').value = '';
+  document.getElementById('devolucao-quantidade').value = '';
+  preencherSelectLotes(document.getElementById('devolucao-lote'));
+
+  const [{ data: pagamentos }, { data: devolucoes }] = await Promise.all([
+    sb.from('pagamentos_fiado').select('*').eq('cliente_id', id).order('data', { ascending: false }),
+    sb.from('devolucoes_comodato').select('*, lotes_garrafao(data_validade, marcas(nome))').eq('cliente_id', id).order('data', { ascending: false }),
+  ]);
+
+  const histPag = (pagamentos || []).map(p => `
+    <div class="list-item"><div class="item-info"><div class="item-name">Pagamento (${p.forma})</div><div class="item-detail">${fmtData(p.data)}</div></div><div class="item-value text-green">${fmtMoeda(p.valor)}</div></div>
+  `);
+  const histDev = (devolucoes || []).map(d => `
+    <div class="list-item"><div class="item-info"><div class="item-name">Devolução de vasilhame</div><div class="item-detail">${fmtData(d.data)} · ${d.lotes_garrafao ? d.lotes_garrafao.marcas.nome : ''}</div></div><div class="item-value">${d.quantidade}x</div></div>
+  `);
+  const hist = [...histPag, ...histDev];
+  document.getElementById('extrato-historico').innerHTML = hist.length ? hist.join('') : '<div class="empty-state">Sem histórico ainda</div>';
+
+  openModal('modal-extrato');
+}
+
+async function registrarPagamentoFiado() {
+  const cliente_id = document.getElementById('extrato-cliente-id').value;
+  const valor = parseFloat(document.getElementById('pagamento-valor').value || 0);
+  const forma = document.getElementById('pagamento-forma').value;
+  if (valor <= 0) { toast('Informe um valor válido', true); return; }
+
+  const c = allClientes.find(x => x.id === cliente_id);
+  const { error } = await sb.from('pagamentos_fiado').insert({ cliente_id, valor, forma, criado_por: currentUserId });
+  if (error) { toast('Erro ao registrar pagamento: ' + error.message, true); return; }
+
+  const novoSaldo = Math.max(0, (c ? c.saldo_fiado : 0) - valor);
+  await sb.from('clientes').update({ saldo_fiado: novoSaldo }).eq('id', cliente_id);
+
+  toast('Pagamento registrado!');
+  await loadClientes();
+  abrirExtratoCliente(cliente_id);
+}
+
+async function registrarDevolucaoComodato() {
+  const cliente_id = document.getElementById('extrato-cliente-id').value;
+  const lote_id = document.getElementById('devolucao-lote').value;
+  const quantidade = parseInt(document.getElementById('devolucao-quantidade').value || 0, 10);
+  if (!lote_id || quantidade <= 0) { toast('Selecione o lote e a quantidade', true); return; }
+
+  const c = allClientes.find(x => x.id === cliente_id);
+  const lote = allLotes.find(x => x.id === lote_id);
+
+  const { error } = await sb.from('devolucoes_comodato').insert({ cliente_id, lote_id, quantidade, criado_por: currentUserId });
+  if (error) { toast('Erro ao registrar devolução: ' + error.message, true); return; }
+
+  const novoSaldoComodato = Math.max(0, (c ? c.saldo_comodato_garrafoes : 0) - quantidade);
+  await sb.from('clientes').update({ saldo_comodato_garrafoes: novoSaldoComodato }).eq('id', cliente_id);
+  await sb.from('lotes_garrafao').update({ qtd_vazios: (lote ? lote.qtd_vazios : 0) + quantidade }).eq('id', lote_id);
+  await sb.from('movimentos_estoque').insert({ lote_id, tipo: 'retorno_vazio', quantidade, criado_por: currentUserId });
+
+  toast('Devolução registrada!');
+  await loadClientes();
+  await loadEstoque();
+  abrirExtratoCliente(cliente_id);
+}
 
 // ============================================================
 // AUTH
@@ -426,6 +936,7 @@ document.getElementById('login-password').addEventListener('keydown', e => {
 async function loadCurrentUserRole() {
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return null;
+  currentUserId = user.id;
   const { data, error } = await sb.from('usuarios').select('role,nome').eq('id', user.id).single();
   if (error || !data) return null;
   return data;
