@@ -281,7 +281,7 @@ select.form-control option { background: var(--surface); }
   <div class="stats" id="dash-stats">
     <div class="stat-card"><div class="stat-val" id="dash-vendas-hoje">—</div><div class="stat-lbl">Vendas Hoje</div></div>
     <div class="stat-card"><div class="stat-val text-green" id="dash-pagamentos-efetuados">—</div><div class="stat-lbl">Pagamentos Efetuados</div></div>
-    <div class="stat-card"><div class="stat-val text-red" id="dash-pagamentos-pendentes">—</div><div class="stat-lbl">Pagamentos Pendentes</div></div>
+    <div class="stat-card" style="cursor:pointer" onclick="irParaPedidosPagamentoPendente()"><div class="stat-val text-red" id="dash-pagamentos-pendentes">—</div><div class="stat-lbl">Pagamentos Pendentes</div></div>
     <div class="stat-card"><div class="stat-val" id="dash-entregas-total">—</div><div class="stat-lbl">Qtd. de Entregas</div></div>
     <div class="stat-card"><div class="stat-val text-green" id="dash-entregas-efetuadas">—</div><div class="stat-lbl">Entregas Efetuadas</div></div>
     <div class="stat-card"><div class="stat-val text-red" id="dash-entregas-pendentes">—</div><div class="stat-lbl">Entregas Pendentes</div></div>
@@ -307,7 +307,8 @@ select.form-control option { background: var(--surface); }
 <div class="page" id="page-pedidos">
   <div class="tabs">
     <button class="tab-btn active" id="tab-pedidos-todos" onclick="filterPedidos('todos')">Todos</button>
-    <button class="tab-btn" id="tab-pedidos-pendente" onclick="filterPedidos('pendente')">Pendentes</button>
+    <button class="tab-btn" id="tab-pedidos-pendente" onclick="filterPedidos('pendente')">Entrega Pendente</button>
+    <button class="tab-btn" id="tab-pedidos-pagamento_pendente" onclick="filterPedidos('pagamento_pendente')">Pagamento Pendente</button>
     <button class="tab-btn" id="tab-pedidos-entregue" onclick="filterPedidos('entregue')">Entregues</button>
     <button class="tab-btn" id="tab-pedidos-cancelada" onclick="filterPedidos('cancelada')">Cancelados</button>
   </div>
@@ -906,7 +907,12 @@ function renderLotesList() {
     if (a.ano_validade !== b.ano_validade) return a.ano_validade - b.ano_validade;
     return new Date(a.data_chegada) - new Date(b.data_chegada);
   });
-  el.innerHTML = lotesOrdenados.map(l => `
+  el.innerHTML = lotesOrdenados.map(l => {
+    const autoGerado = (l.observacao || '').toLowerCase().includes('automaticamente');
+    const badgeSemCheios = l.qtd_cheios === 0
+      ? `<span class="badge badge-red">${autoGerado ? 'Só Vazios (Auto)' : 'Esgotado'}</span>`
+      : '';
+    return `
     <div class="card${l.qtd_cheios === 0 ? ' card-esgotado' : ''}">
       <div class="card-header">
         <div>
@@ -916,15 +922,17 @@ function renderLotesList() {
         </div>
         <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">
           ${badgeValidadeAno(l.ano_validade)}
-          ${l.qtd_cheios === 0 ? '<span class="badge badge-red">Esgotado</span>' : ''}
+          ${badgeSemCheios}
         </div>
       </div>
       <div style="display:flex;gap:16px">
         <div><div class="item-value">${l.qtd_cheios}</div><div class="item-detail">cheios</div></div>
         <div><div class="item-value">${l.qtd_vazios}</div><div class="item-detail">vazios</div></div>
       </div>
+      ${l.observacao ? `<div class="card-sub" style="margin-top:8px">${l.observacao}</div>` : ''}
     </div>
-  `).join('');
+  `;
+  }).join('');
 }
 
 function preencherSelectLotes(selectEl, { somenteComCheios = false } = {}) {
@@ -1625,10 +1633,16 @@ async function loadPedidos() {
 
 function filterPedidos(tipo) {
   currentPedidoFilter = tipo;
-  ['todos', 'pendente', 'entregue', 'cancelada'].forEach(t =>
+  ['todos', 'pendente', 'pagamento_pendente', 'entregue', 'cancelada'].forEach(t =>
     document.getElementById('tab-pedidos-' + t).classList.toggle('active', t === tipo)
   );
   renderPedidosList();
+}
+
+async function irParaPedidosPagamentoPendente() {
+  goPage('pedidos');
+  await loadPedidos();
+  filterPedidos('pagamento_pendente');
 }
 
 function badgePagamento(forma) {
@@ -1652,7 +1666,14 @@ function badgeStatusEntrega(status) {
 
 function renderPedidosList() {
   const el = document.getElementById('pedidos-list');
-  const lista = currentPedidoFilter === 'todos' ? allPedidos : allPedidos.filter(p => p.status_entrega === currentPedidoFilter);
+  let lista;
+  if (currentPedidoFilter === 'todos') {
+    lista = allPedidos;
+  } else if (currentPedidoFilter === 'pagamento_pendente') {
+    lista = allPedidos.filter(p => p.status !== 'cancelado' && (pagamentosPorPedido[p.id] || 0) < p.total);
+  } else {
+    lista = allPedidos.filter(p => p.status_entrega === currentPedidoFilter);
+  }
   if (!lista.length) { el.innerHTML = '<div class="empty-state">Nenhum pedido encontrado</div>'; return; }
   el.innerHTML = lista.map(p => `
     <div class="card" style="cursor:pointer" onclick="abrirPedidoDetalhe('${p.id}')">
@@ -1873,12 +1894,14 @@ async function marcarEntregaConcluida(id) {
 }
 
 // ============================================================
-// CONFIRMAÇÃO DE ENTREGA: pergunta o ano do vasilhame devolvido (só
-// pra itens de água com troca) antes de marcar o pedido como entregue
+// CONFIRMAÇÃO DE ENTREGA: divide o vasilhame devolvido por ano de
+// validade (só pra itens de água com troca) antes de marcar entregue
 // ============================================================
+let ceItemSeq = 0;
+
 async function iniciarConfirmacaoEntrega(pedidoId, onConcluido) {
   const { data: itens } = await sb.from('itens_pedido')
-    .select('id, marcas(nome), lotes_garrafao(ano_validade)')
+    .select('id, marca_id, quantidade, marcas(nome), lotes_garrafao(ano_validade)')
     .eq('pedido_id', pedidoId).eq('tipo_vasilhame', 'troca').not('lote_id', 'is', null);
 
   if (!itens || !itens.length) {
@@ -1888,26 +1911,107 @@ async function iniciarConfirmacaoEntrega(pedidoId, onConcluido) {
 
   pendingEntregaPedidoId = pedidoId;
   pendingEntregaOnDone = onConcluido;
-  document.getElementById('ce-itens-container').innerHTML = itens.map(it => `
-    <div class="form-group">
-      <label class="form-label">${it.marcas ? it.marcas.nome : ''} (vendido val. ${it.lotes_garrafao ? it.lotes_garrafao.ano_validade : '—'})</label>
-      <input type="hidden" class="ce-item-id" value="${it.id}">
-      <input class="form-control ce-item-ano" type="number" inputmode="numeric" min="2000" max="2100" maxlength="4" value="${it.lotes_garrafao ? it.lotes_garrafao.ano_validade : ''}">
-    </div>
-  `).join('');
+  ceItemSeq = 0;
+  document.getElementById('ce-itens-container').innerHTML = itens.map(ceItemCardHTML).join('');
+  document.querySelectorAll('.ce-item-card').forEach(card => atualizarTotalCE(parseInt(card.dataset.idx, 10)));
   openModal('modal-confirmar-entrega');
 }
 
+function ceItemCardHTML(it) {
+  const idx = ceItemSeq++;
+  const anoVendido = it.lotes_garrafao ? it.lotes_garrafao.ano_validade : '';
+  return `
+    <div class="card ce-item-card" data-idx="${idx}" data-item-id="${it.id}" data-marca-id="${it.marca_id}" data-marca-nome="${it.marcas ? it.marcas.nome : ''}" data-quantidade="${it.quantidade}" style="margin-bottom:12px">
+      <div class="card-title" style="margin-bottom:4px">${it.marcas ? it.marcas.nome : ''}</div>
+      <div class="card-sub" style="margin-bottom:8px">Vendido: ${it.quantidade}x · val. ${anoVendido}</div>
+      <div class="ce-splits-container">${ceSplitRowHTML(idx, anoVendido, it.quantidade)}</div>
+      <button class="btn btn-outline btn-sm btn-block" style="margin-top:6px" onclick="adicionarSplitCE(${idx})">+ Adicionar Outro Ano</button>
+      <div class="card-sub ce-total-info" style="margin-top:8px"></div>
+    </div>
+  `;
+}
+
+function ceSplitRowHTML(itemIdx, ano, quantidade) {
+  return `
+    <div class="ce-split-row" style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px;margin-bottom:6px;align-items:center">
+      <input class="form-control ce-split-ano" type="number" inputmode="numeric" min="2000" max="2100" maxlength="4" placeholder="Ano" value="${ano}" onchange="atualizarTotalCE(${itemIdx})">
+      <input class="form-control ce-split-qtd" type="number" min="1" placeholder="Qtd" value="${quantidade}" onchange="atualizarTotalCE(${itemIdx})">
+      <button class="btn btn-outline btn-sm" onclick="removerSplitCE(${itemIdx}, this)">×</button>
+    </div>
+  `;
+}
+
+function adicionarSplitCE(itemIdx) {
+  const card = document.querySelector(`.ce-item-card[data-idx="${itemIdx}"]`);
+  card.querySelector('.ce-splits-container').insertAdjacentHTML('beforeend', ceSplitRowHTML(itemIdx, '', ''));
+  atualizarTotalCE(itemIdx);
+}
+
+function removerSplitCE(itemIdx, btn) {
+  const container = btn.closest('.ce-splits-container');
+  if (container.children.length <= 1) { toast('Pelo menos uma divisão é necessária', true); return; }
+  btn.closest('.ce-split-row').remove();
+  atualizarTotalCE(itemIdx);
+}
+
+function atualizarTotalCE(itemIdx) {
+  const card = document.querySelector(`.ce-item-card[data-idx="${itemIdx}"]`);
+  const esperado = parseInt(card.dataset.quantidade, 10);
+  let total = 0;
+  card.querySelectorAll('.ce-split-qtd').forEach(inp => total += parseInt(inp.value || 0, 10));
+  const infoEl = card.querySelector('.ce-total-info');
+  infoEl.innerHTML = total === esperado
+    ? `<span class="text-green">Total informado: ${total} de ${esperado}</span>`
+    : `<span class="text-red">Total informado: ${total} de ${esperado} — precisa bater com a quantidade vendida</span>`;
+}
+
 async function confirmarAnoVazioEEntregar() {
-  const grupos = [...document.querySelectorAll('#ce-itens-container .form-group')];
-  for (const grupo of grupos) {
-    const itemId = grupo.querySelector('.ce-item-id').value;
-    const ano = parseInt(grupo.querySelector('.ce-item-ano').value || 0, 10);
-    if (String(ano).length === 4) {
-      const { error } = await sb.from('itens_pedido').update({ ano_validade_vazio: ano }).eq('id', itemId);
-      if (error) { toast('Erro ao salvar ano do vasilhame: ' + error.message, true); return; }
+  const cards = [...document.querySelectorAll('.ce-item-card')];
+  const todosOsSplits = [];
+  const avisosLoteNovo = [];
+
+  // busca direto no banco (não usa o cache allLotes, que pode estar vazio
+  // na sessão do entregador) pra saber quais lotes já existem de fato
+  const marcaIds = [...new Set(cards.map(c => c.dataset.marcaId))];
+  const { data: lotesAtuais } = await sb.from('lotes_garrafao').select('marca_id, ano_validade').in('marca_id', marcaIds);
+
+  for (const card of cards) {
+    const itemId = card.dataset.itemId;
+    const marcaId = card.dataset.marcaId;
+    const marcaNome = card.dataset.marcaNome;
+    const esperado = parseInt(card.dataset.quantidade, 10);
+    const splits = [...card.querySelectorAll('.ce-split-row')].map(row => ({
+      ano: parseInt(row.querySelector('.ce-split-ano').value || 0, 10),
+      quantidade: parseInt(row.querySelector('.ce-split-qtd').value || 0, 10),
+    })).filter(s => s.quantidade > 0);
+
+    if (!splits.length) { toast(`Informe ao menos uma divisão pra ${marcaNome}`, true); return; }
+    const totalInformado = splits.reduce((s, x) => s + x.quantidade, 0);
+    if (totalInformado !== esperado) {
+      toast(`A soma devolvida de ${marcaNome} precisa ser ${esperado} (está ${totalInformado})`, true);
+      return;
+    }
+    for (const s of splits) {
+      if (String(s.ano).length !== 4) { toast(`Informe um ano de validade válido pra ${marcaNome}`, true); return; }
+      if (!(lotesAtuais || []).some(l => l.marca_id === marcaId && l.ano_validade === s.ano)) {
+        avisosLoteNovo.push(`${marcaNome} · validade ${s.ano} (${s.quantidade}x)`);
+      }
+      todosOsSplits.push({ item_pedido_id: itemId, ano_validade: s.ano, quantidade: s.quantidade });
     }
   }
+
+  if (avisosLoteNovo.length) {
+    const prosseguir = confirm(
+      `Estes lotes ainda não existem e serão criados automaticamente (sem garrafões cheios, só os vazios devolvidos):\n\n${avisosLoteNovo.join('\n')}\n\nContinuar?`
+    );
+    if (!prosseguir) return;
+  }
+
+  for (const s of todosOsSplits) {
+    const { error } = await sb.from('vazios_devolvidos_pedido').insert(s);
+    if (error) { toast('Erro ao salvar divisão de vasilhame: ' + error.message, true); return; }
+  }
+
   closeModal('modal-confirmar-entrega');
   await efetivarEntrega(pendingEntregaPedidoId, pendingEntregaOnDone);
 }

@@ -141,7 +141,6 @@ CREATE TABLE IF NOT EXISTS itens_pedido (
   preco_unitario   NUMERIC(10,2) NOT NULL, -- preço já com desconto aplicado
   tipo_vasilhame   TEXT NOT NULL DEFAULT 'troca' CHECK (tipo_vasilhame IN ('troca','venda','comodato')),
   preco_vasilhame  NUMERIC(10,2) NOT NULL DEFAULT 0,
-  ano_validade_vazio INTEGER, -- só pra troca de água: ano do vasilhame que o cliente devolveu (pode ser diferente do ano vendido)
   criado_em        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -232,6 +231,21 @@ CREATE TABLE IF NOT EXISTS descontos_cliente (
 CREATE INDEX IF NOT EXISTS idx_descontos_cliente ON descontos_cliente(cliente_id);
 
 -- ------------------------------------------------------------
+-- 12b. VAZIOS_DEVOLVIDOS_PEDIDO (divide o vasilhame devolvido de um item
+-- de troca por ano de validade — um pedido de 50 garrafões pode voltar
+-- com 25 vazios de validade 2028 e 25 de 2029, por exemplo)
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS vazios_devolvidos_pedido (
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  item_pedido_id UUID NOT NULL REFERENCES itens_pedido(id) ON DELETE CASCADE,
+  ano_validade   INTEGER NOT NULL CHECK (ano_validade BETWEEN 2000 AND 2100),
+  quantidade     INTEGER NOT NULL CHECK (quantidade > 0),
+  criado_em      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_vazios_devolvidos_item ON vazios_devolvidos_pedido(item_pedido_id);
+
+-- ------------------------------------------------------------
 -- 13. VIEWS
 -- ------------------------------------------------------------
 CREATE OR REPLACE VIEW vw_caixa_dia WITH (security_invoker = true) AS
@@ -294,32 +308,6 @@ CREATE TRIGGER trg_guard_clientes_caixa
   BEFORE UPDATE ON clientes
   FOR EACH ROW EXECUTE FUNCTION public.guard_clientes_caixa();
 
--- entregador só pode alterar ano_validade_vazio em itens_pedido (informa
--- o ano do vasilhame devolvido na confirmação da entrega)
-CREATE OR REPLACE FUNCTION public.guard_itens_pedido_entregador()
-RETURNS TRIGGER LANGUAGE plpgsql AS $$
-BEGIN
-  IF public.current_role() = 'entregador' THEN
-    IF NEW.pedido_id        IS DISTINCT FROM OLD.pedido_id
-       OR NEW.lote_id          IS DISTINCT FROM OLD.lote_id
-       OR NEW.marca_id         IS DISTINCT FROM OLD.marca_id
-       OR NEW.quantidade       IS DISTINCT FROM OLD.quantidade
-       OR NEW.preco_base       IS DISTINCT FROM OLD.preco_base
-       OR NEW.preco_unitario   IS DISTINCT FROM OLD.preco_unitario
-       OR NEW.tipo_vasilhame   IS DISTINCT FROM OLD.tipo_vasilhame
-       OR NEW.preco_vasilhame  IS DISTINCT FROM OLD.preco_vasilhame THEN
-      RAISE EXCEPTION 'entregador só pode informar o ano de validade do vasilhame devolvido';
-    END IF;
-  END IF;
-  RETURN NEW;
-END;
-$$;
-
-DROP TRIGGER IF EXISTS trg_guard_itens_pedido_entregador ON itens_pedido;
-CREATE TRIGGER trg_guard_itens_pedido_entregador
-  BEFORE UPDATE ON itens_pedido
-  FOR EACH ROW EXECUTE FUNCTION public.guard_itens_pedido_entregador();
-
 -- ============================================================
 -- PROCESSAMENTO DA ENTREGA (SECURITY DEFINER): roda quando status_entrega
 -- passa de 'pendente' para 'entregue', seja pelo administrador/caixa ou
@@ -334,8 +322,9 @@ CREATE OR REPLACE FUNCTION public.processar_entrega_pedido()
 RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
   item RECORD;
+  split RECORD;
   v_lote_destino_id UUID;
-  v_ano_destino INTEGER;
+  v_tem_splits BOOLEAN;
 BEGIN
   FOR item IN SELECT * FROM itens_pedido WHERE pedido_id = NEW.id LOOP
 
@@ -346,18 +335,29 @@ BEGIN
         VALUES (item.lote_id, 'saida_venda', -item.quantidade, NEW.id);
 
       IF item.tipo_vasilhame = 'troca' THEN
-        v_ano_destino := COALESCE(item.ano_validade_vazio, (SELECT ano_validade FROM lotes_garrafao WHERE id = item.lote_id));
-        SELECT id INTO v_lote_destino_id FROM lotes_garrafao
-          WHERE marca_id = item.marca_id AND ano_validade = v_ano_destino
-          ORDER BY data_chegada DESC LIMIT 1;
-        IF v_lote_destino_id IS NULL THEN
-          INSERT INTO lotes_garrafao (marca_id, ano_validade, qtd_cheios, qtd_vazios, observacao)
-            VALUES (item.marca_id, v_ano_destino, 0, 0, 'Lote criado automaticamente ao registrar vasilhame devolvido')
-            RETURNING id INTO v_lote_destino_id;
+        SELECT EXISTS (SELECT 1 FROM vazios_devolvidos_pedido WHERE item_pedido_id = item.id) INTO v_tem_splits;
+
+        IF v_tem_splits THEN
+          -- vasilhame devolvido dividido por ano (pode ser diferente do ano vendido)
+          FOR split IN SELECT * FROM vazios_devolvidos_pedido WHERE item_pedido_id = item.id LOOP
+            SELECT id INTO v_lote_destino_id FROM lotes_garrafao
+              WHERE marca_id = item.marca_id AND ano_validade = split.ano_validade
+              ORDER BY data_chegada DESC LIMIT 1;
+            IF v_lote_destino_id IS NULL THEN
+              INSERT INTO lotes_garrafao (marca_id, ano_validade, qtd_cheios, qtd_vazios, observacao)
+                VALUES (item.marca_id, split.ano_validade, 0, 0, 'Lote criado automaticamente ao registrar vasilhame devolvido')
+                RETURNING id INTO v_lote_destino_id;
+            END IF;
+            UPDATE lotes_garrafao SET qtd_vazios = qtd_vazios + split.quantidade WHERE id = v_lote_destino_id;
+            INSERT INTO movimentos_estoque (lote_id, tipo, quantidade, referencia_pedido_id)
+              VALUES (v_lote_destino_id, 'retorno_vazio', split.quantidade, NEW.id);
+          END LOOP;
+        ELSE
+          -- sem confirmação de ano: credita tudo de volta no lote de origem
+          UPDATE lotes_garrafao SET qtd_vazios = qtd_vazios + item.quantidade WHERE id = item.lote_id;
+          INSERT INTO movimentos_estoque (lote_id, tipo, quantidade, referencia_pedido_id)
+            VALUES (item.lote_id, 'retorno_vazio', item.quantidade, NEW.id);
         END IF;
-        UPDATE lotes_garrafao SET qtd_vazios = qtd_vazios + item.quantidade WHERE id = v_lote_destino_id;
-        INSERT INTO movimentos_estoque (lote_id, tipo, quantidade, referencia_pedido_id)
-          VALUES (v_lote_destino_id, 'retorno_vazio', item.quantidade, NEW.id);
       END IF;
     ELSE
       -- GÁS: contador simples por marca, sem validade
@@ -603,29 +603,37 @@ CREATE POLICY "itens_pedido_entregador_select" ON itens_pedido FOR SELECT
     )
   );
 
--- entregador também pode atualizar o item (só o ano_validade_vazio é
--- liberado de fato — guarda de coluna abaixo bloqueia o resto), pra
--- informar o ano do vasilhame devolvido na hora da entrega.
-DROP POLICY IF EXISTS "itens_pedido_entregador_update" ON itens_pedido;
-CREATE POLICY "itens_pedido_entregador_update" ON itens_pedido FOR UPDATE
+-- vazios_devolvidos_pedido: administrador/caixa têm acesso total;
+-- entregador só insere/lê linhas dos itens dos pedidos de hoje
+-- atribuídos a ele (informa o ano do vasilhame devolvido na entrega).
+DROP POLICY IF EXISTS "vazios_devolvidos_admin_caixa_all" ON vazios_devolvidos_pedido;
+CREATE POLICY "vazios_devolvidos_admin_caixa_all" ON vazios_devolvidos_pedido FOR ALL
+  USING (public.current_role() IN ('administrador','caixa'))
+  WITH CHECK (public.current_role() IN ('administrador','caixa'));
+
+DROP POLICY IF EXISTS "vazios_devolvidos_entregador_select" ON vazios_devolvidos_pedido;
+CREATE POLICY "vazios_devolvidos_entregador_select" ON vazios_devolvidos_pedido FOR SELECT
   USING (
     public.current_role() = 'entregador'
     AND EXISTS (
-      SELECT 1 FROM pedidos p
-      WHERE p.id = itens_pedido.pedido_id
-        AND p.entregador_id = auth.uid()
-        AND p.data::date = CURRENT_DATE
+      SELECT 1 FROM itens_pedido ip JOIN pedidos p ON p.id = ip.pedido_id
+      WHERE ip.id = vazios_devolvidos_pedido.item_pedido_id
+        AND p.entregador_id = auth.uid() AND p.data::date = CURRENT_DATE
     )
-  )
+  );
+
+DROP POLICY IF EXISTS "vazios_devolvidos_entregador_insert" ON vazios_devolvidos_pedido;
+CREATE POLICY "vazios_devolvidos_entregador_insert" ON vazios_devolvidos_pedido FOR INSERT
   WITH CHECK (
     public.current_role() = 'entregador'
     AND EXISTS (
-      SELECT 1 FROM pedidos p
-      WHERE p.id = itens_pedido.pedido_id
-        AND p.entregador_id = auth.uid()
-        AND p.data::date = CURRENT_DATE
+      SELECT 1 FROM itens_pedido ip JOIN pedidos p ON p.id = ip.pedido_id
+      WHERE ip.id = vazios_devolvidos_pedido.item_pedido_id
+        AND p.entregador_id = auth.uid() AND p.data::date = CURRENT_DATE
     )
   );
+
+ALTER TABLE vazios_devolvidos_pedido ENABLE ROW LEVEL SECURITY;
 
 -- ============================================================
 -- SEED INICIAL
@@ -898,6 +906,45 @@ ON CONFLICT (chave) DO NOTHING;
 --   USING (public.current_role() IN ('administrador','caixa')) WITH CHECK (public.current_role() IN ('administrador','caixa'));
 -- CREATE POLICY "lotes_delete_admin_caixa" ON lotes_garrafao FOR DELETE
 --   USING (public.current_role() IN ('administrador','caixa'));
+
+-- ============================================================
+-- MIGRAÇÃO: vasilhame devolvido pode ser dividido por ano de validade
+-- (ex: 50 vendidos val. 2028, devolve 25 val. 2028 + 25 val. 2029).
+-- Substitui a coluna itens_pedido.ano_validade_vazio (rodar esse bloco
+-- inteiro de uma vez no SQL Editor)
+-- ============================================================
+-- CREATE TABLE IF NOT EXISTS vazios_devolvidos_pedido (
+--   id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+--   item_pedido_id UUID NOT NULL REFERENCES itens_pedido(id) ON DELETE CASCADE,
+--   ano_validade   INTEGER NOT NULL CHECK (ano_validade BETWEEN 2000 AND 2100),
+--   quantidade     INTEGER NOT NULL CHECK (quantidade > 0),
+--   criado_em      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+-- );
+-- CREATE INDEX IF NOT EXISTS idx_vazios_devolvidos_item ON vazios_devolvidos_pedido(item_pedido_id);
+-- ALTER TABLE vazios_devolvidos_pedido ENABLE ROW LEVEL SECURITY;
+--
+-- CREATE POLICY "vazios_devolvidos_admin_caixa_all" ON vazios_devolvidos_pedido FOR ALL
+--   USING (public.current_role() IN ('administrador','caixa'))
+--   WITH CHECK (public.current_role() IN ('administrador','caixa'));
+-- CREATE POLICY "vazios_devolvidos_entregador_select" ON vazios_devolvidos_pedido FOR SELECT
+--   USING (
+--     public.current_role() = 'entregador'
+--     AND EXISTS (SELECT 1 FROM itens_pedido ip JOIN pedidos p ON p.id = ip.pedido_id WHERE ip.id = vazios_devolvidos_pedido.item_pedido_id AND p.entregador_id = auth.uid() AND p.data::date = CURRENT_DATE)
+--   );
+-- CREATE POLICY "vazios_devolvidos_entregador_insert" ON vazios_devolvidos_pedido FOR INSERT
+--   WITH CHECK (
+--     public.current_role() = 'entregador'
+--     AND EXISTS (SELECT 1 FROM itens_pedido ip JOIN pedidos p ON p.id = ip.pedido_id WHERE ip.id = vazios_devolvidos_pedido.item_pedido_id AND p.entregador_id = auth.uid() AND p.data::date = CURRENT_DATE)
+--   );
+--
+-- DROP POLICY IF EXISTS "itens_pedido_entregador_update" ON itens_pedido;
+-- DROP TRIGGER IF EXISTS trg_guard_itens_pedido_entregador ON itens_pedido;
+-- ALTER TABLE itens_pedido DROP COLUMN IF EXISTS ano_validade_vazio;
+--
+-- (recriar a função public.processar_entrega_pedido() com o corpo novo,
+-- que lê vazios_devolvidos_pedido em vez de ano_validade_vazio — copie o
+-- bloco "PROCESSAMENTO DA ENTREGA" completo deste arquivo e rode de novo,
+-- é seguro porque é CREATE OR REPLACE)
 
 -- Após rodar este script, crie o primeiro usuário em:
 -- Authentication > Users > Add user (email + senha)
