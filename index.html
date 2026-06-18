@@ -1491,9 +1491,10 @@ async function salvarPedido() {
 // ============================================================
 async function loadPedidos() {
   await loadEntregadoresList();
-  const { data } = await sb.from('pedidos')
-    .select('*, clientes(nome), usuarios(nome)')
+  const { data, error } = await sb.from('pedidos')
+    .select('*, clientes(nome), usuarios!entregador_id(nome)')
     .order('data', { ascending: false });
+  if (error) { toast('Erro ao carregar pedidos: ' + error.message, true); return; }
   allPedidos = data || [];
   renderPedidosList();
 }
