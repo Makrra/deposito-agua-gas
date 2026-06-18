@@ -49,29 +49,41 @@ CREATE TABLE IF NOT EXISTS marcas (
 );
 
 -- ------------------------------------------------------------
--- 4. LOTES_GARRAFAO (lote = uma entrega: marca + ano de validade + data
--- de chegada; várias entregas da mesma marca/ano em dias diferentes
--- geram lotes/cards separados, por isso não há unique em marca+ano)
+-- 4. LOTES_GARRAFAO (cheios apenas — um registro por marca + ano de
+-- validade, que só acumula; cada chegada de carregamento é uma
+-- transação em movimentos_estoque, não um lote novo. Vazios não têm
+-- marca — ver ESTOQUE_VAZIOS, porque o mesmo vasilhame físico pode ser
+-- enchido por marcas diferentes ao longo do tempo)
 -- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS lotes_garrafao (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   marca_id     UUID NOT NULL REFERENCES marcas(id) ON DELETE RESTRICT,
   ano_validade INTEGER NOT NULL CHECK (ano_validade BETWEEN 2000 AND 2100),
-  data_chegada DATE NOT NULL DEFAULT CURRENT_DATE,
   qtd_cheios   INTEGER NOT NULL DEFAULT 0 CHECK (qtd_cheios >= 0),
-  qtd_vazios   INTEGER NOT NULL DEFAULT 0 CHECK (qtd_vazios >= 0),
   status       TEXT NOT NULL DEFAULT 'ativo' CHECK (status IN ('ativo','esgotado','vencido','descontinuado')),
   observacao   TEXT,
-  criado_em    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  criado_em    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT uq_lote_marca_ano UNIQUE (marca_id, ano_validade)
 );
 
 CREATE INDEX IF NOT EXISTS idx_lotes_marca        ON lotes_garrafao(marca_id);
 CREATE INDEX IF NOT EXISTS idx_lotes_ano_validade ON lotes_garrafao(ano_validade);
-CREATE INDEX IF NOT EXISTS idx_lotes_data_chegada ON lotes_garrafao(data_chegada);
 CREATE INDEX IF NOT EXISTS idx_lotes_status       ON lotes_garrafao(status);
 
 -- ------------------------------------------------------------
--- 4b. ESTOQUE_GAS (gás não tem validade nem lote por data — é só um
+-- 4b. ESTOQUE_VAZIOS (pool global de vasilhames vazios por ano de
+-- validade, sem marca — o vasilhame físico pode voltar a ser enchido
+-- por qualquer marca)
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS estoque_vazios (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  ano_validade INTEGER NOT NULL UNIQUE CHECK (ano_validade BETWEEN 2000 AND 2100),
+  quantidade   INTEGER NOT NULL DEFAULT 0 CHECK (quantidade >= 0),
+  criado_em    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- ------------------------------------------------------------
+-- 4c. ESTOQUE_GAS (gás não tem validade nem lote por data — é só um
 -- contador de cheios/vazios por marca de gás)
 -- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS estoque_gas (
@@ -148,11 +160,14 @@ CREATE INDEX IF NOT EXISTS idx_itens_pedido_pedido ON itens_pedido(pedido_id);
 CREATE INDEX IF NOT EXISTS idx_itens_pedido_lote   ON itens_pedido(lote_id);
 
 -- ------------------------------------------------------------
--- 8. MOVIMENTOS_ESTOQUE (ledger append-only)
+-- 8. MOVIMENTOS_ESTOQUE (ledger append-only — lote_id pra movimentos de
+-- cheios de uma marca específica; ano_validade pra movimentos do pool
+-- de vazios, que não tem marca)
 -- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS movimentos_estoque (
   id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  lote_id              UUID NOT NULL REFERENCES lotes_garrafao(id) ON DELETE RESTRICT,
+  lote_id              UUID REFERENCES lotes_garrafao(id) ON DELETE RESTRICT,
+  ano_validade         INTEGER, -- usado quando o movimento é do pool de vazios (lote_id fica NULL)
   tipo                 TEXT NOT NULL CHECK (tipo IN ('entrada_fabrica','saida_venda','retorno_vazio','avaria','ajuste')),
   quantidade           INTEGER NOT NULL,
   referencia_pedido_id UUID REFERENCES pedidos(id),
@@ -165,16 +180,18 @@ CREATE INDEX IF NOT EXISTS idx_mov_estoque_lote ON movimentos_estoque(lote_id);
 CREATE INDEX IF NOT EXISTS idx_mov_estoque_data ON movimentos_estoque(data);
 
 -- ------------------------------------------------------------
--- 9. AVARIAS
+-- 9. AVARIAS (cheio usa lote_id/marca específica; vazio usa só o ano,
+-- igual ao pool de vazios)
 -- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS avarias (
-  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  lote_id    UUID NOT NULL REFERENCES lotes_garrafao(id) ON DELETE RESTRICT,
-  tipo       TEXT NOT NULL DEFAULT 'cheio' CHECK (tipo IN ('cheio','vazio')),
-  quantidade INTEGER NOT NULL CHECK (quantidade > 0),
-  motivo     TEXT,
-  data       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  criado_por UUID REFERENCES usuarios(id)
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  lote_id      UUID REFERENCES lotes_garrafao(id) ON DELETE RESTRICT, -- só pra tipo='cheio'
+  ano_validade INTEGER, -- só pra tipo='vazio'
+  tipo         TEXT NOT NULL DEFAULT 'cheio' CHECK (tipo IN ('cheio','vazio')),
+  quantidade   INTEGER NOT NULL CHECK (quantidade > 0),
+  motivo       TEXT,
+  data         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  criado_por   UUID REFERENCES usuarios(id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_avarias_lote ON avarias(lote_id);
@@ -204,8 +221,8 @@ CREATE INDEX IF NOT EXISTS idx_pag_pedido_pedido  ON pagamentos_pedido(pedido_id
 CREATE TABLE IF NOT EXISTS movimentos_comodato (
   id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   cliente_id           UUID NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
-  marca_id             UUID NOT NULL REFERENCES marcas(id) ON DELETE RESTRICT,
-  lote_id              UUID REFERENCES lotes_garrafao(id) ON DELETE RESTRICT, -- só em devolução de água; gás e empréstimo ficam NULL
+  marca_id             UUID NOT NULL REFERENCES marcas(id) ON DELETE RESTRICT, -- informativo: qual marca originou o empréstimo
+  ano_validade         INTEGER, -- só em devolução de água (credita o pool de vazios); gás e empréstimo ficam NULL
   tipo                 TEXT NOT NULL DEFAULT 'devolucao' CHECK (tipo IN ('emprestimo','devolucao')),
   quantidade           INTEGER NOT NULL CHECK (quantidade > 0),
   referencia_pedido_id UUID REFERENCES pedidos(id),
@@ -323,15 +340,15 @@ RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
   item RECORD;
   split RECORD;
-  v_lote_destino_id UUID;
   v_tem_splits BOOLEAN;
   v_total_devolvido INTEGER;
   v_diferenca INTEGER;
+  v_ano_origem INTEGER;
 BEGIN
   FOR item IN SELECT * FROM itens_pedido WHERE pedido_id = NEW.id LOOP
 
     IF item.lote_id IS NOT NULL THEN
-      -- ÁGUA: baixa cheios do lote de origem
+      -- ÁGUA: baixa cheios do lote de origem (marca+ano)
       UPDATE lotes_garrafao SET qtd_cheios = GREATEST(0, qtd_cheios - item.quantidade) WHERE id = item.lote_id;
       INSERT INTO movimentos_estoque (lote_id, tipo, quantidade, referencia_pedido_id)
         VALUES (item.lote_id, 'saida_venda', -item.quantidade, NEW.id);
@@ -340,21 +357,15 @@ BEGIN
         SELECT EXISTS (SELECT 1 FROM vazios_devolvidos_pedido WHERE item_pedido_id = item.id) INTO v_tem_splits;
 
         IF v_tem_splits THEN
-          -- vasilhame devolvido dividido por ano (pode ser diferente do ano vendido)
+          -- vasilhame devolvido dividido por ano (pode ser diferente do ano vendido);
+          -- vai pro pool de vazios, sem marca
           v_total_devolvido := 0;
           FOR split IN SELECT * FROM vazios_devolvidos_pedido WHERE item_pedido_id = item.id LOOP
             v_total_devolvido := v_total_devolvido + split.quantidade;
-            SELECT id INTO v_lote_destino_id FROM lotes_garrafao
-              WHERE marca_id = item.marca_id AND ano_validade = split.ano_validade
-              ORDER BY data_chegada DESC LIMIT 1;
-            IF v_lote_destino_id IS NULL THEN
-              INSERT INTO lotes_garrafao (marca_id, ano_validade, qtd_cheios, qtd_vazios, observacao)
-                VALUES (item.marca_id, split.ano_validade, 0, 0, 'Lote criado automaticamente ao registrar vasilhame devolvido')
-                RETURNING id INTO v_lote_destino_id;
-            END IF;
-            UPDATE lotes_garrafao SET qtd_vazios = qtd_vazios + split.quantidade WHERE id = v_lote_destino_id;
-            INSERT INTO movimentos_estoque (lote_id, tipo, quantidade, referencia_pedido_id)
-              VALUES (v_lote_destino_id, 'retorno_vazio', split.quantidade, NEW.id);
+            INSERT INTO estoque_vazios (ano_validade, quantidade) VALUES (split.ano_validade, split.quantidade)
+              ON CONFLICT (ano_validade) DO UPDATE SET quantidade = estoque_vazios.quantidade + EXCLUDED.quantidade;
+            INSERT INTO movimentos_estoque (ano_validade, tipo, quantidade, referencia_pedido_id)
+              VALUES (split.ano_validade, 'retorno_vazio', split.quantidade, NEW.id);
           END LOOP;
 
           -- o que faltou devolver fica como comodato (empréstimo) com o cliente
@@ -365,14 +376,16 @@ BEGIN
               VALUES (NEW.cliente_id, item.marca_id, 'emprestimo', v_diferenca, NEW.id);
           END IF;
         ELSE
-          -- sem confirmação de ano: credita tudo de volta no lote de origem
-          UPDATE lotes_garrafao SET qtd_vazios = qtd_vazios + item.quantidade WHERE id = item.lote_id;
-          INSERT INTO movimentos_estoque (lote_id, tipo, quantidade, referencia_pedido_id)
-            VALUES (item.lote_id, 'retorno_vazio', item.quantidade, NEW.id);
+          -- sem confirmação de ano: assume devolução total no mesmo ano vendido
+          SELECT ano_validade INTO v_ano_origem FROM lotes_garrafao WHERE id = item.lote_id;
+          INSERT INTO estoque_vazios (ano_validade, quantidade) VALUES (v_ano_origem, item.quantidade)
+            ON CONFLICT (ano_validade) DO UPDATE SET quantidade = estoque_vazios.quantidade + EXCLUDED.quantidade;
+          INSERT INTO movimentos_estoque (ano_validade, tipo, quantidade, referencia_pedido_id)
+            VALUES (v_ano_origem, 'retorno_vazio', item.quantidade, NEW.id);
         END IF;
       END IF;
     ELSE
-      -- GÁS: contador simples por marca, sem validade
+      -- GÁS: contador simples por marca, sem validade (vazio segue por marca)
       UPDATE estoque_gas SET qtd_cheios = GREATEST(0, qtd_cheios - item.quantidade) WHERE marca_id = item.marca_id;
       IF item.tipo_vasilhame = 'troca' THEN
         UPDATE estoque_gas SET qtd_vazios = qtd_vazios + item.quantidade WHERE marca_id = item.marca_id;
@@ -409,6 +422,7 @@ ALTER TABLE usuarios            ENABLE ROW LEVEL SECURITY;
 ALTER TABLE configuracoes       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE marcas              ENABLE ROW LEVEL SECURITY;
 ALTER TABLE lotes_garrafao      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE estoque_vazios      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE estoque_gas         ENABLE ROW LEVEL SECURITY;
 ALTER TABLE clientes            ENABLE ROW LEVEL SECURITY;
 ALTER TABLE pedidos             ENABLE ROW LEVEL SECURITY;
@@ -476,6 +490,17 @@ CREATE POLICY "lotes_update_admin_caixa" ON lotes_garrafao FOR UPDATE
 DROP POLICY IF EXISTS "lotes_delete_admin_caixa" ON lotes_garrafao;
 CREATE POLICY "lotes_delete_admin_caixa" ON lotes_garrafao FOR DELETE
   USING (public.current_role() IN ('administrador','caixa'));
+
+-- estoque_vazios: leitura pra qualquer autenticado (entregador vê o aviso
+-- de pool novo na confirmação de entrega); escrita só administrador/caixa
+-- (o trigger de entrega usa SECURITY DEFINER e não passa por aqui).
+DROP POLICY IF EXISTS "estoque_vazios_select_auth" ON estoque_vazios;
+CREATE POLICY "estoque_vazios_select_auth" ON estoque_vazios FOR SELECT
+  USING (auth.role() = 'authenticated');
+DROP POLICY IF EXISTS "estoque_vazios_write_admin_caixa" ON estoque_vazios;
+CREATE POLICY "estoque_vazios_write_admin_caixa" ON estoque_vazios FOR ALL
+  USING (public.current_role() IN ('administrador','caixa'))
+  WITH CHECK (public.current_role() IN ('administrador','caixa'));
 
 -- estoque_gas, movimentos_estoque, avarias: administrador e caixa operam tudo.
 
@@ -957,6 +982,15 @@ ON CONFLICT (chave) DO NOTHING;
 -- que lê vazios_devolvidos_pedido em vez de ano_validade_vazio — copie o
 -- bloco "PROCESSAMENTO DA ENTREGA" completo deste arquivo e rode de novo,
 -- é seguro porque é CREATE OR REPLACE)
+
+-- ============================================================
+-- MIGRAÇÃO: separa vazios (pool global por ano de validade, sem marca)
+-- de cheios (lote único por marca+ano, que só acumula — chegadas
+-- seguintes do mesmo marca+ano atualizam o mesmo lote em vez de criar
+-- um novo). Script completo enviado ao usuário fora deste arquivo por
+-- ser extenso (consolida lotes duplicados, migra avarias/comodato/
+-- movimentos_estoque pra usar ano_validade em vez de lote_id quando o
+-- assunto é vazio, e recria a função processar_entrega_pedido).
 
 -- Após rodar este script, crie o primeiro usuário em:
 -- Authentication > Users > Add user (email + senha)
