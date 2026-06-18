@@ -48,24 +48,23 @@ CREATE TABLE IF NOT EXISTS marcas (
 );
 
 -- ------------------------------------------------------------
--- 4. LOTES_GARRAFAO (lote = marca + data_fabricacao; validade = +3 anos)
+-- 4. LOTES_GARRAFAO (lote = marca + ano de validade, só o ano)
 -- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS lotes_garrafao (
-  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  marca_id        UUID NOT NULL REFERENCES marcas(id) ON DELETE RESTRICT,
-  data_fabricacao DATE NOT NULL,
-  data_validade   DATE GENERATED ALWAYS AS ((data_fabricacao + INTERVAL '3 years')::date) STORED,
-  qtd_cheios      INTEGER NOT NULL DEFAULT 0 CHECK (qtd_cheios >= 0),
-  qtd_vazios      INTEGER NOT NULL DEFAULT 0 CHECK (qtd_vazios >= 0),
-  status          TEXT NOT NULL DEFAULT 'ativo' CHECK (status IN ('ativo','esgotado','vencido','descontinuado')),
-  observacao      TEXT,
-  criado_em       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  CONSTRAINT uq_lote UNIQUE (marca_id, data_fabricacao)
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  marca_id     UUID NOT NULL REFERENCES marcas(id) ON DELETE RESTRICT,
+  ano_validade INTEGER NOT NULL CHECK (ano_validade BETWEEN 2000 AND 2100),
+  qtd_cheios   INTEGER NOT NULL DEFAULT 0 CHECK (qtd_cheios >= 0),
+  qtd_vazios   INTEGER NOT NULL DEFAULT 0 CHECK (qtd_vazios >= 0),
+  status       TEXT NOT NULL DEFAULT 'ativo' CHECK (status IN ('ativo','esgotado','vencido','descontinuado')),
+  observacao   TEXT,
+  criado_em    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT uq_lote UNIQUE (marca_id, ano_validade)
 );
 
-CREATE INDEX IF NOT EXISTS idx_lotes_marca    ON lotes_garrafao(marca_id);
-CREATE INDEX IF NOT EXISTS idx_lotes_validade ON lotes_garrafao(data_validade);
-CREATE INDEX IF NOT EXISTS idx_lotes_status   ON lotes_garrafao(status);
+CREATE INDEX IF NOT EXISTS idx_lotes_marca        ON lotes_garrafao(marca_id);
+CREATE INDEX IF NOT EXISTS idx_lotes_ano_validade ON lotes_garrafao(ano_validade);
+CREATE INDEX IF NOT EXISTS idx_lotes_status       ON lotes_garrafao(status);
 
 -- ------------------------------------------------------------
 -- 5. CLIENTES
@@ -190,7 +189,22 @@ CREATE TABLE IF NOT EXISTS devolucoes_comodato (
 CREATE INDEX IF NOT EXISTS idx_devolucoes_cliente ON devolucoes_comodato(cliente_id);
 
 -- ------------------------------------------------------------
--- 12. VIEWS
+-- 12. DESCONTOS_CLIENTE (desconto por cliente, opcionalmente por marca)
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS descontos_cliente (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  cliente_id UUID NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
+  marca_id   UUID REFERENCES marcas(id) ON DELETE CASCADE, -- NULL = desconto vale para qualquer marca
+  tipo       TEXT NOT NULL CHECK (tipo IN ('reais','porcentagem')),
+  valor      NUMERIC(10,2) NOT NULL CHECK (valor > 0),
+  criado_em  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT uq_desconto_cliente_marca UNIQUE (cliente_id, marca_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_descontos_cliente ON descontos_cliente(cliente_id);
+
+-- ------------------------------------------------------------
+-- 13. VIEWS
 -- ------------------------------------------------------------
 CREATE OR REPLACE VIEW vw_caixa_dia WITH (security_invoker = true) AS
 SELECT
@@ -266,6 +280,7 @@ ALTER TABLE movimentos_estoque  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE avarias             ENABLE ROW LEVEL SECURITY;
 ALTER TABLE pagamentos_fiado    ENABLE ROW LEVEL SECURITY;
 ALTER TABLE devolucoes_comodato ENABLE ROW LEVEL SECURITY;
+ALTER TABLE descontos_cliente   ENABLE ROW LEVEL SECURITY;
 
 -- usuarios: qualquer autenticado lê a própria linha (p/ saber seu role);
 -- só administrador lê/gerencia todas as linhas.
@@ -331,6 +346,23 @@ DROP POLICY IF EXISTS "devolucoes_admin_caixa_all" ON devolucoes_comodato;
 CREATE POLICY "devolucoes_admin_caixa_all" ON devolucoes_comodato FOR ALL
   USING (public.current_role() IN ('administrador','caixa'))
   WITH CHECK (public.current_role() IN ('administrador','caixa'));
+
+-- descontos_cliente: administrador e caixa podem ver (precisam saber o
+-- desconto pra aplicar num pedido), mas só administrador cria/edita/remove
+-- (é uma decisão de preço, igual à restrição de preço de marca).
+DROP POLICY IF EXISTS "descontos_select_admin_caixa" ON descontos_cliente;
+CREATE POLICY "descontos_select_admin_caixa" ON descontos_cliente FOR SELECT
+  USING (public.current_role() IN ('administrador','caixa'));
+
+DROP POLICY IF EXISTS "descontos_insert_admin" ON descontos_cliente;
+CREATE POLICY "descontos_insert_admin" ON descontos_cliente FOR INSERT
+  WITH CHECK (public.current_role() = 'administrador');
+DROP POLICY IF EXISTS "descontos_update_admin" ON descontos_cliente;
+CREATE POLICY "descontos_update_admin" ON descontos_cliente FOR UPDATE
+  USING (public.current_role() = 'administrador') WITH CHECK (public.current_role() = 'administrador');
+DROP POLICY IF EXISTS "descontos_delete_admin" ON descontos_cliente;
+CREATE POLICY "descontos_delete_admin" ON descontos_cliente FOR DELETE
+  USING (public.current_role() = 'administrador');
 
 -- clientes: administrador/caixa têm acesso total (limite_fiado é protegido
 -- por trigger, não por RLS); entregador só vê clientes de entregas do dia
@@ -415,6 +447,37 @@ ON CONFLICT (chave) DO NOTHING;
 -- Fase 3, quando a tabela avarias ainda não tinha a coluna "tipo")
 -- ============================================================
 -- ALTER TABLE avarias ADD COLUMN IF NOT EXISTS tipo TEXT NOT NULL DEFAULT 'cheio' CHECK (tipo IN ('cheio','vazio'));
+
+-- ============================================================
+-- MIGRAÇÃO (rodar só se você já tinha criado lotes_garrafao com
+-- data_fabricacao/data_validade, antes do ajuste pra "só o ano")
+-- ============================================================
+-- ALTER TABLE lotes_garrafao DROP CONSTRAINT IF EXISTS uq_lote;
+-- ALTER TABLE lotes_garrafao DROP COLUMN IF EXISTS data_validade;
+-- ALTER TABLE lotes_garrafao ADD COLUMN IF NOT EXISTS ano_validade INTEGER CHECK (ano_validade BETWEEN 2000 AND 2100);
+-- UPDATE lotes_garrafao SET ano_validade = EXTRACT(YEAR FROM (data_fabricacao + INTERVAL '3 years'))::int WHERE ano_validade IS NULL;
+-- ALTER TABLE lotes_garrafao ALTER COLUMN ano_validade SET NOT NULL;
+-- ALTER TABLE lotes_garrafao DROP COLUMN IF EXISTS data_fabricacao;
+-- ALTER TABLE lotes_garrafao ADD CONSTRAINT uq_lote UNIQUE (marca_id, ano_validade);
+-- DROP INDEX IF EXISTS idx_lotes_validade;
+-- CREATE INDEX IF NOT EXISTS idx_lotes_ano_validade ON lotes_garrafao(ano_validade);
+
+-- ============================================================
+-- MIGRAÇÃO (rodar só se você já executou este script antes da
+-- tabela descontos_cliente existir)
+-- ============================================================
+-- CREATE TABLE IF NOT EXISTS descontos_cliente (
+--   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+--   cliente_id UUID NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
+--   marca_id   UUID REFERENCES marcas(id) ON DELETE CASCADE,
+--   tipo       TEXT NOT NULL CHECK (tipo IN ('reais','porcentagem')),
+--   valor      NUMERIC(10,2) NOT NULL CHECK (valor > 0),
+--   criado_em  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+--   CONSTRAINT uq_desconto_cliente_marca UNIQUE (cliente_id, marca_id)
+-- );
+-- CREATE INDEX IF NOT EXISTS idx_descontos_cliente ON descontos_cliente(cliente_id);
+-- ALTER TABLE descontos_cliente ENABLE ROW LEVEL SECURITY;
+-- (rode também os CREATE POLICY de descontos_cliente listados acima na seção RLS)
 
 -- Após rodar este script, crie o primeiro usuário em:
 -- Authentication > Users > Add user (email + senha)

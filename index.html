@@ -371,8 +371,8 @@ select.form-control option { background: var(--surface); }
       <select class="form-control" id="lote-marca"></select>
     </div>
     <div class="form-group">
-      <label class="form-label">Data de fabricação</label>
-      <input class="form-control" id="lote-data-fabricacao" type="date">
+      <label class="form-label">Ano de validade</label>
+      <input class="form-control" id="lote-ano-validade" type="number" inputmode="numeric" min="2000" max="2100" maxlength="4" placeholder="2027">
     </div>
     <div class="form-group">
       <label class="form-label">Quantidade de cheios recebidos</label>
@@ -434,7 +434,7 @@ select.form-control option { background: var(--surface); }
       <textarea class="form-control" id="cliente-endereco" rows="2" placeholder="Rua, número, bairro..."></textarea>
     </div>
     <div class="form-group">
-      <label class="form-label">Limite de fiado (R$)</label>
+      <label class="form-label">Limite de pendência de pagamento (R$)</label>
       <input class="form-control" id="cliente-limite-fiado" type="number" step="0.01" placeholder="0.00">
     </div>
     <div class="form-group">
@@ -452,12 +452,12 @@ select.form-control option { background: var(--surface); }
     <input type="hidden" id="extrato-cliente-id">
 
     <div class="stats" style="grid-template-columns:1fr 1fr">
-      <div class="stat-card"><div class="stat-val" id="extrato-saldo-fiado">—</div><div class="stat-lbl">Saldo fiado</div></div>
+      <div class="stat-card"><div class="stat-val" id="extrato-saldo-fiado">—</div><div class="stat-lbl">Saldo de pendência</div></div>
       <div class="stat-card"><div class="stat-val" id="extrato-saldo-comodato">—</div><div class="stat-lbl">Vasilhames em comodato</div></div>
     </div>
 
     <div class="card">
-      <div class="card-title" style="margin-bottom:10px">Registrar pagamento de fiado</div>
+      <div class="card-title" style="margin-bottom:10px">Registrar pagamento de pendência</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
         <input class="form-control" id="pagamento-valor" type="number" step="0.01" placeholder="Valor (R$)">
         <select class="form-control" id="pagamento-forma">
@@ -477,6 +477,24 @@ select.form-control option { background: var(--surface); }
         <input class="form-control" id="devolucao-quantidade" type="number" min="1" placeholder="Quantidade">
       </div>
       <button class="btn btn-success btn-block btn-sm" onclick="registrarDevolucaoComodato()">Registrar Devolução</button>
+    </div>
+
+    <div class="card">
+      <div class="card-title" style="margin-bottom:10px">Descontos por marca</div>
+      <div id="descontos-lista"></div>
+      <div id="desconto-form" style="margin-top:10px">
+        <div class="form-group">
+          <select class="form-control" id="desconto-marca"></select>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+          <select class="form-control" id="desconto-tipo">
+            <option value="reais">R$ (reais)</option>
+            <option value="porcentagem">% (porcentagem)</option>
+          </select>
+          <input class="form-control" id="desconto-valor" type="number" step="0.01" placeholder="Valor">
+        </div>
+        <button class="btn btn-outline btn-block btn-sm" onclick="adicionarDesconto()">+ Adicionar Desconto</button>
+      </div>
     </div>
 
     <div class="card-title" style="margin:16px 0 8px">Histórico</div>
@@ -570,7 +588,7 @@ async function loadEstoque() {
   allMarcas = marcas || [];
   renderMarcasList();
 
-  const { data: lotes } = await sb.from('lotes_garrafao').select('*, marcas(nome)').order('data_validade');
+  const { data: lotes } = await sb.from('lotes_garrafao').select('*, marcas(nome)').order('ano_validade');
   allLotes = lotes || [];
   renderLotesList();
 }
@@ -629,17 +647,11 @@ async function salvarMarca() {
 // ============================================================
 // ESTOQUE: LOTES DE GARRAFÃO
 // ============================================================
-function diasParaVencer(dataValidade) {
-  const hoje = new Date(); hoje.setHours(0,0,0,0);
-  const val = new Date(dataValidade + 'T00:00:00');
-  return Math.round((val - hoje) / (1000 * 60 * 60 * 24));
-}
-
-function badgeValidade(dataValidade) {
-  const dias = diasParaVencer(dataValidade);
-  if (dias < 0)   return `<span class="badge badge-red">Vencido</span>`;
-  if (dias <= 90) return `<span class="badge badge-yellow">Vence em ${dias}d</span>`;
-  return `<span class="badge badge-green">OK</span>`;
+function badgeValidadeAno(anoValidade) {
+  const anoAtual = new Date().getFullYear();
+  if (anoValidade < anoAtual)  return `<span class="badge badge-red">Vencido</span>`;
+  if (anoValidade === anoAtual) return `<span class="badge badge-yellow">Vence este ano</span>`;
+  return `<span class="badge badge-green">Válido até ${anoValidade}</span>`;
 }
 
 function renderLotesList() {
@@ -650,9 +662,9 @@ function renderLotesList() {
       <div class="card-header">
         <div>
           <div class="card-title">${l.marcas ? l.marcas.nome : '—'}</div>
-          <div class="card-sub">Fabricado em ${fmtData(l.data_fabricacao)} · Vence em ${fmtData(l.data_validade)}</div>
+          <div class="card-sub">Validade: ${l.ano_validade}</div>
         </div>
-        ${badgeValidade(l.data_validade)}
+        ${badgeValidadeAno(l.ano_validade)}
       </div>
       <div style="display:flex;gap:16px">
         <div><div class="item-value">${l.qtd_cheios}</div><div class="item-detail">cheios</div></div>
@@ -665,26 +677,26 @@ function renderLotesList() {
 function preencherSelectLotes(selectEl, { somenteComCheios = false } = {}) {
   const lotes = somenteComCheios ? allLotes.filter(l => l.qtd_cheios > 0) : allLotes;
   selectEl.innerHTML = lotes.map(l =>
-    `<option value="${l.id}">${l.marcas ? l.marcas.nome : '—'} · val. ${fmtData(l.data_validade)} (${l.qtd_cheios} cheios / ${l.qtd_vazios} vazios)</option>`
+    `<option value="${l.id}">${l.marcas ? l.marcas.nome : '—'} · val. ${l.ano_validade} (${l.qtd_cheios} cheios / ${l.qtd_vazios} vazios)</option>`
   ).join('') || '<option value="">Nenhum lote disponível</option>';
 }
 
 function abrirNovoLote() {
   const sel = document.getElementById('lote-marca');
   sel.innerHTML = allMarcas.filter(m => m.ativo).map(m => `<option value="${m.id}">${m.nome}</option>`).join('');
-  document.getElementById('lote-data-fabricacao').value = new Date().toISOString().slice(0, 10);
+  document.getElementById('lote-ano-validade').value = new Date().getFullYear() + 3;
   document.getElementById('lote-qtd-cheios').value = '';
   openModal('modal-lote');
 }
 
 async function salvarLote() {
   const marca_id = document.getElementById('lote-marca').value;
-  const data_fabricacao = document.getElementById('lote-data-fabricacao').value;
+  const ano_validade = parseInt(document.getElementById('lote-ano-validade').value || 0, 10);
   const qtd_cheios = parseInt(document.getElementById('lote-qtd-cheios').value || 0, 10);
-  if (!marca_id || !data_fabricacao) { toast('Preencha marca e data de fabricação', true); return; }
+  if (!marca_id || String(ano_validade).length !== 4) { toast('Preencha a marca e um ano de validade com 4 números', true); return; }
 
   const { data: lote, error } = await sb.from('lotes_garrafao')
-    .insert({ marca_id, data_fabricacao, qtd_cheios })
+    .insert({ marca_id, ano_validade, qtd_cheios })
     .select().single();
   if (error) { toast('Erro ao criar lote: ' + error.message, true); return; }
 
@@ -838,10 +850,11 @@ async function abrirExtratoCliente(id) {
   document.getElementById('pagamento-valor').value = '';
   document.getElementById('devolucao-quantidade').value = '';
   preencherSelectLotes(document.getElementById('devolucao-lote'));
+  await loadDescontosCliente(id);
 
   const [{ data: pagamentos }, { data: devolucoes }] = await Promise.all([
     sb.from('pagamentos_fiado').select('*').eq('cliente_id', id).order('data', { ascending: false }),
-    sb.from('devolucoes_comodato').select('*, lotes_garrafao(data_validade, marcas(nome))').eq('cliente_id', id).order('data', { ascending: false }),
+    sb.from('devolucoes_comodato').select('*, lotes_garrafao(ano_validade, marcas(nome))').eq('cliente_id', id).order('data', { ascending: false }),
   ]);
 
   const histPag = (pagamentos || []).map(p => `
@@ -854,6 +867,58 @@ async function abrirExtratoCliente(id) {
   document.getElementById('extrato-historico').innerHTML = hist.length ? hist.join('') : '<div class="empty-state">Sem histórico ainda</div>';
 
   openModal('modal-extrato');
+}
+
+// ============================================================
+// DESCONTOS POR CLIENTE/MARCA
+// ============================================================
+async function loadDescontosCliente(clienteId) {
+  document.getElementById('desconto-form').style.display = currentUserRole === 'administrador' ? 'block' : 'none';
+
+  const sel = document.getElementById('desconto-marca');
+  sel.innerHTML = '<option value="">Qualquer marca</option>' +
+    allMarcas.filter(m => m.ativo).map(m => `<option value="${m.id}">${m.nome}</option>`).join('');
+  document.getElementById('desconto-valor').value = '';
+
+  const { data: descontos } = await sb.from('descontos_cliente')
+    .select('*, marcas(nome)').eq('cliente_id', clienteId);
+  renderDescontosLista(descontos || []);
+}
+
+function renderDescontosLista(descontos) {
+  const el = document.getElementById('descontos-lista');
+  const podeRemover = currentUserRole === 'administrador';
+  if (!descontos.length) { el.innerHTML = '<div class="empty-state">Sem descontos cadastrados</div>'; return; }
+  el.innerHTML = descontos.map(d => `
+    <div class="list-item">
+      <div class="item-info">
+        <div class="item-name">${d.marcas ? d.marcas.nome : 'Qualquer marca'}</div>
+        <div class="item-detail">${d.tipo === 'porcentagem' ? d.valor + '%' : fmtMoeda(d.valor)} de desconto</div>
+      </div>
+      ${podeRemover ? `<button class="btn btn-outline btn-sm" onclick="removerDesconto('${d.id}', '${d.cliente_id}')">Remover</button>` : ''}
+    </div>
+  `).join('');
+}
+
+async function adicionarDesconto() {
+  const cliente_id = document.getElementById('extrato-cliente-id').value;
+  const marca_id = document.getElementById('desconto-marca').value || null;
+  const tipo = document.getElementById('desconto-tipo').value;
+  const valor = parseFloat(document.getElementById('desconto-valor').value || 0);
+  if (valor <= 0) { toast('Informe um valor de desconto válido', true); return; }
+
+  const { error } = await sb.from('descontos_cliente').insert({ cliente_id, marca_id, tipo, valor });
+  if (error) { toast('Erro ao salvar desconto: ' + error.message, true); return; }
+
+  toast('Desconto adicionado!');
+  loadDescontosCliente(cliente_id);
+}
+
+async function removerDesconto(id, clienteId) {
+  const { error } = await sb.from('descontos_cliente').delete().eq('id', id);
+  if (error) { toast('Erro ao remover desconto: ' + error.message, true); return; }
+  toast('Desconto removido!');
+  loadDescontosCliente(clienteId);
 }
 
 async function registrarPagamentoFiado() {
