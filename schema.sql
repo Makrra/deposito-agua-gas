@@ -128,12 +128,13 @@ CREATE INDEX IF NOT EXISTS idx_pedidos_status_entrega ON pedidos(status_entrega)
 CREATE INDEX IF NOT EXISTS idx_pedidos_data           ON pedidos(data);
 
 -- ------------------------------------------------------------
--- 7. ITENS_PEDIDO
+-- 7. ITENS_PEDIDO (lote_id é NULL para itens de gás, que não têm lote;
+-- nesse caso o estoque é resolvido por marca_id em estoque_gas)
 -- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS itens_pedido (
   id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   pedido_id      UUID NOT NULL REFERENCES pedidos(id) ON DELETE CASCADE,
-  lote_id        UUID NOT NULL REFERENCES lotes_garrafao(id) ON DELETE RESTRICT,
+  lote_id        UUID REFERENCES lotes_garrafao(id) ON DELETE RESTRICT,
   marca_id       UUID NOT NULL REFERENCES marcas(id) ON DELETE RESTRICT,
   quantidade     INTEGER NOT NULL CHECK (quantidade > 0),
   preco_unitario NUMERIC(10,2) NOT NULL,
@@ -183,6 +184,7 @@ CREATE INDEX IF NOT EXISTS idx_avarias_lote ON avarias(lote_id);
 CREATE TABLE IF NOT EXISTS pagamentos_fiado (
   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   cliente_id UUID NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
+  pedido_id  UUID REFERENCES pedidos(id) ON DELETE SET NULL, -- pagamento pode ser vinculado a um pedido específico (confirmação de pagamento)
   valor      NUMERIC(10,2) NOT NULL CHECK (valor > 0),
   forma      TEXT NOT NULL DEFAULT 'dinheiro' CHECK (forma IN ('dinheiro','pix')),
   data       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -191,6 +193,7 @@ CREATE TABLE IF NOT EXISTS pagamentos_fiado (
 );
 
 CREATE INDEX IF NOT EXISTS idx_pag_fiado_cliente ON pagamentos_fiado(cliente_id);
+CREATE INDEX IF NOT EXISTS idx_pag_fiado_pedido  ON pagamentos_fiado(pedido_id);
 
 -- ------------------------------------------------------------
 -- 11. DEVOLUCOES_COMODATO (abate saldo_comodato_garrafoes do cliente)
@@ -302,10 +305,11 @@ ALTER TABLE devolucoes_comodato ENABLE ROW LEVEL SECURITY;
 ALTER TABLE descontos_cliente   ENABLE ROW LEVEL SECURITY;
 
 -- usuarios: qualquer autenticado lê a própria linha (p/ saber seu role);
--- só administrador lê/gerencia todas as linhas.
+-- administrador e caixa leem todas as linhas (caixa precisa listar
+-- entregadores pra atribuir pedidos); só administrador gerencia (write).
 DROP POLICY IF EXISTS "usuarios_select_self_or_admin" ON usuarios;
 CREATE POLICY "usuarios_select_self_or_admin" ON usuarios FOR SELECT
-  USING (id = auth.uid() OR public.current_role() = 'administrador');
+  USING (id = auth.uid() OR public.current_role() IN ('administrador','caixa'));
 
 DROP POLICY IF EXISTS "usuarios_insert_admin" ON usuarios;
 CREATE POLICY "usuarios_insert_admin" ON usuarios FOR INSERT
@@ -325,10 +329,12 @@ DROP POLICY IF EXISTS "configuracoes_write_admin" ON configuracoes;
 CREATE POLICY "configuracoes_write_admin" ON configuracoes FOR ALL
   USING (public.current_role() = 'administrador') WITH CHECK (public.current_role() = 'administrador');
 
--- marcas: leitura para administrador e caixa; escrita só administrador.
+-- marcas: leitura para qualquer autenticado (entregador também precisa ver
+-- nome da marca nos itens da entrega); escrita só administrador.
 DROP POLICY IF EXISTS "marcas_select_admin_caixa" ON marcas;
-CREATE POLICY "marcas_select_admin_caixa" ON marcas FOR SELECT
-  USING (public.current_role() IN ('administrador','caixa'));
+DROP POLICY IF EXISTS "marcas_select_auth" ON marcas;
+CREATE POLICY "marcas_select_auth" ON marcas FOR SELECT
+  USING (auth.role() = 'authenticated');
 
 DROP POLICY IF EXISTS "marcas_write_admin" ON marcas;
 CREATE POLICY "marcas_write_admin" ON marcas FOR INSERT
@@ -582,6 +588,23 @@ ON CONFLICT (chave) DO NOTHING;
 -- CREATE POLICY "estoque_gas_admin_caixa_all" ON estoque_gas FOR ALL
 --   USING (public.current_role() IN ('administrador','caixa'))
 --   WITH CHECK (public.current_role() IN ('administrador','caixa'));
+
+-- ============================================================
+-- MIGRAÇÃO (Fase 4): itens de gás não têm lote, e pagamento pode ser
+-- vinculado a um pedido específico (confirmação de pagamento)
+-- ============================================================
+-- ALTER TABLE itens_pedido ALTER COLUMN lote_id DROP NOT NULL;
+-- ALTER TABLE pagamentos_fiado ADD COLUMN IF NOT EXISTS pedido_id UUID REFERENCES pedidos(id) ON DELETE SET NULL;
+-- CREATE INDEX IF NOT EXISTS idx_pag_fiado_pedido ON pagamentos_fiado(pedido_id);
+--
+-- DROP POLICY IF EXISTS "usuarios_select_self_or_admin" ON usuarios;
+-- CREATE POLICY "usuarios_select_self_or_admin" ON usuarios FOR SELECT
+--   USING (id = auth.uid() OR public.current_role() IN ('administrador','caixa'));
+--
+-- DROP POLICY IF EXISTS "marcas_select_admin_caixa" ON marcas;
+-- DROP POLICY IF EXISTS "marcas_select_auth" ON marcas;
+-- CREATE POLICY "marcas_select_auth" ON marcas FOR SELECT
+--   USING (auth.role() = 'authenticated');
 
 -- Após rodar este script, crie o primeiro usuário em:
 -- Authentication > Users > Add user (email + senha)

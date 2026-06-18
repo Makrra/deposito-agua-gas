@@ -278,13 +278,38 @@ select.form-control option { background: var(--surface); }
 
 <!-- ======= PAGE: DASHBOARD ======= -->
 <div class="page active" id="page-dash">
-  <div class="empty-state">Dashboard (estoque, devedores e caixa do dia) — Fase 4</div>
+  <div class="stats" id="dash-caixa-stats">
+    <div class="stat-card"><div class="stat-val" id="dash-caixa-dinheiro">—</div><div class="stat-lbl">Dinheiro Hoje</div></div>
+    <div class="stat-card"><div class="stat-val" id="dash-caixa-pix">—</div><div class="stat-lbl">Pix Hoje</div></div>
+    <div class="stat-card"><div class="stat-val" id="dash-caixa-total">—</div><div class="stat-lbl">Total Hoje</div></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title" style="margin-bottom:10px">Estoque de Água por Marca</div>
+    <div id="dash-estoque-agua" class="loading"><div class="spinner"></div>Carregando...</div>
+  </div>
+
+  <div class="card">
+    <div class="card-title" style="margin-bottom:10px">Estoque de Gás por Marca</div>
+    <div id="dash-estoque-gas" class="loading"><div class="spinner"></div>Carregando...</div>
+  </div>
+
+  <div class="card">
+    <div class="card-title" style="margin-bottom:10px">Quem Está Devendo</div>
+    <div id="dash-devedores" class="loading"><div class="spinner"></div>Carregando...</div>
+  </div>
 </div>
 
 <!-- ======= PAGE: PEDIDOS ======= -->
 <div class="page" id="page-pedidos">
-  <div class="empty-state">Lista de pedidos — Fase 4</div>
-  <button class="fab" id="fab-pedidos" onclick="toast('Novo pedido chega na Fase 4')">+</button>
+  <div class="tabs">
+    <button class="tab-btn active" id="tab-pedidos-todos" onclick="filterPedidos('todos')">Todos</button>
+    <button class="tab-btn" id="tab-pedidos-pendente" onclick="filterPedidos('pendente')">Pendentes</button>
+    <button class="tab-btn" id="tab-pedidos-entregue" onclick="filterPedidos('entregue')">Entregues</button>
+    <button class="tab-btn" id="tab-pedidos-cancelada" onclick="filterPedidos('cancelada')">Cancelados</button>
+  </div>
+  <div id="pedidos-list" class="loading"><div class="spinner"></div>Carregando...</div>
+  <button class="fab" onclick="abrirNovoPedido()">+</button>
 </div>
 
 <!-- ======= PAGE: ESTOQUE ======= -->
@@ -326,7 +351,7 @@ select.form-control option { background: var(--surface); }
 
 <!-- ======= PAGE: ENTREGAS (entregador) ======= -->
 <div class="page" id="page-entregas">
-  <div class="empty-state">Lista de entregas de hoje — Fase 4</div>
+  <div id="entregas-list" class="loading"><div class="spinner"></div>Carregando...</div>
 </div>
 
 <!-- ======= NAV (administrador/caixa) ======= -->
@@ -541,6 +566,88 @@ select.form-control option { background: var(--surface); }
   </div>
 </div>
 
+<!-- ===== MODAL: Novo Pedido ===== -->
+<div class="modal-overlay" id="modal-novo-pedido">
+  <div class="modal">
+    <div class="modal-title">Novo Pedido</div>
+
+    <div class="form-group">
+      <label class="form-label">Cliente</label>
+      <input type="hidden" id="np-cliente-id">
+      <div class="search-box">
+        <input type="text" id="np-busca-cliente" placeholder="Buscar cliente..." oninput="filterClientesPedido()">
+      </div>
+      <div class="picker-list" id="np-cliente-picker"></div>
+      <div class="card-sub" id="np-cliente-selecionado" style="margin-top:6px"></div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Itens</label>
+      <div id="np-itens-container"></div>
+      <button class="btn btn-outline btn-sm btn-block" onclick="adicionarItemPedido()">+ Adicionar Item</button>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Forma de Pagamento</label>
+      <select class="form-control" id="np-forma-pagamento">
+        <option value="dinheiro">Dinheiro</option>
+        <option value="pix">Pix</option>
+        <option value="fiado">Fiado (Pendência)</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Entregador (Opcional)</label>
+      <select class="form-control" id="np-entregador">
+        <option value="">Sem entregador definido</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Observação</label>
+      <textarea class="form-control" id="np-observacao" rows="2"></textarea>
+    </div>
+
+    <div class="stat-card" style="margin-bottom:14px">
+      <div class="stat-val" id="np-total">R$ 0,00</div>
+      <div class="stat-lbl">Total do Pedido</div>
+    </div>
+
+    <button class="btn btn-primary btn-block" onclick="salvarPedido()">Salvar Pedido</button>
+  </div>
+</div>
+
+<!-- ===== MODAL: Detalhe do Pedido ===== -->
+<div class="modal-overlay" id="modal-pedido-detalhe">
+  <div class="modal">
+    <div class="modal-title" id="pd-titulo">Pedido</div>
+    <div class="card">
+      <div id="pd-info"></div>
+    </div>
+
+    <div class="card-title" style="margin:14px 0 8px">Itens</div>
+    <div id="pd-itens" class="card"></div>
+
+    <div id="pd-pagamento-card" class="card" style="display:none">
+      <div class="card-title" style="margin-bottom:10px">Confirmar Pagamento</div>
+      <div class="card-sub" id="pd-pagamento-info" style="margin-bottom:8px"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+        <input class="form-control" id="pd-pagamento-valor" type="number" step="0.01">
+        <select class="form-control" id="pd-pagamento-forma">
+          <option value="dinheiro">Dinheiro</option>
+          <option value="pix">Pix</option>
+        </select>
+      </div>
+      <button class="btn btn-success btn-block btn-sm" onclick="confirmarPagamentoPedido()">Confirmar Pagamento</button>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-top:14px">
+      <button class="btn btn-success btn-sm" style="flex:1" id="pd-btn-entregar" onclick="marcarPedidoEntregue()">Marcar Entregue</button>
+      <button class="btn btn-outline btn-sm" style="flex:1;color:var(--red);border-color:var(--red)" id="pd-btn-cancelar" onclick="cancelarPedido()">Cancelar Pedido</button>
+    </div>
+  </div>
+</div>
+
 </div>
 
 <script>
@@ -562,6 +669,13 @@ let allMarcas = [];
 let allLotes = [];
 let allEstoqueGas = [];
 let allClientes = [];
+let allPedidos = [];
+let allEntregadores = [];
+let currentPedidoFilter = 'todos';
+let pedidoItemSeq = 0;
+let pedidoClienteDescontos = [];
+let precoVasilhameAvulso = 0;
+let currentPedidoDetalheId = null;
 
 // ============================================================
 // NAVIGATION
@@ -576,8 +690,11 @@ function goPage(name) {
   const idx = pages.indexOf(name);
   if (idx >= 0) document.querySelectorAll('#' + navId + ' .nav-btn')[idx].classList.add('active');
 
-  if (name === 'estoque')  loadEstoque();
-  if (name === 'clientes') loadClientes();
+  if (name === 'estoque')   loadEstoque();
+  if (name === 'clientes')  loadClientes();
+  if (name === 'dash')      loadDashboard();
+  if (name === 'pedidos')   loadPedidos();
+  if (name === 'entregas')  loadEntregas();
 }
 
 // ============================================================
@@ -1119,6 +1236,522 @@ async function removerDesconto(id, clienteId) {
   if (error) { toast('Erro ao remover desconto: ' + error.message, true); return; }
   toast('Desconto removido!');
   loadDescontosCliente(clienteId);
+}
+
+// ============================================================
+// PEDIDOS: HELPERS DE PREÇO/ESTOQUE
+// ============================================================
+function resolverOrigemEstoque(marcaId) {
+  const marca = allMarcas.find(m => m.id === marcaId);
+  if (!marca) return null;
+  if (marca.tipo === 'gas') {
+    const estoque = allEstoqueGas.find(g => g.marca_id === marcaId);
+    return { tipo: 'gas', marca, lote: null, disponivel: estoque ? estoque.qtd_cheios : 0 };
+  }
+  const lote = allLotes.filter(l => l.marca_id === marcaId && l.qtd_cheios > 0).sort((a, b) => a.ano_validade - b.ano_validade)[0];
+  return { tipo: 'agua', marca, lote: lote || null, disponivel: lote ? lote.qtd_cheios : 0 };
+}
+
+function precoComDesconto(marca) {
+  let preco = marca.preco_venda_atual;
+  const especifico = pedidoClienteDescontos.find(d => d.marca_id === marca.id);
+  const generico = pedidoClienteDescontos.find(d => d.marca_id === null);
+  const d = especifico || generico;
+  if (d) preco = d.tipo === 'porcentagem' ? preco * (1 - d.valor / 100) : Math.max(0, preco - d.valor);
+  return preco;
+}
+
+// ============================================================
+// PEDIDOS: SELEÇÃO DE CLIENTE NO NOVO PEDIDO
+// ============================================================
+function filterClientesPedido() {
+  const termo = document.getElementById('np-busca-cliente').value.trim().toLowerCase();
+  const el = document.getElementById('np-cliente-picker');
+  if (!termo) { el.innerHTML = ''; return; }
+  const filtrados = allClientes.filter(c =>
+    c.nome.toLowerCase().includes(termo) || (c.telefone || '').includes(termo)
+  ).slice(0, 8);
+  el.innerHTML = filtrados.length ? filtrados.map(c => `
+    <div class="list-item" onclick="selecionarClientePedido('${c.id}')">
+      <div class="avatar">${c.nome.slice(0, 2).toUpperCase()}</div>
+      <div class="item-info"><div class="item-name">${c.nome}</div><div class="item-detail">${c.telefone || ''}</div></div>
+    </div>
+  `).join('') : '<div class="picker-empty">Nenhum cliente encontrado</div>';
+}
+
+async function selecionarClientePedido(id) {
+  const c = allClientes.find(x => x.id === id);
+  if (!c) return;
+  document.getElementById('np-cliente-id').value = id;
+  document.getElementById('np-cliente-selecionado').innerHTML =
+    `Selecionado: <strong>${c.nome}</strong>${c.saldo_fiado > 0 ? ` · pendência atual: <span class="text-red">${fmtMoeda(c.saldo_fiado)}</span>` : ''}`;
+  document.getElementById('np-busca-cliente').value = '';
+  document.getElementById('np-cliente-picker').innerHTML = '';
+
+  const { data } = await sb.from('descontos_cliente').select('*').eq('cliente_id', id);
+  pedidoClienteDescontos = data || [];
+  document.querySelectorAll('.pedido-item-row').forEach(row => atualizarItemPedido(parseInt(row.dataset.idx, 10)));
+}
+
+// ============================================================
+// PEDIDOS: ITENS DINÂMICOS DO NOVO PEDIDO
+// ============================================================
+function itemPedidoRowHTML(idx) {
+  const aguaOpts = allMarcas.filter(m => m.ativo && m.tipo === 'agua').map(m => `<option value="${m.id}">${m.nome}</option>`).join('');
+  const gasOpts  = allMarcas.filter(m => m.ativo && m.tipo === 'gas').map(m => `<option value="${m.id}">${m.nome}</option>`).join('');
+  return `
+    <div class="card pedido-item-row" data-idx="${idx}" style="margin-bottom:10px">
+      <div style="display:grid;grid-template-columns:2fr 1fr;gap:8px;margin-bottom:8px">
+        <select class="form-control item-marca" onchange="atualizarItemPedido(${idx})">
+          <option value="">Selecione a marca...</option>
+          ${aguaOpts ? `<optgroup label="Água">${aguaOpts}</optgroup>` : ''}
+          ${gasOpts ? `<optgroup label="Gás">${gasOpts}</optgroup>` : ''}
+        </select>
+        <input type="number" class="form-control item-qtd" min="1" value="1" onchange="atualizarItemPedido(${idx})">
+      </div>
+      <div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center">
+        <select class="form-control item-vasilhame" onchange="atualizarItemPedido(${idx})">
+          <option value="troca">Troca de Vasilhame</option>
+          <option value="venda">Venda do Vasilhame</option>
+          <option value="comodato">Comodato (Empréstimo)</option>
+        </select>
+        <button class="btn btn-outline btn-sm" onclick="removerItemPedido(${idx})">Remover</button>
+      </div>
+      <div class="card-sub item-info-linha" style="margin-top:6px">Selecione uma marca</div>
+    </div>
+  `;
+}
+
+function adicionarItemPedido() {
+  const idx = pedidoItemSeq++;
+  document.getElementById('np-itens-container').insertAdjacentHTML('beforeend', itemPedidoRowHTML(idx));
+}
+
+function removerItemPedido(idx) {
+  const row = document.querySelector(`.pedido-item-row[data-idx="${idx}"]`);
+  if (row) row.remove();
+  recalcularTotalPedido();
+}
+
+function lerItemRow(row) {
+  return {
+    marcaId: row.querySelector('.item-marca').value,
+    quantidade: parseInt(row.querySelector('.item-qtd').value || 0, 10),
+    tipoVasilhame: row.querySelector('.item-vasilhame').value,
+  };
+}
+
+function atualizarItemPedido(idx) {
+  const row = document.querySelector(`.pedido-item-row[data-idx="${idx}"]`);
+  if (!row) return;
+  const { marcaId, quantidade, tipoVasilhame } = lerItemRow(row);
+  const infoEl = row.querySelector('.item-info-linha');
+  if (!marcaId) { infoEl.textContent = 'Selecione uma marca'; recalcularTotalPedido(); return; }
+
+  const origem = resolverOrigemEstoque(marcaId);
+  if (!origem || (origem.tipo === 'agua' && !origem.lote)) {
+    infoEl.innerHTML = '<span class="text-red">Sem lote disponível dessa marca</span>';
+    recalcularTotalPedido();
+    return;
+  }
+  const preco = precoComDesconto(origem.marca);
+  const precoVasilhame = tipoVasilhame === 'venda' ? precoVasilhameAvulso : 0;
+  const totalItem = (preco + precoVasilhame) * quantidade;
+  const avisoEstoque = quantidade > origem.disponivel ? ` <span class="text-red">(só há ${origem.disponivel} disponível)</span>` : '';
+  infoEl.innerHTML = `${fmtMoeda(preco)} cada${precoVasilhame > 0 ? ' + ' + fmtMoeda(precoVasilhame) + ' vasilhame' : ''} · disponível: ${origem.disponivel}${avisoEstoque} · subtotal: ${fmtMoeda(totalItem)}`;
+  recalcularTotalPedido();
+}
+
+function recalcularTotalPedido() {
+  let total = 0;
+  document.querySelectorAll('.pedido-item-row').forEach(row => {
+    const { marcaId, quantidade, tipoVasilhame } = lerItemRow(row);
+    if (!marcaId) return;
+    const origem = resolverOrigemEstoque(marcaId);
+    if (!origem) return;
+    const preco = precoComDesconto(origem.marca);
+    const precoVasilhame = tipoVasilhame === 'venda' ? precoVasilhameAvulso : 0;
+    total += (preco + precoVasilhame) * quantidade;
+  });
+  document.getElementById('np-total').textContent = fmtMoeda(total);
+}
+
+// ============================================================
+// PEDIDOS: NOVO PEDIDO
+// ============================================================
+async function loadEntregadoresList() {
+  const { data } = await sb.from('usuarios').select('id, nome').eq('role', 'entregador').eq('ativo', true);
+  allEntregadores = data || [];
+}
+
+async function abrirNovoPedido() {
+  document.getElementById('np-cliente-id').value = '';
+  document.getElementById('np-cliente-selecionado').textContent = '';
+  document.getElementById('np-busca-cliente').value = '';
+  document.getElementById('np-cliente-picker').innerHTML = '';
+  document.getElementById('np-itens-container').innerHTML = '';
+  document.getElementById('np-forma-pagamento').value = 'dinheiro';
+  document.getElementById('np-observacao').value = '';
+  pedidoClienteDescontos = [];
+  pedidoItemSeq = 0;
+
+  if (!precoVasilhameAvulso) {
+    const { data } = await sb.from('configuracoes').select('valor').eq('chave', 'preco_vasilhame_avulso').maybeSingle();
+    precoVasilhameAvulso = data ? parseFloat(data.valor) : 0;
+  }
+
+  const sel = document.getElementById('np-entregador');
+  sel.innerHTML = '<option value="">Sem entregador definido</option>' +
+    allEntregadores.map(e => `<option value="${e.id}">${e.nome}</option>`).join('');
+
+  adicionarItemPedido();
+  document.getElementById('np-total').textContent = fmtMoeda(0);
+  openModal('modal-novo-pedido');
+}
+
+async function salvarPedido() {
+  const cliente_id = document.getElementById('np-cliente-id').value;
+  if (!cliente_id) { toast('Selecione um cliente', true); return; }
+
+  const rows = [...document.querySelectorAll('.pedido-item-row')];
+  const itens = [];
+  for (const row of rows) {
+    const { marcaId, quantidade, tipoVasilhame } = lerItemRow(row);
+    if (!marcaId || quantidade <= 0) continue;
+    const origem = resolverOrigemEstoque(marcaId);
+    if (!origem || (origem.tipo === 'agua' && !origem.lote) || quantidade > origem.disponivel) {
+      toast(`Estoque insuficiente para ${origem ? origem.marca.nome : 'um dos itens'}`, true);
+      return;
+    }
+    const preco_unitario = precoComDesconto(origem.marca);
+    const preco_vasilhame = tipoVasilhame === 'venda' ? precoVasilhameAvulso : 0;
+    itens.push({ marca_id: marcaId, lote_id: origem.lote ? origem.lote.id : null, quantidade, tipo_vasilhame: tipoVasilhame, preco_unitario, preco_vasilhame, origem });
+  }
+  if (!itens.length) { toast('Adicione pelo menos um item válido', true); return; }
+
+  const total = itens.reduce((s, it) => s + (it.preco_unitario + it.preco_vasilhame) * it.quantidade, 0);
+  const forma_pagamento = document.getElementById('np-forma-pagamento').value;
+  const entregador_id = document.getElementById('np-entregador').value || null;
+  const observacao = document.getElementById('np-observacao').value.trim();
+  const cliente = allClientes.find(c => c.id === cliente_id);
+
+  if (forma_pagamento === 'fiado' && cliente && (cliente.saldo_fiado + total) > cliente.limite_fiado) {
+    const seguir = confirm(`Esse pedido vai deixar a pendência de ${cliente.nome} em ${fmtMoeda(cliente.saldo_fiado + total)}, acima do limite de ${fmtMoeda(cliente.limite_fiado)}.\n\nLançar mesmo assim?`);
+    if (!seguir) return;
+  }
+
+  const { data: pedido, error } = await sb.from('pedidos').insert({
+    cliente_id, forma_pagamento, total, entregador_id, observacao, status: 'concluido', criado_por: currentUserId
+  }).select().single();
+  if (error) { toast('Erro ao criar pedido: ' + error.message, true); return; }
+
+  for (const it of itens) {
+    await sb.from('itens_pedido').insert({
+      pedido_id: pedido.id, lote_id: it.lote_id, marca_id: it.marca_id,
+      quantidade: it.quantidade, preco_unitario: it.preco_unitario,
+      tipo_vasilhame: it.tipo_vasilhame, preco_vasilhame: it.preco_vasilhame,
+    });
+
+    if (it.origem.tipo === 'agua') {
+      const lote = it.origem.lote;
+      const novoCheios = lote.qtd_cheios - it.quantidade;
+      const novoVazios = it.tipo_vasilhame === 'troca' ? lote.qtd_vazios + it.quantidade : lote.qtd_vazios;
+      await sb.from('lotes_garrafao').update({ qtd_cheios: novoCheios, qtd_vazios: novoVazios }).eq('id', lote.id);
+      await sb.from('movimentos_estoque').insert({ lote_id: lote.id, tipo: 'saida_venda', quantidade: -it.quantidade, referencia_pedido_id: pedido.id, criado_por: currentUserId });
+      if (it.tipo_vasilhame === 'troca') {
+        await sb.from('movimentos_estoque').insert({ lote_id: lote.id, tipo: 'retorno_vazio', quantidade: it.quantidade, referencia_pedido_id: pedido.id, criado_por: currentUserId });
+      }
+    } else {
+      const estoque = allEstoqueGas.find(g => g.marca_id === it.marca_id);
+      if (estoque) {
+        const novoCheios = estoque.qtd_cheios - it.quantidade;
+        const novoVazios = it.tipo_vasilhame === 'troca' ? estoque.qtd_vazios + it.quantidade : estoque.qtd_vazios;
+        await sb.from('estoque_gas').update({ qtd_cheios: novoCheios, qtd_vazios: novoVazios }).eq('id', estoque.id);
+      }
+    }
+
+    if (it.tipo_vasilhame === 'comodato' && cliente) {
+      await sb.from('clientes').update({ saldo_comodato_garrafoes: (cliente.saldo_comodato_garrafoes || 0) + it.quantidade }).eq('id', cliente_id);
+    }
+  }
+
+  if (forma_pagamento === 'fiado' && cliente) {
+    await sb.from('clientes').update({ saldo_fiado: (cliente.saldo_fiado || 0) + total }).eq('id', cliente_id);
+  }
+
+  closeModal('modal-novo-pedido');
+  toast('Pedido criado!');
+  await loadClientes();
+  await loadEstoque();
+  await loadPedidos();
+}
+
+// ============================================================
+// PEDIDOS: LISTA
+// ============================================================
+async function loadPedidos() {
+  await loadEntregadoresList();
+  const { data } = await sb.from('pedidos')
+    .select('*, clientes(nome), usuarios(nome)')
+    .order('data', { ascending: false });
+  allPedidos = data || [];
+  renderPedidosList();
+}
+
+function filterPedidos(tipo) {
+  currentPedidoFilter = tipo;
+  ['todos', 'pendente', 'entregue', 'cancelada'].forEach(t =>
+    document.getElementById('tab-pedidos-' + t).classList.toggle('active', t === tipo)
+  );
+  renderPedidosList();
+}
+
+function badgePagamento(forma) {
+  const labels = { dinheiro: 'Dinheiro', pix: 'Pix', fiado: 'Fiado' };
+  const cls = forma === 'fiado' ? 'badge-yellow' : 'badge-green';
+  return `<span class="badge ${cls}">${labels[forma] || forma}</span>`;
+}
+
+function badgeStatusEntrega(status) {
+  if (status === 'entregue')  return '<span class="badge badge-green">Entregue</span>';
+  if (status === 'cancelada') return '<span class="badge badge-red">Cancelado</span>';
+  return '<span class="badge badge-yellow">Pendente</span>';
+}
+
+function renderPedidosList() {
+  const el = document.getElementById('pedidos-list');
+  const lista = currentPedidoFilter === 'todos' ? allPedidos : allPedidos.filter(p => p.status_entrega === currentPedidoFilter);
+  if (!lista.length) { el.innerHTML = '<div class="empty-state">Nenhum pedido encontrado</div>'; return; }
+  el.innerHTML = lista.map(p => `
+    <div class="list-item" style="cursor:pointer" onclick="abrirPedidoDetalhe('${p.id}')">
+      <div class="item-info">
+        <div class="item-name">${p.clientes ? p.clientes.nome : '—'}</div>
+        <div class="item-detail">${fmtData(p.data)}${p.usuarios ? ' · entregador: ' + p.usuarios.nome : ''}</div>
+      </div>
+      <div style="text-align:right">
+        <div class="item-value">${fmtMoeda(p.total)}</div>
+        <div style="margin-top:4px">${badgePagamento(p.forma_pagamento)} ${badgeStatusEntrega(p.status_entrega)}</div>
+      </div>
+    </div>
+  `).join('');
+}
+
+// ============================================================
+// PEDIDOS: DETALHE (pagamento, entrega, cancelamento)
+// ============================================================
+async function abrirPedidoDetalhe(id) {
+  const p = allPedidos.find(x => x.id === id);
+  if (!p) return;
+  currentPedidoDetalheId = id;
+
+  document.getElementById('pd-titulo').textContent = p.clientes ? p.clientes.nome : 'Pedido';
+  document.getElementById('pd-info').innerHTML = `
+    <div class="card-sub">${fmtData(p.data)}</div>
+    <div style="margin-top:6px">${badgePagamento(p.forma_pagamento)} ${badgeStatusEntrega(p.status_entrega)}</div>
+    <div class="item-value" style="margin-top:8px">${fmtMoeda(p.total)}</div>
+    ${p.usuarios ? `<div class="card-sub" style="margin-top:6px">Entregador: ${p.usuarios.nome}</div>` : ''}
+    ${p.observacao ? `<div class="card-sub" style="margin-top:6px">Obs: ${p.observacao}</div>` : ''}
+  `;
+
+  const { data: itens } = await sb.from('itens_pedido').select('*, marcas(nome), lotes_garrafao(ano_validade)').eq('pedido_id', id);
+  const tipoLabel = { troca: 'Troca', venda: 'Venda do Vasilhame', comodato: 'Comodato' };
+  document.getElementById('pd-itens').innerHTML = (itens || []).map(it => `
+    <div class="list-item">
+      <div class="item-info">
+        <div class="item-name">${it.marcas ? it.marcas.nome : '—'} ${it.lotes_garrafao ? '· val. ' + it.lotes_garrafao.ano_validade : ''}</div>
+        <div class="item-detail">${it.quantidade}x · ${tipoLabel[it.tipo_vasilhame]}</div>
+      </div>
+      <div class="item-value">${fmtMoeda((it.preco_unitario + it.preco_vasilhame) * it.quantidade)}</div>
+    </div>
+  `).join('') || '<div class="empty-state">Sem itens</div>';
+
+  const pagamentoCard = document.getElementById('pd-pagamento-card');
+  if (p.forma_pagamento === 'fiado' && p.status !== 'cancelado') {
+    const { data: pagamentos } = await sb.from('pagamentos_fiado').select('valor').eq('pedido_id', id);
+    const totalPago = (pagamentos || []).reduce((s, x) => s + parseFloat(x.valor), 0);
+    const pendente = Math.max(0, p.total - totalPago);
+    if (pendente > 0) {
+      pagamentoCard.style.display = 'block';
+      document.getElementById('pd-pagamento-info').textContent = `Pago até agora: ${fmtMoeda(totalPago)} · Pendente: ${fmtMoeda(pendente)}`;
+      document.getElementById('pd-pagamento-valor').value = pendente.toFixed(2);
+    } else {
+      pagamentoCard.style.display = 'none';
+    }
+  } else {
+    pagamentoCard.style.display = 'none';
+  }
+
+  document.getElementById('pd-btn-entregar').style.display = p.status_entrega === 'pendente' ? 'block' : 'none';
+  document.getElementById('pd-btn-cancelar').style.display = p.status !== 'cancelado' ? 'block' : 'none';
+
+  openModal('modal-pedido-detalhe');
+}
+
+async function confirmarPagamentoPedido() {
+  const id = currentPedidoDetalheId;
+  const p = allPedidos.find(x => x.id === id);
+  if (!p) return;
+  const valor = parseFloat(document.getElementById('pd-pagamento-valor').value || 0);
+  const forma = document.getElementById('pd-pagamento-forma').value;
+  if (valor <= 0) { toast('Informe um valor válido', true); return; }
+
+  const { error } = await sb.from('pagamentos_fiado').insert({ cliente_id: p.cliente_id, pedido_id: id, valor, forma, criado_por: currentUserId });
+  if (error) { toast('Erro ao confirmar pagamento: ' + error.message, true); return; }
+
+  const cliente = allClientes.find(c => c.id === p.cliente_id);
+  const novoSaldo = Math.max(0, (cliente ? cliente.saldo_fiado : 0) - valor);
+  await sb.from('clientes').update({ saldo_fiado: novoSaldo }).eq('id', p.cliente_id);
+
+  toast('Pagamento confirmado!');
+  await loadClientes();
+  await loadPedidos();
+  abrirPedidoDetalhe(id);
+}
+
+async function marcarPedidoEntregue() {
+  const id = currentPedidoDetalheId;
+  const { error } = await sb.from('pedidos').update({ status_entrega: 'entregue', data_entrega: new Date().toISOString() }).eq('id', id);
+  if (error) { toast('Erro ao marcar entregue: ' + error.message, true); return; }
+  toast('Pedido marcado como entregue!');
+  await loadPedidos();
+  abrirPedidoDetalhe(id);
+}
+
+async function cancelarPedido() {
+  const id = currentPedidoDetalheId;
+  const p = allPedidos.find(x => x.id === id);
+  if (!p) return;
+  if (!confirm(`Cancelar o pedido de ${p.clientes ? p.clientes.nome : ''}? O estoque e os saldos afetados serão revertidos.`)) return;
+
+  const { data: itens } = await sb.from('itens_pedido').select('*').eq('pedido_id', id);
+  const cliente = allClientes.find(c => c.id === p.cliente_id);
+  let saldoComodatoDelta = 0;
+
+  for (const it of (itens || [])) {
+    if (it.lote_id) {
+      const { data: lote } = await sb.from('lotes_garrafao').select('*').eq('id', it.lote_id).single();
+      if (lote) {
+        const novoCheios = lote.qtd_cheios + it.quantidade;
+        const novoVazios = it.tipo_vasilhame === 'troca' ? Math.max(0, lote.qtd_vazios - it.quantidade) : lote.qtd_vazios;
+        await sb.from('lotes_garrafao').update({ qtd_cheios: novoCheios, qtd_vazios: novoVazios }).eq('id', it.lote_id);
+        await sb.from('movimentos_estoque').insert({ lote_id: it.lote_id, tipo: 'ajuste', quantidade: it.quantidade, referencia_pedido_id: id, observacao: 'Cancelamento de pedido', criado_por: currentUserId });
+      }
+    } else {
+      const estoque = allEstoqueGas.find(g => g.marca_id === it.marca_id);
+      if (estoque) {
+        const novoCheios = estoque.qtd_cheios + it.quantidade;
+        const novoVazios = it.tipo_vasilhame === 'troca' ? Math.max(0, estoque.qtd_vazios - it.quantidade) : estoque.qtd_vazios;
+        await sb.from('estoque_gas').update({ qtd_cheios: novoCheios, qtd_vazios: novoVazios }).eq('id', estoque.id);
+      }
+    }
+    if (it.tipo_vasilhame === 'comodato') saldoComodatoDelta += it.quantidade;
+  }
+
+  if (saldoComodatoDelta > 0 && cliente) {
+    await sb.from('clientes').update({ saldo_comodato_garrafoes: Math.max(0, cliente.saldo_comodato_garrafoes - saldoComodatoDelta) }).eq('id', p.cliente_id);
+  }
+
+  if (p.forma_pagamento === 'fiado' && cliente) {
+    const { data: pagamentos } = await sb.from('pagamentos_fiado').select('valor').eq('pedido_id', id);
+    const totalPago = (pagamentos || []).reduce((s, x) => s + parseFloat(x.valor), 0);
+    const pendente = Math.max(0, p.total - totalPago);
+    if (pendente > 0) {
+      await sb.from('clientes').update({ saldo_fiado: Math.max(0, cliente.saldo_fiado - pendente) }).eq('id', p.cliente_id);
+    }
+  }
+
+  await sb.from('pedidos').update({ status: 'cancelado', status_entrega: 'cancelada' }).eq('id', id);
+
+  toast('Pedido cancelado e estoque revertido.');
+  closeModal('modal-pedido-detalhe');
+  await loadClientes();
+  await loadEstoque();
+  await loadPedidos();
+}
+
+// ============================================================
+// ENTREGAS (perfil entregador)
+// ============================================================
+async function loadEntregas() {
+  const { data } = await sb.from('pedidos')
+    .select('*, clientes(nome, telefone, endereco)')
+    .eq('entregador_id', currentUserId)
+    .order('data');
+  const pedidos = data || [];
+
+  const el = document.getElementById('entregas-list');
+  if (!pedidos.length) { el.innerHTML = '<div class="empty-state">Nenhuma entrega para hoje</div>'; return; }
+
+  const cards = await Promise.all(pedidos.map(async p => {
+    const { data: itens } = await sb.from('itens_pedido').select('quantidade, marcas(nome)').eq('pedido_id', p.id);
+    const itensTexto = (itens || []).map(it => `${it.quantidade}x ${it.marcas ? it.marcas.nome : ''}`).join(', ');
+    return `
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">${p.clientes ? p.clientes.nome : '—'}</div>
+            <div class="card-sub">${p.clientes ? (p.clientes.telefone || '') : ''}</div>
+          </div>
+          ${badgeStatusEntrega(p.status_entrega)}
+        </div>
+        <div class="card-sub" style="margin:8px 0">${p.clientes ? (p.clientes.endereco || 'Sem endereço cadastrado') : ''}</div>
+        <div class="item-detail" style="margin-bottom:10px">${itensTexto}</div>
+        ${p.status_entrega === 'pendente' ? `<button class="btn btn-success btn-block btn-sm" onclick="marcarEntregaConcluida('${p.id}')">Marcar como Entregue</button>` : ''}
+      </div>
+    `;
+  }));
+
+  el.innerHTML = cards.join('');
+}
+
+async function marcarEntregaConcluida(id) {
+  const { error } = await sb.from('pedidos').update({ status_entrega: 'entregue', data_entrega: new Date().toISOString() }).eq('id', id);
+  if (error) { toast('Erro ao marcar entrega: ' + error.message, true); return; }
+  toast('Entrega confirmada!');
+  loadEntregas();
+}
+
+// ============================================================
+// DASHBOARD
+// ============================================================
+async function loadDashboard() {
+  const hojeStr = new Date().toISOString().slice(0, 10);
+  const { data: caixaRows } = await sb.from('vw_caixa_dia').select('*');
+  const hoje = (caixaRows || []).filter(r => (r.dia || '').slice(0, 10) === hojeStr);
+  const dinheiro = hoje.find(r => r.forma_pagamento === 'dinheiro');
+  const pix = hoje.find(r => r.forma_pagamento === 'pix');
+  const totalDinheiro = dinheiro ? parseFloat(dinheiro.total) : 0;
+  const totalPix = pix ? parseFloat(pix.total) : 0;
+  document.getElementById('dash-caixa-dinheiro').textContent = fmtMoeda(totalDinheiro);
+  document.getElementById('dash-caixa-pix').textContent = fmtMoeda(totalPix);
+  document.getElementById('dash-caixa-total').textContent = fmtMoeda(totalDinheiro + totalPix);
+
+  if (!allMarcas.length || !allLotes.length) await loadEstoque();
+
+  const resumoAgua = {};
+  allLotes.forEach(l => {
+    const nome = l.marcas ? l.marcas.nome : '—';
+    if (!resumoAgua[nome]) resumoAgua[nome] = { cheios: 0, vazios: 0 };
+    resumoAgua[nome].cheios += l.qtd_cheios;
+    resumoAgua[nome].vazios += l.qtd_vazios;
+  });
+  const nomesAgua = Object.keys(resumoAgua);
+  document.getElementById('dash-estoque-agua').innerHTML = nomesAgua.length ? nomesAgua.map(nome => `
+    <div class="list-item"><div class="item-info"><div class="item-name">${nome}</div></div><div class="item-detail">${resumoAgua[nome].cheios} cheios / ${resumoAgua[nome].vazios} vazios</div></div>
+  `).join('') : '<div class="empty-state">Sem lotes cadastrados</div>';
+
+  document.getElementById('dash-estoque-gas').innerHTML = allEstoqueGas.length ? allEstoqueGas.map(g => `
+    <div class="list-item"><div class="item-info"><div class="item-name">${g.marcas ? g.marcas.nome : '—'}</div></div><div class="item-detail">${g.qtd_cheios} cheios / ${g.qtd_vazios} vazios</div></div>
+  `).join('') : '<div class="empty-state">Sem estoque de gás cadastrado</div>';
+
+  if (!allClientes.length) await loadClientes();
+  const devedores = allClientes.filter(c => c.saldo_fiado > 0 || c.saldo_comodato_garrafoes > 0);
+  document.getElementById('dash-devedores').innerHTML = devedores.length ? devedores.map(c => `
+    <div class="list-item">
+      <div class="item-info"><div class="item-name">${c.nome}</div><div class="item-detail">${c.saldo_comodato_garrafoes > 0 ? c.saldo_comodato_garrafoes + ' vasilhame(s) em comodato' : ''}</div></div>
+      <div class="item-value text-red">${fmtMoeda(c.saldo_fiado)}</div>
+    </div>
+  `).join('') : '<div class="empty-state">Nenhum cliente devendo</div>';
 }
 
 // ============================================================
