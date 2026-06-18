@@ -1960,15 +1960,21 @@ function atualizarTotalCE(itemIdx) {
   let total = 0;
   card.querySelectorAll('.ce-split-qtd').forEach(inp => total += parseInt(inp.value || 0, 10));
   const infoEl = card.querySelector('.ce-total-info');
-  infoEl.innerHTML = total === esperado
-    ? `<span class="text-green">Total informado: ${total} de ${esperado}</span>`
-    : `<span class="text-red">Total informado: ${total} de ${esperado} — precisa bater com a quantidade vendida</span>`;
+  const diferenca = esperado - total;
+  if (diferenca === 0) {
+    infoEl.innerHTML = `<span class="text-green">Total informado: ${total} de ${esperado}</span>`;
+  } else if (diferenca > 0) {
+    infoEl.innerHTML = `<span class="text-yellow">Total informado: ${total} de ${esperado} — os ${diferenca} restantes ficam como comodato (empréstimo) com o cliente</span>`;
+  } else {
+    infoEl.innerHTML = `<span class="text-red">Total informado: ${total} de ${esperado} — não pode passar da quantidade vendida</span>`;
+  }
 }
 
 async function confirmarAnoVazioEEntregar() {
   const cards = [...document.querySelectorAll('.ce-item-card')];
   const todosOsSplits = [];
   const avisosLoteNovo = [];
+  const avisosComodato = [];
 
   // busca direto no banco (não usa o cache allLotes, que pode estar vazio
   // na sessão do entregador) pra saber quais lotes já existem de fato
@@ -1985,11 +1991,13 @@ async function confirmarAnoVazioEEntregar() {
       quantidade: parseInt(row.querySelector('.ce-split-qtd').value || 0, 10),
     })).filter(s => s.quantidade > 0);
 
-    if (!splits.length) { toast(`Informe ao menos uma divisão pra ${marcaNome}`, true); return; }
     const totalInformado = splits.reduce((s, x) => s + x.quantidade, 0);
-    if (totalInformado !== esperado) {
-      toast(`A soma devolvida de ${marcaNome} precisa ser ${esperado} (está ${totalInformado})`, true);
+    if (totalInformado > esperado) {
+      toast(`A devolução de ${marcaNome} não pode passar de ${esperado} (está ${totalInformado})`, true);
       return;
+    }
+    if (totalInformado < esperado) {
+      avisosComodato.push(`${marcaNome}: ${esperado - totalInformado}x ficam em comodato`);
     }
     for (const s of splits) {
       if (String(s.ano).length !== 4) { toast(`Informe um ano de validade válido pra ${marcaNome}`, true); return; }
@@ -2000,10 +2008,11 @@ async function confirmarAnoVazioEEntregar() {
     }
   }
 
-  if (avisosLoteNovo.length) {
-    const prosseguir = confirm(
-      `Estes lotes ainda não existem e serão criados automaticamente (sem garrafões cheios, só os vazios devolvidos):\n\n${avisosLoteNovo.join('\n')}\n\nContinuar?`
-    );
+  const avisos = [];
+  if (avisosComodato.length) avisos.push(`Vasilhame não devolvido (vai virar comodato com o cliente):\n${avisosComodato.join('\n')}`);
+  if (avisosLoteNovo.length) avisos.push(`Estes lotes ainda não existem e serão criados automaticamente (sem garrafões cheios, só os vazios devolvidos):\n${avisosLoteNovo.join('\n')}`);
+  if (avisos.length) {
+    const prosseguir = confirm(`${avisos.join('\n\n')}\n\nContinuar?`);
     if (!prosseguir) return;
   }
 

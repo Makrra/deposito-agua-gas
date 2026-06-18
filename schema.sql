@@ -325,6 +325,8 @@ DECLARE
   split RECORD;
   v_lote_destino_id UUID;
   v_tem_splits BOOLEAN;
+  v_total_devolvido INTEGER;
+  v_diferenca INTEGER;
 BEGIN
   FOR item IN SELECT * FROM itens_pedido WHERE pedido_id = NEW.id LOOP
 
@@ -339,7 +341,9 @@ BEGIN
 
         IF v_tem_splits THEN
           -- vasilhame devolvido dividido por ano (pode ser diferente do ano vendido)
+          v_total_devolvido := 0;
           FOR split IN SELECT * FROM vazios_devolvidos_pedido WHERE item_pedido_id = item.id LOOP
+            v_total_devolvido := v_total_devolvido + split.quantidade;
             SELECT id INTO v_lote_destino_id FROM lotes_garrafao
               WHERE marca_id = item.marca_id AND ano_validade = split.ano_validade
               ORDER BY data_chegada DESC LIMIT 1;
@@ -352,6 +356,14 @@ BEGIN
             INSERT INTO movimentos_estoque (lote_id, tipo, quantidade, referencia_pedido_id)
               VALUES (v_lote_destino_id, 'retorno_vazio', split.quantidade, NEW.id);
           END LOOP;
+
+          -- o que faltou devolver fica como comodato (empréstimo) com o cliente
+          v_diferenca := item.quantidade - v_total_devolvido;
+          IF v_diferenca > 0 THEN
+            UPDATE clientes SET saldo_comodato_garrafoes = saldo_comodato_garrafoes + v_diferenca WHERE id = NEW.cliente_id;
+            INSERT INTO movimentos_comodato (cliente_id, marca_id, tipo, quantidade, referencia_pedido_id)
+              VALUES (NEW.cliente_id, item.marca_id, 'emprestimo', v_diferenca, NEW.id);
+          END IF;
         ELSE
           -- sem confirmação de ano: credita tudo de volta no lote de origem
           UPDATE lotes_garrafao SET qtd_vazios = qtd_vazios + item.quantidade WHERE id = item.lote_id;
