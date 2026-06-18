@@ -48,22 +48,25 @@ CREATE TABLE IF NOT EXISTS marcas (
 );
 
 -- ------------------------------------------------------------
--- 4. LOTES_GARRAFAO (lote = marca + ano de validade, só o ano)
+-- 4. LOTES_GARRAFAO (lote = uma entrega: marca + ano de validade + data
+-- de chegada; várias entregas da mesma marca/ano em dias diferentes
+-- geram lotes/cards separados, por isso não há unique em marca+ano)
 -- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS lotes_garrafao (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   marca_id     UUID NOT NULL REFERENCES marcas(id) ON DELETE RESTRICT,
   ano_validade INTEGER NOT NULL CHECK (ano_validade BETWEEN 2000 AND 2100),
+  data_chegada DATE NOT NULL DEFAULT CURRENT_DATE,
   qtd_cheios   INTEGER NOT NULL DEFAULT 0 CHECK (qtd_cheios >= 0),
   qtd_vazios   INTEGER NOT NULL DEFAULT 0 CHECK (qtd_vazios >= 0),
   status       TEXT NOT NULL DEFAULT 'ativo' CHECK (status IN ('ativo','esgotado','vencido','descontinuado')),
   observacao   TEXT,
-  criado_em    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  CONSTRAINT uq_lote UNIQUE (marca_id, ano_validade)
+  criado_em    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_lotes_marca        ON lotes_garrafao(marca_id);
 CREATE INDEX IF NOT EXISTS idx_lotes_ano_validade ON lotes_garrafao(ano_validade);
+CREATE INDEX IF NOT EXISTS idx_lotes_data_chegada ON lotes_garrafao(data_chegada);
 CREATE INDEX IF NOT EXISTS idx_lotes_status       ON lotes_garrafao(status);
 
 -- ------------------------------------------------------------
@@ -342,10 +345,21 @@ CREATE POLICY "pagamentos_fiado_admin_caixa_all" ON pagamentos_fiado FOR ALL
   USING (public.current_role() IN ('administrador','caixa'))
   WITH CHECK (public.current_role() IN ('administrador','caixa'));
 
+-- devolucoes_comodato: administrador e caixa podem ver/criar/editar, mas
+-- só administrador pode excluir uma transação (correção de erro).
 DROP POLICY IF EXISTS "devolucoes_admin_caixa_all" ON devolucoes_comodato;
-CREATE POLICY "devolucoes_admin_caixa_all" ON devolucoes_comodato FOR ALL
-  USING (public.current_role() IN ('administrador','caixa'))
+DROP POLICY IF EXISTS "devolucoes_select_admin_caixa" ON devolucoes_comodato;
+CREATE POLICY "devolucoes_select_admin_caixa" ON devolucoes_comodato FOR SELECT
+  USING (public.current_role() IN ('administrador','caixa'));
+DROP POLICY IF EXISTS "devolucoes_insert_admin_caixa" ON devolucoes_comodato;
+CREATE POLICY "devolucoes_insert_admin_caixa" ON devolucoes_comodato FOR INSERT
   WITH CHECK (public.current_role() IN ('administrador','caixa'));
+DROP POLICY IF EXISTS "devolucoes_update_admin_caixa" ON devolucoes_comodato;
+CREATE POLICY "devolucoes_update_admin_caixa" ON devolucoes_comodato FOR UPDATE
+  USING (public.current_role() IN ('administrador','caixa')) WITH CHECK (public.current_role() IN ('administrador','caixa'));
+DROP POLICY IF EXISTS "devolucoes_delete_admin" ON devolucoes_comodato;
+CREATE POLICY "devolucoes_delete_admin" ON devolucoes_comodato FOR DELETE
+  USING (public.current_role() = 'administrador');
 
 -- descontos_cliente: administrador e caixa podem ver (precisam saber o
 -- desconto pra aplicar num pedido), mas só administrador cria/edita/remove
@@ -478,6 +492,29 @@ ON CONFLICT (chave) DO NOTHING;
 -- CREATE INDEX IF NOT EXISTS idx_descontos_cliente ON descontos_cliente(cliente_id);
 -- ALTER TABLE descontos_cliente ENABLE ROW LEVEL SECURITY;
 -- (rode também os CREATE POLICY de descontos_cliente listados acima na seção RLS)
+
+-- ============================================================
+-- MIGRAÇÃO (rodar só se você já tinha criado lotes_garrafao antes
+-- da coluna data_chegada e da remoção do unique marca+ano)
+-- ============================================================
+-- ALTER TABLE lotes_garrafao DROP CONSTRAINT IF EXISTS uq_lote;
+-- ALTER TABLE lotes_garrafao ADD COLUMN IF NOT EXISTS data_chegada DATE NOT NULL DEFAULT CURRENT_DATE;
+-- CREATE INDEX IF NOT EXISTS idx_lotes_data_chegada ON lotes_garrafao(data_chegada);
+
+-- ============================================================
+-- MIGRAÇÃO (rodar só se a policy de devolucoes_comodato ainda for a
+-- antiga "devolucoes_admin_caixa_all" FOR ALL — restringe DELETE ao
+-- administrador)
+-- ============================================================
+-- DROP POLICY IF EXISTS "devolucoes_admin_caixa_all" ON devolucoes_comodato;
+-- CREATE POLICY "devolucoes_select_admin_caixa" ON devolucoes_comodato FOR SELECT
+--   USING (public.current_role() IN ('administrador','caixa'));
+-- CREATE POLICY "devolucoes_insert_admin_caixa" ON devolucoes_comodato FOR INSERT
+--   WITH CHECK (public.current_role() IN ('administrador','caixa'));
+-- CREATE POLICY "devolucoes_update_admin_caixa" ON devolucoes_comodato FOR UPDATE
+--   USING (public.current_role() IN ('administrador','caixa')) WITH CHECK (public.current_role() IN ('administrador','caixa'));
+-- CREATE POLICY "devolucoes_delete_admin" ON devolucoes_comodato FOR DELETE
+--   USING (public.current_role() = 'administrador');
 
 -- Após rodar este script, crie o primeiro usuário em:
 -- Authentication > Users > Add user (email + senha)
