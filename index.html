@@ -290,7 +290,8 @@ select.form-control option { background: var(--surface); }
 <!-- ======= PAGE: ESTOQUE ======= -->
 <div class="page" id="page-estoque">
   <div class="tabs">
-    <button class="tab-btn active" id="tab-estoque-lotes" onclick="estoqueSetView('lotes')">Lotes</button>
+    <button class="tab-btn active" id="tab-estoque-lotes" onclick="estoqueSetView('lotes')">Lotes (Água)</button>
+    <button class="tab-btn" id="tab-estoque-gas" onclick="estoqueSetView('gas')">Gás</button>
     <button class="tab-btn" id="tab-estoque-marcas" onclick="estoqueSetView('marcas')">Marcas</button>
   </div>
 
@@ -300,6 +301,11 @@ select.form-control option { background: var(--surface); }
       <button class="btn btn-outline btn-sm" style="flex:1" onclick="abrirAvaria()">Registrar Avaria</button>
     </div>
     <div id="lotes-list" class="loading"><div class="spinner"></div>Carregando...</div>
+  </div>
+
+  <div id="estoque-view-gas" style="display:none">
+    <button class="btn btn-primary btn-sm btn-block" style="margin-bottom:14px" onclick="abrirEntradaGas()">+ Entrada de Gás</button>
+    <div id="gas-list" class="loading"><div class="spinner"></div>Carregando...</div>
   </div>
 
   <div id="estoque-view-marcas" style="display:none">
@@ -357,6 +363,13 @@ select.form-control option { background: var(--surface); }
     <div class="modal-title" id="marca-modal-title">Nova Marca</div>
     <input type="hidden" id="marca-id">
     <div class="form-group">
+      <label class="form-label">Tipo</label>
+      <select class="form-control" id="marca-tipo">
+        <option value="agua">Água</option>
+        <option value="gas">Gás</option>
+      </select>
+    </div>
+    <div class="form-group">
       <label class="form-label">Nome da marca</label>
       <input class="form-control" id="marca-nome" placeholder="Ex: Indaiá">
     </div>
@@ -389,6 +402,22 @@ select.form-control option { background: var(--surface); }
       <input class="form-control" id="lote-qtd-cheios" type="number" min="0" placeholder="0">
     </div>
     <button class="btn btn-primary btn-block" onclick="salvarLote()">Salvar</button>
+  </div>
+</div>
+
+<!-- ===== MODAL: Entrada de Gás ===== -->
+<div class="modal-overlay" id="modal-entrada-gas">
+  <div class="modal">
+    <div class="modal-title">Entrada de Gás</div>
+    <div class="form-group">
+      <label class="form-label">Marca</label>
+      <select class="form-control" id="gas-marca"></select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Quantidade de Cheios Recebidos</label>
+      <input class="form-control" id="gas-quantidade" type="number" min="1" placeholder="0">
+    </div>
+    <button class="btn btn-primary btn-block" onclick="salvarEntradaGas()">Salvar</button>
   </div>
 </div>
 
@@ -452,6 +481,7 @@ select.form-control option { background: var(--surface); }
       <textarea class="form-control" id="cliente-observacao" rows="2"></textarea>
     </div>
     <button class="btn btn-primary btn-block" onclick="salvarCliente()">Salvar</button>
+    <button class="btn btn-outline btn-block" id="btn-excluir-cliente" style="display:none;margin-top:8px;color:var(--red);border-color:var(--red)" onclick="excluirCliente()">Excluir Cliente</button>
   </div>
 </div>
 
@@ -464,12 +494,6 @@ select.form-control option { background: var(--surface); }
     <div class="stats" style="grid-template-columns:1fr 1fr">
       <div class="stat-card"><div class="stat-val text-red" id="extrato-saldo-fiado">—</div><div class="stat-lbl">Saldo Pendente Pagamento</div></div>
       <div class="stat-card"><div class="stat-val" id="extrato-saldo-comodato">—</div><div class="stat-lbl">Vasilhames em Comodato</div></div>
-    </div>
-
-    <div class="card">
-      <div class="card-title" style="margin-bottom:10px">Transações de Comodato</div>
-      <div id="comodato-lista"></div>
-      <div class="card-sub" style="margin-top:8px">Empréstimo e devolução de vasilhame são registrados na confirmação do pedido.</div>
     </div>
 
     <div class="card">
@@ -490,8 +514,30 @@ select.form-control option { background: var(--surface); }
       </div>
     </div>
 
-    <div class="card-title" style="margin:16px 0 8px">Histórico de Pagamentos</div>
-    <div id="extrato-historico"></div>
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">Transações de Comodato</div>
+        <button class="btn btn-outline btn-sm" onclick="abrirHistoricoCompleto('comodato')">Ver Todas</button>
+      </div>
+      <div id="comodato-lista"></div>
+      <div class="card-sub" style="margin-top:8px">Empréstimo e devolução de vasilhame são registrados na confirmação do pedido.</div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">Histórico de Pagamentos</div>
+        <button class="btn btn-outline btn-sm" onclick="abrirHistoricoCompleto('pagamentos')">Ver Todas</button>
+      </div>
+      <div id="extrato-historico"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== MODAL: Histórico Completo (Comodato ou Pagamentos) ===== -->
+<div class="modal-overlay" id="modal-historico-completo">
+  <div class="modal">
+    <div class="modal-title" id="historico-completo-titulo">Histórico Completo</div>
+    <div id="historico-completo-lista"></div>
   </div>
 </div>
 
@@ -514,6 +560,7 @@ const PAGES_ADMIN_CAIXA = ['dash', 'pedidos', 'estoque', 'clientes'];
 
 let allMarcas = [];
 let allLotes = [];
+let allEstoqueGas = [];
 let allClientes = [];
 
 // ============================================================
@@ -569,8 +616,10 @@ const fmtData  = d => d ? new Date(d).toLocaleDateString('pt-BR') : '—';
 // ============================================================
 function estoqueSetView(view) {
   document.getElementById('estoque-view-lotes').style.display  = view === 'lotes'  ? 'block' : 'none';
+  document.getElementById('estoque-view-gas').style.display    = view === 'gas'    ? 'block' : 'none';
   document.getElementById('estoque-view-marcas').style.display = view === 'marcas' ? 'block' : 'none';
   document.getElementById('tab-estoque-lotes').classList.toggle('active', view === 'lotes');
+  document.getElementById('tab-estoque-gas').classList.toggle('active', view === 'gas');
   document.getElementById('tab-estoque-marcas').classList.toggle('active', view === 'marcas');
 }
 
@@ -584,6 +633,10 @@ async function loadEstoque() {
   const { data: lotes } = await sb.from('lotes_garrafao').select('*, marcas(nome)').order('ano_validade').order('data_chegada');
   allLotes = lotes || [];
   renderLotesList();
+
+  const { data: gas } = await sb.from('estoque_gas').select('*, marcas(nome)').order('criado_em');
+  allEstoqueGas = gas || [];
+  renderGasList();
 }
 
 function renderMarcasList() {
@@ -593,8 +646,8 @@ function renderMarcasList() {
   el.innerHTML = allMarcas.map(m => `
     <div class="list-item">
       <div class="item-info">
-        <div class="item-name">${m.nome}${m.ativo ? '' : ' <span class="badge badge-red">inativa</span>'}</div>
-        <div class="item-detail">${fmtMoeda(m.preco_venda_atual)} / garrafão</div>
+        <div class="item-name">${m.nome} <span class="badge badge-blue">${m.tipo === 'gas' ? 'Gás' : 'Água'}</span>${m.ativo ? '' : ' <span class="badge badge-red">Inativa</span>'}</div>
+        <div class="item-detail">${fmtMoeda(m.preco_venda_atual)} / ${m.tipo === 'gas' ? 'botijão' : 'garrafão'}</div>
       </div>
       ${podeEditar ? `<button class="btn btn-outline btn-sm" onclick="abrirEditarMarca('${m.id}')">Editar</button>` : ''}
     </div>
@@ -605,6 +658,7 @@ function abrirNovaMarca() {
   if (currentUserRole !== 'administrador') { toast('Só o administrador pode cadastrar marcas', true); return; }
   document.getElementById('marca-modal-title').textContent = 'Nova Marca';
   document.getElementById('marca-id').value = '';
+  document.getElementById('marca-tipo').value = 'agua';
   document.getElementById('marca-nome').value = '';
   document.getElementById('marca-preco').value = '';
   openModal('modal-marca');
@@ -615,6 +669,7 @@ function abrirEditarMarca(id) {
   if (!m) return;
   document.getElementById('marca-modal-title').textContent = 'Editar Marca';
   document.getElementById('marca-id').value = m.id;
+  document.getElementById('marca-tipo').value = m.tipo;
   document.getElementById('marca-nome').value = m.nome;
   document.getElementById('marca-preco').value = m.preco_venda_atual;
   openModal('modal-marca');
@@ -622,18 +677,69 @@ function abrirEditarMarca(id) {
 
 async function salvarMarca() {
   const id = document.getElementById('marca-id').value;
+  const tipo = document.getElementById('marca-tipo').value;
   const nome = document.getElementById('marca-nome').value.trim();
   const preco = parseFloat(document.getElementById('marca-preco').value || 0);
   if (!nome) { toast('Informe o nome da marca', true); return; }
 
-  const payload = { nome, preco_venda_atual: preco };
-  const { error } = id
-    ? await sb.from('marcas').update(payload).eq('id', id)
-    : await sb.from('marcas').insert(payload);
+  const payload = { nome, tipo, preco_venda_atual: preco };
+  const { data: marca, error } = id
+    ? await sb.from('marcas').update(payload).eq('id', id).select().single()
+    : await sb.from('marcas').insert(payload).select().single();
 
   if (error) { toast('Erro ao salvar marca: ' + error.message, true); return; }
+
+  if (tipo === 'gas' && marca) {
+    const { data: existente } = await sb.from('estoque_gas').select('id').eq('marca_id', marca.id).maybeSingle();
+    if (!existente) await sb.from('estoque_gas').insert({ marca_id: marca.id });
+  }
+
   closeModal('modal-marca');
   toast('Marca salva!');
+  loadEstoque();
+}
+
+// ============================================================
+// ESTOQUE: GÁS (sem validade, só contador de cheios/vazios)
+// ============================================================
+function renderGasList() {
+  const el = document.getElementById('gas-list');
+  if (!allEstoqueGas.length) { el.innerHTML = '<div class="empty-state">Nenhuma marca de gás com estoque ainda</div>'; return; }
+  el.innerHTML = allEstoqueGas.map(g => `
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">${g.marcas ? g.marcas.nome : '—'}</div>
+      </div>
+      <div style="display:flex;gap:16px">
+        <div><div class="item-value">${g.qtd_cheios}</div><div class="item-detail">cheios</div></div>
+        <div><div class="item-value">${g.qtd_vazios}</div><div class="item-detail">vazios</div></div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function abrirEntradaGas() {
+  const sel = document.getElementById('gas-marca');
+  sel.innerHTML = allMarcas.filter(m => m.ativo && m.tipo === 'gas').map(m => `<option value="${m.id}">${m.nome}</option>`).join('')
+    || '<option value="">Nenhuma marca de gás cadastrada</option>';
+  document.getElementById('gas-quantidade').value = '';
+  openModal('modal-entrada-gas');
+}
+
+async function salvarEntradaGas() {
+  const marca_id = document.getElementById('gas-marca').value;
+  const quantidade = parseInt(document.getElementById('gas-quantidade').value || 0, 10);
+  if (!marca_id || quantidade <= 0) { toast('Selecione a marca e a quantidade', true); return; }
+
+  const existente = allEstoqueGas.find(g => g.marca_id === marca_id);
+  if (existente) {
+    await sb.from('estoque_gas').update({ qtd_cheios: existente.qtd_cheios + quantidade }).eq('id', existente.id);
+  } else {
+    await sb.from('estoque_gas').insert({ marca_id, qtd_cheios: quantidade });
+  }
+
+  closeModal('modal-entrada-gas');
+  toast('Entrada de gás registrada!');
   loadEstoque();
 }
 
@@ -680,7 +786,8 @@ function preencherSelectLotes(selectEl, { somenteComCheios = false } = {}) {
 
 function abrirNovoLote() {
   const sel = document.getElementById('lote-marca');
-  sel.innerHTML = allMarcas.filter(m => m.ativo).map(m => `<option value="${m.id}">${m.nome}</option>`).join('');
+  sel.innerHTML = allMarcas.filter(m => m.ativo && m.tipo === 'agua').map(m => `<option value="${m.id}">${m.nome}</option>`).join('')
+    || '<option value="">Nenhuma marca de água cadastrada</option>';
   document.getElementById('lote-data-chegada').value = new Date().toISOString().slice(0, 10);
   document.getElementById('lote-ano-validade').value = new Date().getFullYear() + 3;
   document.getElementById('lote-qtd-cheios').value = '';
@@ -789,6 +896,7 @@ function abrirNovoCliente() {
   document.getElementById('cliente-limite-fiado').value = '0';
   document.getElementById('cliente-observacao').value = '';
   aplicarRestricaoLimiteFiado();
+  document.getElementById('btn-excluir-cliente').style.display = 'none';
   openModal('modal-cliente');
 }
 
@@ -804,7 +912,31 @@ function abrirEditarCliente(id) {
   document.getElementById('cliente-limite-fiado').value = c.limite_fiado;
   document.getElementById('cliente-observacao').value = c.observacao || '';
   aplicarRestricaoLimiteFiado();
+  document.getElementById('btn-excluir-cliente').style.display = currentUserRole === 'administrador' ? 'block' : 'none';
   openModal('modal-cliente');
+}
+
+async function excluirCliente() {
+  const id = document.getElementById('cliente-id').value;
+  const c = allClientes.find(x => x.id === id);
+  if (!id || !c) return;
+
+  const primeiraConfirmacao = confirm(
+    `Excluir o cliente "${c.nome}"?\n\nTodo o histórico de pagamentos de pendência e de vasilhames em comodato desse cliente será perdido permanentemente.`
+  );
+  if (!primeiraConfirmacao) return;
+
+  const segundaConfirmacao = confirm(
+    `Tem certeza ABSOLUTA? Essa ação não pode ser desfeita.\n\nCliente: ${c.nome}`
+  );
+  if (!segundaConfirmacao) return;
+
+  const { error } = await sb.from('clientes').delete().eq('id', id);
+  if (error) { toast('Erro ao excluir cliente: ' + error.message, true); return; }
+
+  closeModal('modal-cliente');
+  toast('Cliente excluído.');
+  loadClientes();
 }
 
 async function salvarCliente() {
@@ -836,6 +968,9 @@ async function salvarCliente() {
 // ============================================================
 // EXTRATO DO CLIENTE (fiado + comodato)
 // ============================================================
+let currentComodatoFull = [];
+let currentPagamentosFull = [];
+
 async function abrirExtratoCliente(id) {
   const c = allClientes.find(x => x.id === id);
   if (!c) return;
@@ -847,12 +982,7 @@ async function abrirExtratoCliente(id) {
 
   await loadDescontosCliente(id);
   await loadComodatoTransacoes(id);
-
-  const { data: pagamentos } = await sb.from('pagamentos_fiado').select('*').eq('cliente_id', id).order('data', { ascending: false });
-  const histPag = (pagamentos || []).map(p => `
-    <div class="list-item"><div class="item-info"><div class="item-name">Pagamento (${p.forma})</div><div class="item-detail">${fmtData(p.data)}</div></div><div class="item-value text-green">${fmtMoeda(p.valor)}</div></div>
-  `);
-  document.getElementById('extrato-historico').innerHTML = histPag.length ? histPag.join('') : '<div class="empty-state">Sem pagamentos registrados ainda</div>';
+  await loadPagamentosCliente(id);
 
   openModal('modal-extrato');
 }
@@ -865,14 +995,13 @@ async function loadComodatoTransacoes(clienteId) {
     .select('*, lotes_garrafao(ano_validade, marcas(nome))')
     .eq('cliente_id', clienteId)
     .order('data', { ascending: false });
-  renderComodatoLista(data || []);
+  currentComodatoFull = data || [];
+  renderComodatoLista(currentComodatoFull.slice(0, 5), 'comodato-lista');
 }
 
-function renderComodatoLista(transacoes) {
-  const el = document.getElementById('comodato-lista');
+function comodatoRowHTML(d) {
   const podeExcluir = currentUserRole === 'administrador';
-  if (!transacoes.length) { el.innerHTML = '<div class="empty-state">Sem transações de comodato ainda</div>'; return; }
-  el.innerHTML = transacoes.map(d => `
+  return `
     <div class="list-item">
       <div class="item-info">
         <div class="item-name">Devolução de Vasilhame</div>
@@ -881,7 +1010,13 @@ function renderComodatoLista(transacoes) {
       <div class="item-value">${d.quantidade}x</div>
       ${podeExcluir ? `<button class="btn btn-outline btn-sm" onclick="removerDevolucaoTransacao('${d.id}', '${d.cliente_id}', '${d.lote_id}', ${d.quantidade})">Excluir</button>` : ''}
     </div>
-  `).join('');
+  `;
+}
+
+function renderComodatoLista(transacoes, elId) {
+  const el = document.getElementById(elId);
+  if (!transacoes.length) { el.innerHTML = '<div class="empty-state">Sem transações de comodato ainda</div>'; return; }
+  el.innerHTML = transacoes.map(comodatoRowHTML).join('');
 }
 
 async function removerDevolucaoTransacao(id, clienteId, loteId, quantidade) {
@@ -895,9 +1030,43 @@ async function removerDevolucaoTransacao(id, clienteId, loteId, quantidade) {
   await sb.from('movimentos_estoque').insert({ lote_id: loteId, tipo: 'ajuste', quantidade: -quantidade, observacao: 'Exclusão de devolução de comodato', criado_por: currentUserId });
 
   toast('Transação excluída!');
+  closeModal('modal-historico-completo');
   await loadClientes();
   await loadEstoque();
   abrirExtratoCliente(clienteId);
+}
+
+// ============================================================
+// HISTÓRICO DE PAGAMENTOS
+// ============================================================
+async function loadPagamentosCliente(clienteId) {
+  const { data } = await sb.from('pagamentos_fiado').select('*').eq('cliente_id', clienteId).order('data', { ascending: false });
+  currentPagamentosFull = data || [];
+  renderPagamentosLista(currentPagamentosFull.slice(0, 5), 'extrato-historico');
+}
+
+function pagamentoRowHTML(p) {
+  return `<div class="list-item"><div class="item-info"><div class="item-name">Pagamento (${p.forma})</div><div class="item-detail">${fmtData(p.data)}</div></div><div class="item-value text-green">${fmtMoeda(p.valor)}</div></div>`;
+}
+
+function renderPagamentosLista(pagamentos, elId) {
+  const el = document.getElementById(elId);
+  if (!pagamentos.length) { el.innerHTML = '<div class="empty-state">Sem pagamentos registrados ainda</div>'; return; }
+  el.innerHTML = pagamentos.map(pagamentoRowHTML).join('');
+}
+
+// ============================================================
+// VER TODAS (histórico completo arquivado)
+// ============================================================
+function abrirHistoricoCompleto(tipo) {
+  if (tipo === 'comodato') {
+    document.getElementById('historico-completo-titulo').textContent = 'Todas as Transações de Comodato';
+    renderComodatoLista(currentComodatoFull, 'historico-completo-lista');
+  } else {
+    document.getElementById('historico-completo-titulo').textContent = 'Todos os Pagamentos';
+    renderPagamentosLista(currentPagamentosFull, 'historico-completo-lista');
+  }
+  openModal('modal-historico-completo');
 }
 
 // ============================================================

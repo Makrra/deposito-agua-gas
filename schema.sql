@@ -37,11 +37,12 @@ CREATE TABLE IF NOT EXISTS configuracoes (
 );
 
 -- ------------------------------------------------------------
--- 3. MARCAS (marca da água, preço de venda atual)
+-- 3. MARCAS (marca de água ou de gás, preço de venda atual)
 -- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS marcas (
   id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   nome              TEXT NOT NULL UNIQUE,
+  tipo              TEXT NOT NULL DEFAULT 'agua' CHECK (tipo IN ('agua','gas')),
   preco_venda_atual NUMERIC(10,2) NOT NULL DEFAULT 0,
   ativo             BOOLEAN NOT NULL DEFAULT true,
   criado_em         TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -68,6 +69,20 @@ CREATE INDEX IF NOT EXISTS idx_lotes_marca        ON lotes_garrafao(marca_id);
 CREATE INDEX IF NOT EXISTS idx_lotes_ano_validade ON lotes_garrafao(ano_validade);
 CREATE INDEX IF NOT EXISTS idx_lotes_data_chegada ON lotes_garrafao(data_chegada);
 CREATE INDEX IF NOT EXISTS idx_lotes_status       ON lotes_garrafao(status);
+
+-- ------------------------------------------------------------
+-- 4b. ESTOQUE_GAS (gás não tem validade nem lote por data — é só um
+-- contador de cheios/vazios por marca de gás)
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS estoque_gas (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  marca_id   UUID NOT NULL UNIQUE REFERENCES marcas(id) ON DELETE CASCADE,
+  qtd_cheios INTEGER NOT NULL DEFAULT 0 CHECK (qtd_cheios >= 0),
+  qtd_vazios INTEGER NOT NULL DEFAULT 0 CHECK (qtd_vazios >= 0),
+  criado_em  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_estoque_gas_marca ON estoque_gas(marca_id);
 
 -- ------------------------------------------------------------
 -- 5. CLIENTES
@@ -167,7 +182,7 @@ CREATE INDEX IF NOT EXISTS idx_avarias_lote ON avarias(lote_id);
 -- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS pagamentos_fiado (
   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  cliente_id UUID NOT NULL REFERENCES clientes(id) ON DELETE RESTRICT,
+  cliente_id UUID NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
   valor      NUMERIC(10,2) NOT NULL CHECK (valor > 0),
   forma      TEXT NOT NULL DEFAULT 'dinheiro' CHECK (forma IN ('dinheiro','pix')),
   data       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -182,7 +197,7 @@ CREATE INDEX IF NOT EXISTS idx_pag_fiado_cliente ON pagamentos_fiado(cliente_id)
 -- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS devolucoes_comodato (
   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  cliente_id UUID NOT NULL REFERENCES clientes(id) ON DELETE RESTRICT,
+  cliente_id UUID NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
   lote_id    UUID NOT NULL REFERENCES lotes_garrafao(id) ON DELETE RESTRICT,
   quantidade INTEGER NOT NULL CHECK (quantidade > 0),
   data       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -276,6 +291,7 @@ ALTER TABLE usuarios            ENABLE ROW LEVEL SECURITY;
 ALTER TABLE configuracoes       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE marcas              ENABLE ROW LEVEL SECURITY;
 ALTER TABLE lotes_garrafao      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE estoque_gas         ENABLE ROW LEVEL SECURITY;
 ALTER TABLE clientes            ENABLE ROW LEVEL SECURITY;
 ALTER TABLE pedidos             ENABLE ROW LEVEL SECURITY;
 ALTER TABLE itens_pedido        ENABLE ROW LEVEL SECURITY;
@@ -324,9 +340,14 @@ DROP POLICY IF EXISTS "marcas_delete_admin" ON marcas;
 CREATE POLICY "marcas_delete_admin" ON marcas FOR DELETE
   USING (public.current_role() = 'administrador');
 
--- lotes_garrafao, movimentos_estoque, avarias: administrador e caixa operam tudo.
+-- lotes_garrafao, estoque_gas, movimentos_estoque, avarias: administrador e caixa operam tudo.
 DROP POLICY IF EXISTS "lotes_admin_caixa_all" ON lotes_garrafao;
 CREATE POLICY "lotes_admin_caixa_all" ON lotes_garrafao FOR ALL
+  USING (public.current_role() IN ('administrador','caixa'))
+  WITH CHECK (public.current_role() IN ('administrador','caixa'));
+
+DROP POLICY IF EXISTS "estoque_gas_admin_caixa_all" ON estoque_gas;
+CREATE POLICY "estoque_gas_admin_caixa_all" ON estoque_gas FOR ALL
   USING (public.current_role() IN ('administrador','caixa'))
   WITH CHECK (public.current_role() IN ('administrador','caixa'));
 
@@ -378,13 +399,22 @@ DROP POLICY IF EXISTS "descontos_delete_admin" ON descontos_cliente;
 CREATE POLICY "descontos_delete_admin" ON descontos_cliente FOR DELETE
   USING (public.current_role() = 'administrador');
 
--- clientes: administrador/caixa têm acesso total (limite_fiado é protegido
--- por trigger, não por RLS); entregador só vê clientes de entregas do dia
--- atribuídas a ele.
+-- clientes: administrador/caixa podem ver/criar/editar (limite_fiado é
+-- protegido por trigger, não por RLS); só administrador pode excluir um
+-- cliente; entregador só vê clientes de entregas do dia atribuídas a ele.
 DROP POLICY IF EXISTS "clientes_admin_caixa_all" ON clientes;
-CREATE POLICY "clientes_admin_caixa_all" ON clientes FOR ALL
-  USING (public.current_role() IN ('administrador','caixa'))
+DROP POLICY IF EXISTS "clientes_select_admin_caixa" ON clientes;
+CREATE POLICY "clientes_select_admin_caixa" ON clientes FOR SELECT
+  USING (public.current_role() IN ('administrador','caixa'));
+DROP POLICY IF EXISTS "clientes_insert_admin_caixa" ON clientes;
+CREATE POLICY "clientes_insert_admin_caixa" ON clientes FOR INSERT
   WITH CHECK (public.current_role() IN ('administrador','caixa'));
+DROP POLICY IF EXISTS "clientes_update_admin_caixa" ON clientes;
+CREATE POLICY "clientes_update_admin_caixa" ON clientes FOR UPDATE
+  USING (public.current_role() IN ('administrador','caixa')) WITH CHECK (public.current_role() IN ('administrador','caixa'));
+DROP POLICY IF EXISTS "clientes_delete_admin" ON clientes;
+CREATE POLICY "clientes_delete_admin" ON clientes FOR DELETE
+  USING (public.current_role() = 'administrador');
 
 DROP POLICY IF EXISTS "clientes_entregador_select" ON clientes;
 CREATE POLICY "clientes_entregador_select" ON clientes FOR SELECT
@@ -515,6 +545,43 @@ ON CONFLICT (chave) DO NOTHING;
 --   USING (public.current_role() IN ('administrador','caixa')) WITH CHECK (public.current_role() IN ('administrador','caixa'));
 -- CREATE POLICY "devolucoes_delete_admin" ON devolucoes_comodato FOR DELETE
 --   USING (public.current_role() = 'administrador');
+
+-- ============================================================
+-- MIGRAÇÃO: permitir excluir cliente (admin) e arrastar pagamentos/
+-- devoluções de comodato junto (cascade), em vez de bloquear a exclusão
+-- ============================================================
+-- ALTER TABLE pagamentos_fiado DROP CONSTRAINT IF EXISTS pagamentos_fiado_cliente_id_fkey;
+-- ALTER TABLE pagamentos_fiado ADD CONSTRAINT pagamentos_fiado_cliente_id_fkey FOREIGN KEY (cliente_id) REFERENCES clientes(id) ON DELETE CASCADE;
+-- ALTER TABLE devolucoes_comodato DROP CONSTRAINT IF EXISTS devolucoes_comodato_cliente_id_fkey;
+-- ALTER TABLE devolucoes_comodato ADD CONSTRAINT devolucoes_comodato_cliente_id_fkey FOREIGN KEY (cliente_id) REFERENCES clientes(id) ON DELETE CASCADE;
+--
+-- DROP POLICY IF EXISTS "clientes_admin_caixa_all" ON clientes;
+-- CREATE POLICY "clientes_select_admin_caixa" ON clientes FOR SELECT
+--   USING (public.current_role() IN ('administrador','caixa'));
+-- CREATE POLICY "clientes_insert_admin_caixa" ON clientes FOR INSERT
+--   WITH CHECK (public.current_role() IN ('administrador','caixa'));
+-- CREATE POLICY "clientes_update_admin_caixa" ON clientes FOR UPDATE
+--   USING (public.current_role() IN ('administrador','caixa')) WITH CHECK (public.current_role() IN ('administrador','caixa'));
+-- CREATE POLICY "clientes_delete_admin" ON clientes FOR DELETE
+--   USING (public.current_role() = 'administrador');
+
+-- ============================================================
+-- MIGRAÇÃO: suporte a venda de gás (marcas.tipo + estoque_gas)
+-- ============================================================
+-- ALTER TABLE marcas ADD COLUMN IF NOT EXISTS tipo TEXT NOT NULL DEFAULT 'agua' CHECK (tipo IN ('agua','gas'));
+--
+-- CREATE TABLE IF NOT EXISTS estoque_gas (
+--   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+--   marca_id   UUID NOT NULL UNIQUE REFERENCES marcas(id) ON DELETE CASCADE,
+--   qtd_cheios INTEGER NOT NULL DEFAULT 0 CHECK (qtd_cheios >= 0),
+--   qtd_vazios INTEGER NOT NULL DEFAULT 0 CHECK (qtd_vazios >= 0),
+--   criado_em  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+-- );
+-- CREATE INDEX IF NOT EXISTS idx_estoque_gas_marca ON estoque_gas(marca_id);
+-- ALTER TABLE estoque_gas ENABLE ROW LEVEL SECURITY;
+-- CREATE POLICY "estoque_gas_admin_caixa_all" ON estoque_gas FOR ALL
+--   USING (public.current_role() IN ('administrador','caixa'))
+--   WITH CHECK (public.current_role() IN ('administrador','caixa'));
 
 -- Após rodar este script, crie o primeiro usuário em:
 -- Authentication > Users > Add user (email + senha)
