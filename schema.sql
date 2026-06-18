@@ -132,15 +132,17 @@ CREATE INDEX IF NOT EXISTS idx_pedidos_data           ON pedidos(data);
 -- nesse caso o estoque é resolvido por marca_id em estoque_gas)
 -- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS itens_pedido (
-  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  pedido_id      UUID NOT NULL REFERENCES pedidos(id) ON DELETE CASCADE,
-  lote_id        UUID REFERENCES lotes_garrafao(id) ON DELETE RESTRICT,
-  marca_id       UUID NOT NULL REFERENCES marcas(id) ON DELETE RESTRICT,
-  quantidade     INTEGER NOT NULL CHECK (quantidade > 0),
-  preco_unitario NUMERIC(10,2) NOT NULL,
-  tipo_vasilhame TEXT NOT NULL DEFAULT 'troca' CHECK (tipo_vasilhame IN ('troca','venda','comodato')),
-  preco_vasilhame NUMERIC(10,2) NOT NULL DEFAULT 0,
-  criado_em      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  pedido_id        UUID NOT NULL REFERENCES pedidos(id) ON DELETE CASCADE,
+  lote_id          UUID REFERENCES lotes_garrafao(id) ON DELETE RESTRICT,
+  marca_id         UUID NOT NULL REFERENCES marcas(id) ON DELETE RESTRICT,
+  quantidade       INTEGER NOT NULL CHECK (quantidade > 0),
+  preco_base       NUMERIC(10,2) NOT NULL DEFAULT 0, -- preço de tabela da marca, antes do desconto do cliente
+  preco_unitario   NUMERIC(10,2) NOT NULL, -- preço já com desconto aplicado
+  tipo_vasilhame   TEXT NOT NULL DEFAULT 'troca' CHECK (tipo_vasilhame IN ('troca','venda','comodato')),
+  preco_vasilhame  NUMERIC(10,2) NOT NULL DEFAULT 0,
+  ano_validade_vazio INTEGER, -- só pra troca de água: ano do vasilhame que o cliente devolveu (pode ser diferente do ano vendido)
+  criado_em        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_itens_pedido_pedido ON itens_pedido(pedido_id);
@@ -179,12 +181,13 @@ CREATE TABLE IF NOT EXISTS avarias (
 CREATE INDEX IF NOT EXISTS idx_avarias_lote ON avarias(lote_id);
 
 -- ------------------------------------------------------------
--- 10. PAGAMENTOS_FIADO (abate saldo_fiado do cliente)
+-- 10. PAGAMENTOS_PEDIDO (qualquer forma de pagamento, vinculado a um
+-- pedido específico; quando o pedido é fiado, também abate saldo_fiado)
 -- ------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS pagamentos_fiado (
+CREATE TABLE IF NOT EXISTS pagamentos_pedido (
   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   cliente_id UUID NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
-  pedido_id  UUID REFERENCES pedidos(id) ON DELETE SET NULL, -- pagamento pode ser vinculado a um pedido específico (confirmação de pagamento)
+  pedido_id  UUID REFERENCES pedidos(id) ON DELETE SET NULL,
   valor      NUMERIC(10,2) NOT NULL CHECK (valor > 0),
   forma      TEXT NOT NULL DEFAULT 'dinheiro' CHECK (forma IN ('dinheiro','pix')),
   data       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -192,22 +195,26 @@ CREATE TABLE IF NOT EXISTS pagamentos_fiado (
   criado_por UUID REFERENCES usuarios(id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_pag_fiado_cliente ON pagamentos_fiado(cliente_id);
-CREATE INDEX IF NOT EXISTS idx_pag_fiado_pedido  ON pagamentos_fiado(pedido_id);
+CREATE INDEX IF NOT EXISTS idx_pag_pedido_cliente ON pagamentos_pedido(cliente_id);
+CREATE INDEX IF NOT EXISTS idx_pag_pedido_pedido  ON pagamentos_pedido(pedido_id);
 
 -- ------------------------------------------------------------
--- 11. DEVOLUCOES_COMODATO (abate saldo_comodato_garrafoes do cliente)
+-- 11. MOVIMENTOS_COMODATO (empréstimo e devolução de vasilhame;
+-- empréstimo soma saldo_comodato_garrafoes do cliente, devolução abate)
 -- ------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS devolucoes_comodato (
-  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  cliente_id UUID NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
-  lote_id    UUID NOT NULL REFERENCES lotes_garrafao(id) ON DELETE RESTRICT,
-  quantidade INTEGER NOT NULL CHECK (quantidade > 0),
-  data       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  criado_por UUID REFERENCES usuarios(id)
+CREATE TABLE IF NOT EXISTS movimentos_comodato (
+  id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  cliente_id           UUID NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
+  marca_id             UUID NOT NULL REFERENCES marcas(id) ON DELETE RESTRICT,
+  lote_id              UUID REFERENCES lotes_garrafao(id) ON DELETE RESTRICT, -- só em devolução de água; gás e empréstimo ficam NULL
+  tipo                 TEXT NOT NULL DEFAULT 'devolucao' CHECK (tipo IN ('emprestimo','devolucao')),
+  quantidade           INTEGER NOT NULL CHECK (quantidade > 0),
+  referencia_pedido_id UUID REFERENCES pedidos(id),
+  data                 TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  criado_por           UUID REFERENCES usuarios(id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_devolucoes_cliente ON devolucoes_comodato(cliente_id);
+CREATE INDEX IF NOT EXISTS idx_mov_comodato_cliente ON movimentos_comodato(cliente_id);
 
 -- ------------------------------------------------------------
 -- 12. DESCONTOS_CLIENTE (desconto por cliente, opcionalmente por marca)
@@ -288,6 +295,76 @@ CREATE TRIGGER trg_guard_clientes_caixa
   FOR EACH ROW EXECUTE FUNCTION public.guard_clientes_caixa();
 
 -- ============================================================
+-- PROCESSAMENTO DA ENTREGA (SECURITY DEFINER): roda quando status_entrega
+-- passa de 'pendente' para 'entregue', seja pelo administrador/caixa ou
+-- pelo entregador. É só nesse momento que o estoque (cheios/vazios),
+-- o comodato e o débito de fiado de fato se efetivam — pedido recém-
+-- criado fica "pendente" sem mexer em nada disso. Por que trigger e não
+-- chamadas sequenciais no JS: o entregador não tem (e não deve ter) RLS
+-- de escrita em lotes_garrafao/estoque_gas/clientes/movimentos_*, então
+-- isso precisa rodar com privilégio elevado no banco.
+-- ============================================================
+CREATE OR REPLACE FUNCTION public.processar_entrega_pedido()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+  item RECORD;
+  v_lote_destino_id UUID;
+  v_ano_destino INTEGER;
+BEGIN
+  FOR item IN SELECT * FROM itens_pedido WHERE pedido_id = NEW.id LOOP
+
+    IF item.lote_id IS NOT NULL THEN
+      -- ÁGUA: baixa cheios do lote de origem
+      UPDATE lotes_garrafao SET qtd_cheios = GREATEST(0, qtd_cheios - item.quantidade) WHERE id = item.lote_id;
+      INSERT INTO movimentos_estoque (lote_id, tipo, quantidade, referencia_pedido_id)
+        VALUES (item.lote_id, 'saida_venda', -item.quantidade, NEW.id);
+
+      IF item.tipo_vasilhame = 'troca' THEN
+        v_ano_destino := COALESCE(item.ano_validade_vazio, (SELECT ano_validade FROM lotes_garrafao WHERE id = item.lote_id));
+        SELECT id INTO v_lote_destino_id FROM lotes_garrafao
+          WHERE marca_id = item.marca_id AND ano_validade = v_ano_destino
+          ORDER BY data_chegada DESC LIMIT 1;
+        IF v_lote_destino_id IS NULL THEN
+          INSERT INTO lotes_garrafao (marca_id, ano_validade, qtd_cheios, qtd_vazios, observacao)
+            VALUES (item.marca_id, v_ano_destino, 0, 0, 'Lote criado automaticamente ao registrar vasilhame devolvido')
+            RETURNING id INTO v_lote_destino_id;
+        END IF;
+        UPDATE lotes_garrafao SET qtd_vazios = qtd_vazios + item.quantidade WHERE id = v_lote_destino_id;
+        INSERT INTO movimentos_estoque (lote_id, tipo, quantidade, referencia_pedido_id)
+          VALUES (v_lote_destino_id, 'retorno_vazio', item.quantidade, NEW.id);
+      END IF;
+    ELSE
+      -- GÁS: contador simples por marca, sem validade
+      UPDATE estoque_gas SET qtd_cheios = GREATEST(0, qtd_cheios - item.quantidade) WHERE marca_id = item.marca_id;
+      IF item.tipo_vasilhame = 'troca' THEN
+        UPDATE estoque_gas SET qtd_vazios = qtd_vazios + item.quantidade WHERE marca_id = item.marca_id;
+      END IF;
+    END IF;
+
+    IF item.tipo_vasilhame = 'comodato' THEN
+      UPDATE clientes SET saldo_comodato_garrafoes = saldo_comodato_garrafoes + item.quantidade WHERE id = NEW.cliente_id;
+      INSERT INTO movimentos_comodato (cliente_id, marca_id, tipo, quantidade, referencia_pedido_id)
+        VALUES (NEW.cliente_id, item.marca_id, 'emprestimo', item.quantidade, NEW.id);
+    END IF;
+
+  END LOOP;
+
+  IF NEW.forma_pagamento = 'fiado' THEN
+    UPDATE clientes SET saldo_fiado = saldo_fiado + NEW.total WHERE id = NEW.cliente_id;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_processar_entrega_pedido ON pedidos;
+CREATE TRIGGER trg_processar_entrega_pedido
+  AFTER UPDATE OF status_entrega ON pedidos
+  FOR EACH ROW
+  WHEN (NEW.status_entrega = 'entregue' AND OLD.status_entrega = 'pendente')
+  EXECUTE FUNCTION public.processar_entrega_pedido();
+
+-- ============================================================
 -- RLS POLICIES
 -- ============================================================
 ALTER TABLE usuarios            ENABLE ROW LEVEL SECURITY;
@@ -300,8 +377,8 @@ ALTER TABLE pedidos             ENABLE ROW LEVEL SECURITY;
 ALTER TABLE itens_pedido        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE movimentos_estoque  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE avarias             ENABLE ROW LEVEL SECURITY;
-ALTER TABLE pagamentos_fiado    ENABLE ROW LEVEL SECURITY;
-ALTER TABLE devolucoes_comodato ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pagamentos_pedido   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE movimentos_comodato ENABLE ROW LEVEL SECURITY;
 ALTER TABLE descontos_cliente   ENABLE ROW LEVEL SECURITY;
 
 -- usuarios: qualquer autenticado lê a própria linha (p/ saber seu role);
@@ -367,25 +444,32 @@ CREATE POLICY "avarias_admin_caixa_all" ON avarias FOR ALL
   USING (public.current_role() IN ('administrador','caixa'))
   WITH CHECK (public.current_role() IN ('administrador','caixa'));
 
-DROP POLICY IF EXISTS "pagamentos_fiado_admin_caixa_all" ON pagamentos_fiado;
-CREATE POLICY "pagamentos_fiado_admin_caixa_all" ON pagamentos_fiado FOR ALL
+DROP POLICY IF EXISTS "pagamentos_fiado_admin_caixa_all" ON pagamentos_pedido;
+DROP POLICY IF EXISTS "pagamentos_pedido_admin_caixa_all" ON pagamentos_pedido;
+CREATE POLICY "pagamentos_pedido_admin_caixa_all" ON pagamentos_pedido FOR ALL
   USING (public.current_role() IN ('administrador','caixa'))
   WITH CHECK (public.current_role() IN ('administrador','caixa'));
 
--- devolucoes_comodato: administrador e caixa podem ver/criar/editar, mas
--- só administrador pode excluir uma transação (correção de erro).
-DROP POLICY IF EXISTS "devolucoes_admin_caixa_all" ON devolucoes_comodato;
-DROP POLICY IF EXISTS "devolucoes_select_admin_caixa" ON devolucoes_comodato;
-CREATE POLICY "devolucoes_select_admin_caixa" ON devolucoes_comodato FOR SELECT
+-- movimentos_comodato: administrador e caixa podem ver/criar/editar (tanto
+-- empréstimo quanto devolução), mas só administrador pode excluir uma
+-- transação (correção de erro). O empréstimo criado pela entrega do
+-- pedido é inserido pelo trigger (SECURITY DEFINER), não passa por RLS.
+DROP POLICY IF EXISTS "devolucoes_admin_caixa_all" ON movimentos_comodato;
+DROP POLICY IF EXISTS "devolucoes_select_admin_caixa" ON movimentos_comodato;
+DROP POLICY IF EXISTS "movimentos_comodato_select_admin_caixa" ON movimentos_comodato;
+CREATE POLICY "movimentos_comodato_select_admin_caixa" ON movimentos_comodato FOR SELECT
   USING (public.current_role() IN ('administrador','caixa'));
-DROP POLICY IF EXISTS "devolucoes_insert_admin_caixa" ON devolucoes_comodato;
-CREATE POLICY "devolucoes_insert_admin_caixa" ON devolucoes_comodato FOR INSERT
+DROP POLICY IF EXISTS "devolucoes_insert_admin_caixa" ON movimentos_comodato;
+DROP POLICY IF EXISTS "movimentos_comodato_insert_admin_caixa" ON movimentos_comodato;
+CREATE POLICY "movimentos_comodato_insert_admin_caixa" ON movimentos_comodato FOR INSERT
   WITH CHECK (public.current_role() IN ('administrador','caixa'));
-DROP POLICY IF EXISTS "devolucoes_update_admin_caixa" ON devolucoes_comodato;
-CREATE POLICY "devolucoes_update_admin_caixa" ON devolucoes_comodato FOR UPDATE
+DROP POLICY IF EXISTS "devolucoes_update_admin_caixa" ON movimentos_comodato;
+DROP POLICY IF EXISTS "movimentos_comodato_update_admin_caixa" ON movimentos_comodato;
+CREATE POLICY "movimentos_comodato_update_admin_caixa" ON movimentos_comodato FOR UPDATE
   USING (public.current_role() IN ('administrador','caixa')) WITH CHECK (public.current_role() IN ('administrador','caixa'));
-DROP POLICY IF EXISTS "devolucoes_delete_admin" ON devolucoes_comodato;
-CREATE POLICY "devolucoes_delete_admin" ON devolucoes_comodato FOR DELETE
+DROP POLICY IF EXISTS "devolucoes_delete_admin" ON movimentos_comodato;
+DROP POLICY IF EXISTS "movimentos_comodato_delete_admin" ON movimentos_comodato;
+CREATE POLICY "movimentos_comodato_delete_admin" ON movimentos_comodato FOR DELETE
   USING (public.current_role() = 'administrador');
 
 -- descontos_cliente: administrador e caixa podem ver (precisam saber o
@@ -605,6 +689,99 @@ ON CONFLICT (chave) DO NOTHING;
 -- DROP POLICY IF EXISTS "marcas_select_auth" ON marcas;
 -- CREATE POLICY "marcas_select_auth" ON marcas FOR SELECT
 --   USING (auth.role() = 'authenticated');
+
+-- ============================================================
+-- MIGRAÇÃO: ciclo de vida do pedido (pagamento/entrega passam a ser
+-- confirmados separadamente; estoque e débito de fiado só se efetivam
+-- na entrega), desconto exibido no resumo, ano de validade do vasilhame
+-- devolvido, e comodato como ledger de empréstimo+devolução
+-- ============================================================
+-- ALTER TABLE itens_pedido ADD COLUMN IF NOT EXISTS preco_base NUMERIC(10,2) NOT NULL DEFAULT 0;
+-- ALTER TABLE itens_pedido ADD COLUMN IF NOT EXISTS ano_validade_vazio INTEGER;
+--
+-- ALTER TABLE pagamentos_fiado RENAME TO pagamentos_pedido;
+-- ALTER INDEX IF EXISTS idx_pag_fiado_cliente RENAME TO idx_pag_pedido_cliente;
+-- ALTER INDEX IF EXISTS idx_pag_fiado_pedido RENAME TO idx_pag_pedido_pedido;
+--
+-- ALTER TABLE devolucoes_comodato RENAME TO movimentos_comodato;
+-- ALTER TABLE movimentos_comodato ADD COLUMN IF NOT EXISTS tipo TEXT NOT NULL DEFAULT 'devolucao' CHECK (tipo IN ('emprestimo','devolucao'));
+-- ALTER TABLE movimentos_comodato ADD COLUMN IF NOT EXISTS marca_id UUID REFERENCES marcas(id);
+-- ALTER TABLE movimentos_comodato ADD COLUMN IF NOT EXISTS referencia_pedido_id UUID REFERENCES pedidos(id);
+-- ALTER TABLE movimentos_comodato ALTER COLUMN lote_id DROP NOT NULL;
+-- UPDATE movimentos_comodato m SET marca_id = l.marca_id FROM lotes_garrafao l WHERE m.lote_id = l.id AND m.marca_id IS NULL;
+-- ALTER TABLE movimentos_comodato ALTER COLUMN marca_id SET NOT NULL;
+-- ALTER INDEX IF EXISTS idx_devolucoes_cliente RENAME TO idx_mov_comodato_cliente;
+--
+-- DROP POLICY IF EXISTS "pagamentos_fiado_admin_caixa_all" ON pagamentos_pedido;
+-- CREATE POLICY "pagamentos_pedido_admin_caixa_all" ON pagamentos_pedido FOR ALL
+--   USING (public.current_role() IN ('administrador','caixa'))
+--   WITH CHECK (public.current_role() IN ('administrador','caixa'));
+--
+-- DROP POLICY IF EXISTS "devolucoes_admin_caixa_all" ON movimentos_comodato;
+-- DROP POLICY IF EXISTS "devolucoes_select_admin_caixa" ON movimentos_comodato;
+-- DROP POLICY IF EXISTS "devolucoes_insert_admin_caixa" ON movimentos_comodato;
+-- DROP POLICY IF EXISTS "devolucoes_update_admin_caixa" ON movimentos_comodato;
+-- DROP POLICY IF EXISTS "devolucoes_delete_admin" ON movimentos_comodato;
+-- CREATE POLICY "movimentos_comodato_select_admin_caixa" ON movimentos_comodato FOR SELECT
+--   USING (public.current_role() IN ('administrador','caixa'));
+-- CREATE POLICY "movimentos_comodato_insert_admin_caixa" ON movimentos_comodato FOR INSERT
+--   WITH CHECK (public.current_role() IN ('administrador','caixa'));
+-- CREATE POLICY "movimentos_comodato_update_admin_caixa" ON movimentos_comodato FOR UPDATE
+--   USING (public.current_role() IN ('administrador','caixa')) WITH CHECK (public.current_role() IN ('administrador','caixa'));
+-- CREATE POLICY "movimentos_comodato_delete_admin" ON movimentos_comodato FOR DELETE
+--   USING (public.current_role() = 'administrador');
+--
+-- CREATE OR REPLACE FUNCTION public.processar_entrega_pedido()
+-- RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER AS $$
+-- DECLARE
+--   item RECORD;
+--   v_lote_destino_id UUID;
+--   v_ano_destino INTEGER;
+-- BEGIN
+--   FOR item IN SELECT * FROM itens_pedido WHERE pedido_id = NEW.id LOOP
+--     IF item.lote_id IS NOT NULL THEN
+--       UPDATE lotes_garrafao SET qtd_cheios = GREATEST(0, qtd_cheios - item.quantidade) WHERE id = item.lote_id;
+--       INSERT INTO movimentos_estoque (lote_id, tipo, quantidade, referencia_pedido_id)
+--         VALUES (item.lote_id, 'saida_venda', -item.quantidade, NEW.id);
+--       IF item.tipo_vasilhame = 'troca' THEN
+--         v_ano_destino := COALESCE(item.ano_validade_vazio, (SELECT ano_validade FROM lotes_garrafao WHERE id = item.lote_id));
+--         SELECT id INTO v_lote_destino_id FROM lotes_garrafao
+--           WHERE marca_id = item.marca_id AND ano_validade = v_ano_destino
+--           ORDER BY data_chegada DESC LIMIT 1;
+--         IF v_lote_destino_id IS NULL THEN
+--           INSERT INTO lotes_garrafao (marca_id, ano_validade, qtd_cheios, qtd_vazios, observacao)
+--             VALUES (item.marca_id, v_ano_destino, 0, 0, 'Lote criado automaticamente ao registrar vasilhame devolvido')
+--             RETURNING id INTO v_lote_destino_id;
+--         END IF;
+--         UPDATE lotes_garrafao SET qtd_vazios = qtd_vazios + item.quantidade WHERE id = v_lote_destino_id;
+--         INSERT INTO movimentos_estoque (lote_id, tipo, quantidade, referencia_pedido_id)
+--           VALUES (v_lote_destino_id, 'retorno_vazio', item.quantidade, NEW.id);
+--       END IF;
+--     ELSE
+--       UPDATE estoque_gas SET qtd_cheios = GREATEST(0, qtd_cheios - item.quantidade) WHERE marca_id = item.marca_id;
+--       IF item.tipo_vasilhame = 'troca' THEN
+--         UPDATE estoque_gas SET qtd_vazios = qtd_vazios + item.quantidade WHERE marca_id = item.marca_id;
+--       END IF;
+--     END IF;
+--     IF item.tipo_vasilhame = 'comodato' THEN
+--       UPDATE clientes SET saldo_comodato_garrafoes = saldo_comodato_garrafoes + item.quantidade WHERE id = NEW.cliente_id;
+--       INSERT INTO movimentos_comodato (cliente_id, marca_id, tipo, quantidade, referencia_pedido_id)
+--         VALUES (NEW.cliente_id, item.marca_id, 'emprestimo', item.quantidade, NEW.id);
+--     END IF;
+--   END LOOP;
+--   IF NEW.forma_pagamento = 'fiado' THEN
+--     UPDATE clientes SET saldo_fiado = saldo_fiado + NEW.total WHERE id = NEW.cliente_id;
+--   END IF;
+--   RETURN NEW;
+-- END;
+-- $$;
+--
+-- DROP TRIGGER IF EXISTS trg_processar_entrega_pedido ON pedidos;
+-- CREATE TRIGGER trg_processar_entrega_pedido
+--   AFTER UPDATE OF status_entrega ON pedidos
+--   FOR EACH ROW
+--   WHEN (NEW.status_entrega = 'entregue' AND OLD.status_entrega = 'pendente')
+--   EXECUTE FUNCTION public.processar_entrega_pedido();
 
 -- Após rodar este script, crie o primeiro usuário em:
 -- Authentication > Users > Add user (email + senha)

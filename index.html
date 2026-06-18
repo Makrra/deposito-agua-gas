@@ -278,10 +278,13 @@ select.form-control option { background: var(--surface); }
 
 <!-- ======= PAGE: DASHBOARD ======= -->
 <div class="page active" id="page-dash">
-  <div class="stats" id="dash-caixa-stats">
-    <div class="stat-card"><div class="stat-val" id="dash-caixa-dinheiro">—</div><div class="stat-lbl">Dinheiro Hoje</div></div>
-    <div class="stat-card"><div class="stat-val" id="dash-caixa-pix">—</div><div class="stat-lbl">Pix Hoje</div></div>
-    <div class="stat-card"><div class="stat-val" id="dash-caixa-total">—</div><div class="stat-lbl">Total Hoje</div></div>
+  <div class="stats" id="dash-stats">
+    <div class="stat-card"><div class="stat-val" id="dash-vendas-hoje">—</div><div class="stat-lbl">Vendas Hoje</div></div>
+    <div class="stat-card"><div class="stat-val text-green" id="dash-pagamentos-efetuados">—</div><div class="stat-lbl">Pagamentos Efetuados</div></div>
+    <div class="stat-card"><div class="stat-val text-red" id="dash-pagamentos-pendentes">—</div><div class="stat-lbl">Pagamentos Pendentes</div></div>
+    <div class="stat-card"><div class="stat-val" id="dash-entregas-total">—</div><div class="stat-lbl">Qtd. de Entregas</div></div>
+    <div class="stat-card"><div class="stat-val text-green" id="dash-entregas-efetuadas">—</div><div class="stat-lbl">Entregas Efetuadas</div></div>
+    <div class="stat-card"><div class="stat-val text-red" id="dash-entregas-pendentes">—</div><div class="stat-lbl">Entregas Pendentes</div></div>
   </div>
 
   <div class="card">
@@ -545,7 +548,17 @@ select.form-control option { background: var(--surface); }
         <button class="btn btn-outline btn-sm" onclick="abrirHistoricoCompleto('comodato')">Ver Todas</button>
       </div>
       <div id="comodato-lista"></div>
-      <div class="card-sub" style="margin-top:8px">Empréstimo e devolução de vasilhame são registrados na confirmação do pedido.</div>
+      <div class="card-sub" style="margin:8px 0">Empréstimo é registrado automaticamente quando o pedido é entregue. Devolução pode ser registrada aqui:</div>
+      <div class="form-group">
+        <select class="form-control" id="comodato-devolucao-marca" onchange="atualizarCampoAnoComodato()"></select>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+        <div class="form-group" id="comodato-devolucao-ano-wrap" style="margin-bottom:0">
+          <input class="form-control" id="comodato-devolucao-ano" type="number" inputmode="numeric" min="2000" max="2100" maxlength="4" placeholder="Ano de validade">
+        </div>
+        <input class="form-control" id="comodato-devolucao-quantidade" type="number" min="1" placeholder="Quantidade">
+      </div>
+      <button class="btn btn-success btn-block btn-sm" onclick="registrarDevolucaoComodato()">Registrar Devolução</button>
     </div>
 
     <div class="card">
@@ -633,7 +646,7 @@ select.form-control option { background: var(--surface); }
       <div class="card-sub" id="pd-pagamento-info" style="margin-bottom:8px"></div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
         <input class="form-control" id="pd-pagamento-valor" type="number" step="0.01">
-        <select class="form-control" id="pd-pagamento-forma">
+        <select class="form-control" id="pd-pagamento-forma" style="display:none">
           <option value="dinheiro">Dinheiro</option>
           <option value="pix">Pix</option>
         </select>
@@ -672,6 +685,7 @@ let allClientes = [];
 let allPedidos = [];
 let allEntregadores = [];
 let currentPedidoFilter = 'todos';
+let pagamentosPorPedido = {};
 let pedidoItemSeq = 0;
 let pedidoClienteDescontos = [];
 let precoVasilhameAvulso = 0;
@@ -1105,27 +1119,42 @@ async function abrirExtratoCliente(id) {
 }
 
 // ============================================================
-// TRANSAÇÕES DE COMODATO (vasilhame emprestado/devolvido)
+// TRANSAÇÕES DE COMODATO (empréstimo na entrega + devolução manual)
 // ============================================================
 async function loadComodatoTransacoes(clienteId) {
-  const { data } = await sb.from('devolucoes_comodato')
-    .select('*, lotes_garrafao(ano_validade, marcas(nome))')
+  const { data } = await sb.from('movimentos_comodato')
+    .select('*, marcas(nome, tipo), lotes_garrafao(ano_validade)')
     .eq('cliente_id', clienteId)
     .order('data', { ascending: false });
   currentComodatoFull = data || [];
   renderComodatoLista(currentComodatoFull.slice(0, 5), 'comodato-lista');
+
+  const sel = document.getElementById('comodato-devolucao-marca');
+  sel.innerHTML = allMarcas.filter(m => m.ativo).map(m => `<option value="${m.id}" data-tipo="${m.tipo}">${m.nome} (${m.tipo === 'gas' ? 'Gás' : 'Água'})</option>`).join('');
+  document.getElementById('comodato-devolucao-quantidade').value = '';
+  document.getElementById('comodato-devolucao-ano').value = '';
+  atualizarCampoAnoComodato();
+}
+
+function atualizarCampoAnoComodato() {
+  const sel = document.getElementById('comodato-devolucao-marca');
+  const tipo = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].dataset.tipo : 'agua';
+  document.getElementById('comodato-devolucao-ano-wrap').style.display = tipo === 'gas' ? 'none' : 'block';
 }
 
 function comodatoRowHTML(d) {
   const podeExcluir = currentUserRole === 'administrador';
+  const tipoLabel = d.tipo === 'emprestimo' ? 'Empréstimo' : 'Devolução';
+  const marcaNome = d.marcas ? d.marcas.nome : '—';
+  const validadeTexto = d.lotes_garrafao ? ` · val. ${d.lotes_garrafao.ano_validade}` : '';
   return `
     <div class="list-item">
       <div class="item-info">
-        <div class="item-name">Devolução de Vasilhame</div>
-        <div class="item-detail">${fmtData(d.data)} · validade ${d.lotes_garrafao ? d.lotes_garrafao.ano_validade : '—'} · ${d.lotes_garrafao && d.lotes_garrafao.marcas ? d.lotes_garrafao.marcas.nome : ''}</div>
+        <div class="item-name">${tipoLabel} · ${marcaNome}</div>
+        <div class="item-detail">${fmtData(d.data)}${validadeTexto}</div>
       </div>
-      <div class="item-value">${d.quantidade}x</div>
-      ${podeExcluir ? `<button class="btn btn-outline btn-sm" onclick="removerDevolucaoTransacao('${d.id}', '${d.cliente_id}', '${d.lote_id}', ${d.quantidade})">Excluir</button>` : ''}
+      <div class="item-value ${d.tipo === 'emprestimo' ? 'text-red' : 'text-green'}">${d.quantidade}x</div>
+      ${podeExcluir ? `<button class="btn btn-outline btn-sm" onclick="removerMovimentoComodato('${d.id}', '${d.cliente_id}', '${d.tipo}', ${d.lote_id ? `'${d.lote_id}'` : null}, '${d.marca_id}', ${d.quantidade})">Excluir</button>` : ''}
     </div>
   `;
 }
@@ -1136,15 +1165,71 @@ function renderComodatoLista(transacoes, elId) {
   el.innerHTML = transacoes.map(comodatoRowHTML).join('');
 }
 
-async function removerDevolucaoTransacao(id, clienteId, loteId, quantidade) {
-  const { error } = await sb.from('devolucoes_comodato').delete().eq('id', id);
+async function registrarDevolucaoComodato() {
+  const clienteId = document.getElementById('extrato-cliente-id').value;
+  const marcaId = document.getElementById('comodato-devolucao-marca').value;
+  const quantidade = parseInt(document.getElementById('comodato-devolucao-quantidade').value || 0, 10);
+  if (!marcaId || quantidade <= 0) { toast('Selecione a marca e a quantidade', true); return; }
+
+  const marca = allMarcas.find(m => m.id === marcaId);
+  if (!marca) return;
+  let loteId = null;
+
+  if (marca.tipo === 'agua') {
+    const ano = parseInt(document.getElementById('comodato-devolucao-ano').value || 0, 10);
+    if (String(ano).length !== 4) { toast('Informe o ano de validade do vasilhame devolvido', true); return; }
+    let lote = allLotes.find(l => l.marca_id === marcaId && l.ano_validade === ano);
+    if (!lote) {
+      const { data, error } = await sb.from('lotes_garrafao')
+        .insert({ marca_id: marcaId, ano_validade: ano, qtd_cheios: 0, observacao: 'Criado automaticamente ao registrar vasilhame devolvido' })
+        .select().single();
+      if (error) { toast('Erro ao criar lote: ' + error.message, true); return; }
+      lote = data;
+      allLotes.push(lote);
+    }
+    loteId = lote.id;
+    await sb.from('lotes_garrafao').update({ qtd_vazios: lote.qtd_vazios + quantidade }).eq('id', loteId);
+    await sb.from('movimentos_estoque').insert({ lote_id: loteId, tipo: 'retorno_vazio', quantidade, criado_por: currentUserId });
+  } else {
+    const { data: estoque } = await sb.from('estoque_gas').select('*').eq('marca_id', marcaId).maybeSingle();
+    if (estoque) {
+      await sb.from('estoque_gas').update({ qtd_vazios: estoque.qtd_vazios + quantidade }).eq('id', estoque.id);
+    } else {
+      await sb.from('estoque_gas').insert({ marca_id: marcaId, qtd_cheios: 0, qtd_vazios: quantidade });
+    }
+  }
+
+  const { error: errMov } = await sb.from('movimentos_comodato').insert({
+    cliente_id: clienteId, marca_id: marcaId, lote_id: loteId, tipo: 'devolucao', quantidade, criado_por: currentUserId,
+  });
+  if (errMov) { toast('Erro ao registrar devolução: ' + errMov.message, true); return; }
+
+  const cliente = allClientes.find(c => c.id === clienteId);
+  if (cliente) await sb.from('clientes').update({ saldo_comodato_garrafoes: Math.max(0, cliente.saldo_comodato_garrafoes - quantidade) }).eq('id', clienteId);
+
+  toast('Devolução registrada!');
+  await loadClientes();
+  await loadEstoque();
+  abrirExtratoCliente(clienteId);
+}
+
+async function removerMovimentoComodato(id, clienteId, tipo, loteId, marcaId, quantidade) {
+  const { error } = await sb.from('movimentos_comodato').delete().eq('id', id);
   if (error) { toast('Erro ao excluir transação: ' + error.message, true); return; }
 
   const c = allClientes.find(x => x.id === clienteId);
-  const lote = allLotes.find(x => x.id === loteId);
-  await sb.from('clientes').update({ saldo_comodato_garrafoes: (c ? c.saldo_comodato_garrafoes : 0) + quantidade }).eq('id', clienteId);
-  await sb.from('lotes_garrafao').update({ qtd_vazios: Math.max(0, (lote ? lote.qtd_vazios : 0) - quantidade) }).eq('id', loteId);
-  await sb.from('movimentos_estoque').insert({ lote_id: loteId, tipo: 'ajuste', quantidade: -quantidade, observacao: 'Exclusão de devolução de comodato', criado_por: currentUserId });
+  const delta = tipo === 'emprestimo' ? -quantidade : quantidade;
+  await sb.from('clientes').update({ saldo_comodato_garrafoes: Math.max(0, (c ? c.saldo_comodato_garrafoes : 0) + delta) }).eq('id', clienteId);
+
+  if (tipo === 'devolucao') {
+    if (loteId) {
+      const lote = allLotes.find(x => x.id === loteId);
+      await sb.from('lotes_garrafao').update({ qtd_vazios: Math.max(0, (lote ? lote.qtd_vazios : 0) - quantidade) }).eq('id', loteId);
+    } else {
+      const { data: estoque } = await sb.from('estoque_gas').select('*').eq('marca_id', marcaId).maybeSingle();
+      if (estoque) await sb.from('estoque_gas').update({ qtd_vazios: Math.max(0, estoque.qtd_vazios - quantidade) }).eq('id', estoque.id);
+    }
+  }
 
   toast('Transação excluída!');
   closeModal('modal-historico-completo');
@@ -1157,7 +1242,7 @@ async function removerDevolucaoTransacao(id, clienteId, loteId, quantidade) {
 // HISTÓRICO DE PAGAMENTOS
 // ============================================================
 async function loadPagamentosCliente(clienteId) {
-  const { data } = await sb.from('pagamentos_fiado').select('*').eq('cliente_id', clienteId).order('data', { ascending: false });
+  const { data } = await sb.from('pagamentos_pedido').select('*').eq('cliente_id', clienteId).order('data', { ascending: false });
   currentPagamentosFull = data || [];
   renderPagamentosLista(currentPagamentosFull.slice(0, 5), 'extrato-historico');
 }
@@ -1309,13 +1394,17 @@ function itemPedidoRowHTML(idx) {
         </select>
         <input type="number" class="form-control item-qtd" min="1" value="1" onchange="atualizarItemPedido(${idx})">
       </div>
-      <div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center">
+      <div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;margin-bottom:8px">
         <select class="form-control item-vasilhame" onchange="atualizarItemPedido(${idx})">
           <option value="troca">Troca de Vasilhame</option>
           <option value="venda">Venda do Vasilhame</option>
           <option value="comodato">Comodato (Empréstimo)</option>
         </select>
         <button class="btn btn-outline btn-sm" onclick="removerItemPedido(${idx})">Remover</button>
+      </div>
+      <div class="form-group item-ano-vazio-wrap" style="display:none;margin-bottom:0">
+        <label class="form-label">Ano de Validade do Vasilhame Devolvido</label>
+        <input type="number" class="form-control item-ano-vazio" inputmode="numeric" min="2000" max="2100" maxlength="4" placeholder="Ex: 2027">
       </div>
       <div class="card-sub item-info-linha" style="margin-top:6px">Selecione uma marca</div>
     </div>
@@ -1338,6 +1427,7 @@ function lerItemRow(row) {
     marcaId: row.querySelector('.item-marca').value,
     quantidade: parseInt(row.querySelector('.item-qtd').value || 0, 10),
     tipoVasilhame: row.querySelector('.item-vasilhame').value,
+    anoValidadeVazio: row.querySelector('.item-ano-vazio').value ? parseInt(row.querySelector('.item-ano-vazio').value, 10) : null,
   };
 }
 
@@ -1346,14 +1436,23 @@ function atualizarItemPedido(idx) {
   if (!row) return;
   const { marcaId, quantidade, tipoVasilhame } = lerItemRow(row);
   const infoEl = row.querySelector('.item-info-linha');
-  if (!marcaId) { infoEl.textContent = 'Selecione uma marca'; recalcularTotalPedido(); return; }
+  const anoVazioWrap = row.querySelector('.item-ano-vazio-wrap');
+  const anoVazioInput = row.querySelector('.item-ano-vazio');
+
+  if (!marcaId) { infoEl.textContent = 'Selecione uma marca'; anoVazioWrap.style.display = 'none'; recalcularTotalPedido(); return; }
 
   const origem = resolverOrigemEstoque(marcaId);
   if (!origem || (origem.tipo === 'agua' && !origem.lote)) {
     infoEl.innerHTML = '<span class="text-red">Sem lote disponível dessa marca</span>';
+    anoVazioWrap.style.display = 'none';
     recalcularTotalPedido();
     return;
   }
+
+  const mostrarAnoVazio = origem.tipo === 'agua' && tipoVasilhame === 'troca';
+  anoVazioWrap.style.display = mostrarAnoVazio ? 'block' : 'none';
+  if (mostrarAnoVazio && !anoVazioInput.value) anoVazioInput.value = origem.lote.ano_validade;
+
   const preco = precoComDesconto(origem.marca);
   const precoVasilhame = tipoVasilhame === 'venda' ? precoVasilhameAvulso : 0;
   const totalItem = (preco + precoVasilhame) * quantidade;
@@ -1395,6 +1494,8 @@ async function abrirNovoPedido() {
   pedidoClienteDescontos = [];
   pedidoItemSeq = 0;
 
+  await Promise.all([loadEstoque(), loadClientes()]);
+
   if (!precoVasilhameAvulso) {
     const { data } = await sb.from('configuracoes').select('valor').eq('chave', 'preco_vasilhame_avulso').maybeSingle();
     precoVasilhameAvulso = data ? parseFloat(data.valor) : 0;
@@ -1416,16 +1517,18 @@ async function salvarPedido() {
   const rows = [...document.querySelectorAll('.pedido-item-row')];
   const itens = [];
   for (const row of rows) {
-    const { marcaId, quantidade, tipoVasilhame } = lerItemRow(row);
+    const { marcaId, quantidade, tipoVasilhame, anoValidadeVazio } = lerItemRow(row);
     if (!marcaId || quantidade <= 0) continue;
     const origem = resolverOrigemEstoque(marcaId);
     if (!origem || (origem.tipo === 'agua' && !origem.lote) || quantidade > origem.disponivel) {
       toast(`Estoque insuficiente para ${origem ? origem.marca.nome : 'um dos itens'}`, true);
       return;
     }
+    const preco_base = origem.marca.preco_venda_atual;
     const preco_unitario = precoComDesconto(origem.marca);
     const preco_vasilhame = tipoVasilhame === 'venda' ? precoVasilhameAvulso : 0;
-    itens.push({ marca_id: marcaId, lote_id: origem.lote ? origem.lote.id : null, quantidade, tipo_vasilhame: tipoVasilhame, preco_unitario, preco_vasilhame, origem });
+    const ano_validade_vazio = (origem.tipo === 'agua' && tipoVasilhame === 'troca') ? anoValidadeVazio : null;
+    itens.push({ marca_id: marcaId, lote_id: origem.lote ? origem.lote.id : null, quantidade, tipo_vasilhame: tipoVasilhame, preco_base, preco_unitario, preco_vasilhame, ano_validade_vazio });
   }
   if (!itens.length) { toast('Adicione pelo menos um item válido', true); return; }
 
@@ -1440,50 +1543,26 @@ async function salvarPedido() {
     if (!seguir) return;
   }
 
+  // O pedido nasce com pagamento e entrega pendentes. Nada de estoque ou
+  // saldo é alterado agora — isso só acontece quando o pedido é marcado
+  // como entregue (ver trigger processar_entrega_pedido no banco).
   const { data: pedido, error } = await sb.from('pedidos').insert({
-    cliente_id, forma_pagamento, total, entregador_id, observacao, status: 'concluido', criado_por: currentUserId
+    cliente_id, forma_pagamento, total, entregador_id, observacao, status: 'aberto', criado_por: currentUserId
   }).select().single();
   if (error) { toast('Erro ao criar pedido: ' + error.message, true); return; }
 
   for (const it of itens) {
     const { error: errItem } = await sb.from('itens_pedido').insert({
       pedido_id: pedido.id, lote_id: it.lote_id, marca_id: it.marca_id,
-      quantidade: it.quantidade, preco_unitario: it.preco_unitario,
+      quantidade: it.quantidade, preco_base: it.preco_base, preco_unitario: it.preco_unitario,
       tipo_vasilhame: it.tipo_vasilhame, preco_vasilhame: it.preco_vasilhame,
+      ano_validade_vazio: it.ano_validade_vazio,
     });
     if (errItem) { console.error('itens_pedido insert error:', errItem); toast('Erro ao salvar item do pedido: ' + errItem.message, true); }
-
-    if (it.origem.tipo === 'agua') {
-      const lote = it.origem.lote;
-      const novoCheios = lote.qtd_cheios - it.quantidade;
-      const novoVazios = it.tipo_vasilhame === 'troca' ? lote.qtd_vazios + it.quantidade : lote.qtd_vazios;
-      await sb.from('lotes_garrafao').update({ qtd_cheios: novoCheios, qtd_vazios: novoVazios }).eq('id', lote.id);
-      await sb.from('movimentos_estoque').insert({ lote_id: lote.id, tipo: 'saida_venda', quantidade: -it.quantidade, referencia_pedido_id: pedido.id, criado_por: currentUserId });
-      if (it.tipo_vasilhame === 'troca') {
-        await sb.from('movimentos_estoque').insert({ lote_id: lote.id, tipo: 'retorno_vazio', quantidade: it.quantidade, referencia_pedido_id: pedido.id, criado_por: currentUserId });
-      }
-    } else {
-      const estoque = allEstoqueGas.find(g => g.marca_id === it.marca_id);
-      if (estoque) {
-        const novoCheios = estoque.qtd_cheios - it.quantidade;
-        const novoVazios = it.tipo_vasilhame === 'troca' ? estoque.qtd_vazios + it.quantidade : estoque.qtd_vazios;
-        await sb.from('estoque_gas').update({ qtd_cheios: novoCheios, qtd_vazios: novoVazios }).eq('id', estoque.id);
-      }
-    }
-
-    if (it.tipo_vasilhame === 'comodato' && cliente) {
-      await sb.from('clientes').update({ saldo_comodato_garrafoes: (cliente.saldo_comodato_garrafoes || 0) + it.quantidade }).eq('id', cliente_id);
-    }
-  }
-
-  if (forma_pagamento === 'fiado' && cliente) {
-    await sb.from('clientes').update({ saldo_fiado: (cliente.saldo_fiado || 0) + total }).eq('id', cliente_id);
   }
 
   closeModal('modal-novo-pedido');
-  toast('Pedido criado!');
-  await loadClientes();
-  await loadEstoque();
+  toast('Pedido criado! Pagamento e entrega ficam pendentes até a confirmação.');
   await loadPedidos();
 }
 
@@ -1497,6 +1576,16 @@ async function loadPedidos() {
     .order('data', { ascending: false });
   if (error) { console.error('loadPedidos error:', error); toast('Erro ao carregar pedidos: ' + error.message, true); return; }
   allPedidos = data || [];
+
+  pagamentosPorPedido = {};
+  const ids = allPedidos.map(p => p.id);
+  if (ids.length) {
+    const { data: pagamentos } = await sb.from('pagamentos_pedido').select('pedido_id, valor').in('pedido_id', ids);
+    (pagamentos || []).forEach(pg => {
+      pagamentosPorPedido[pg.pedido_id] = (pagamentosPorPedido[pg.pedido_id] || 0) + parseFloat(pg.valor);
+    });
+  }
+
   renderPedidosList();
 }
 
@@ -1510,14 +1599,21 @@ function filterPedidos(tipo) {
 
 function badgePagamento(forma) {
   const labels = { dinheiro: 'Dinheiro', pix: 'Pix', fiado: 'Fiado' };
-  const cls = forma === 'fiado' ? 'badge-yellow' : 'badge-green';
-  return `<span class="badge ${cls}">${labels[forma] || forma}</span>`;
+  return `<span class="badge badge-blue">${labels[forma] || forma}</span>`;
+}
+
+function badgeStatusPagamento(pedido) {
+  if (pedido.status === 'cancelado') return '';
+  const pago = pagamentosPorPedido[pedido.id] || 0;
+  return pago >= pedido.total
+    ? '<span class="badge badge-green">Pago</span>'
+    : '<span class="badge badge-yellow">Pagamento Pendente</span>';
 }
 
 function badgeStatusEntrega(status) {
   if (status === 'entregue')  return '<span class="badge badge-green">Entregue</span>';
   if (status === 'cancelada') return '<span class="badge badge-red">Cancelado</span>';
-  return '<span class="badge badge-yellow">Pendente</span>';
+  return '<span class="badge badge-yellow">Entrega Pendente</span>';
 }
 
 function renderPedidosList() {
@@ -1532,7 +1628,7 @@ function renderPedidosList() {
       </div>
       <div style="text-align:right">
         <div class="item-value">${fmtMoeda(p.total)}</div>
-        <div style="margin-top:4px">${badgePagamento(p.forma_pagamento)} ${badgeStatusEntrega(p.status_entrega)}</div>
+        <div style="margin-top:4px">${badgePagamento(p.forma_pagamento)} ${badgeStatusPagamento(p)} ${badgeStatusEntrega(p.status_entrega)}</div>
       </div>
     </div>
   `).join('');
@@ -1549,33 +1645,44 @@ async function abrirPedidoDetalhe(id) {
   document.getElementById('pd-titulo').textContent = p.clientes ? p.clientes.nome : 'Pedido';
   document.getElementById('pd-info').innerHTML = `
     <div class="card-sub">${fmtData(p.data)}</div>
-    <div style="margin-top:6px">${badgePagamento(p.forma_pagamento)} ${badgeStatusEntrega(p.status_entrega)}</div>
+    <div style="margin-top:6px">${badgePagamento(p.forma_pagamento)} ${badgeStatusPagamento(p)} ${badgeStatusEntrega(p.status_entrega)}</div>
     <div class="item-value" style="margin-top:8px">${fmtMoeda(p.total)}</div>
     ${p.usuarios ? `<div class="card-sub" style="margin-top:6px">Entregador: ${p.usuarios.nome}</div>` : ''}
     ${p.observacao ? `<div class="card-sub" style="margin-top:6px">Obs: ${p.observacao}</div>` : ''}
+    ${p.status_entrega === 'pendente' ? `<div class="card-sub" style="margin-top:6px">Estoque e saldos só são atualizados quando o pedido for marcado como entregue.</div>` : ''}
   `;
 
   const { data: itens } = await sb.from('itens_pedido').select('*, marcas(nome), lotes_garrafao(ano_validade)').eq('pedido_id', id);
   const tipoLabel = { troca: 'Troca', venda: 'Venda do Vasilhame', comodato: 'Comodato' };
-  document.getElementById('pd-itens').innerHTML = (itens || []).map(it => `
-    <div class="list-item">
-      <div class="item-info">
-        <div class="item-name">${it.marcas ? it.marcas.nome : '—'} ${it.lotes_garrafao ? '· val. ' + it.lotes_garrafao.ano_validade : ''}</div>
-        <div class="item-detail">${it.quantidade}x · ${tipoLabel[it.tipo_vasilhame]}</div>
+  document.getElementById('pd-itens').innerHTML = (itens || []).map(it => {
+    const temDesconto = it.preco_base > it.preco_unitario;
+    const descontoLinha = temDesconto
+      ? `<div class="card-sub text-green">Desconto aplicado: ${fmtMoeda(it.preco_base - it.preco_unitario)}/un. (tabela ${fmtMoeda(it.preco_base)})</div>`
+      : '';
+    return `
+      <div class="list-item" style="flex-direction:column;align-items:stretch">
+        <div style="display:flex;justify-content:space-between">
+          <div class="item-info">
+            <div class="item-name">${it.marcas ? it.marcas.nome : '—'} ${it.lotes_garrafao ? '· val. ' + it.lotes_garrafao.ano_validade : ''}</div>
+            <div class="item-detail">${it.quantidade}x · ${tipoLabel[it.tipo_vasilhame]}${it.ano_validade_vazio ? ' · vazio devolvido val. ' + it.ano_validade_vazio : ''}</div>
+          </div>
+          <div class="item-value">${fmtMoeda((it.preco_unitario + it.preco_vasilhame) * it.quantidade)}</div>
+        </div>
+        ${descontoLinha}
       </div>
-      <div class="item-value">${fmtMoeda((it.preco_unitario + it.preco_vasilhame) * it.quantidade)}</div>
-    </div>
-  `).join('') || '<div class="empty-state">Sem itens</div>';
+    `;
+  }).join('') || '<div class="empty-state">Sem itens</div>';
 
   const pagamentoCard = document.getElementById('pd-pagamento-card');
-  if (p.forma_pagamento === 'fiado' && p.status !== 'cancelado') {
-    const { data: pagamentos } = await sb.from('pagamentos_fiado').select('valor').eq('pedido_id', id);
+  if (p.status !== 'cancelado') {
+    const { data: pagamentos } = await sb.from('pagamentos_pedido').select('valor').eq('pedido_id', id);
     const totalPago = (pagamentos || []).reduce((s, x) => s + parseFloat(x.valor), 0);
     const pendente = Math.max(0, p.total - totalPago);
     if (pendente > 0) {
       pagamentoCard.style.display = 'block';
       document.getElementById('pd-pagamento-info').textContent = `Pago até agora: ${fmtMoeda(totalPago)} · Pendente: ${fmtMoeda(pendente)}`;
       document.getElementById('pd-pagamento-valor').value = pendente.toFixed(2);
+      document.getElementById('pd-pagamento-forma').style.display = p.forma_pagamento === 'fiado' ? 'block' : 'none';
     } else {
       pagamentoCard.style.display = 'none';
     }
@@ -1594,18 +1701,20 @@ async function confirmarPagamentoPedido() {
   const p = allPedidos.find(x => x.id === id);
   if (!p) return;
   const valor = parseFloat(document.getElementById('pd-pagamento-valor').value || 0);
-  const forma = document.getElementById('pd-pagamento-forma').value;
+  const forma = p.forma_pagamento === 'fiado' ? document.getElementById('pd-pagamento-forma').value : p.forma_pagamento;
   if (valor <= 0) { toast('Informe um valor válido', true); return; }
 
-  const { error } = await sb.from('pagamentos_fiado').insert({ cliente_id: p.cliente_id, pedido_id: id, valor, forma, criado_por: currentUserId });
+  const { error } = await sb.from('pagamentos_pedido').insert({ cliente_id: p.cliente_id, pedido_id: id, valor, forma, criado_por: currentUserId });
   if (error) { toast('Erro ao confirmar pagamento: ' + error.message, true); return; }
 
-  const cliente = allClientes.find(c => c.id === p.cliente_id);
-  const novoSaldo = Math.max(0, (cliente ? cliente.saldo_fiado : 0) - valor);
-  await sb.from('clientes').update({ saldo_fiado: novoSaldo }).eq('id', p.cliente_id);
+  if (p.forma_pagamento === 'fiado') {
+    const cliente = allClientes.find(c => c.id === p.cliente_id);
+    const novoSaldo = Math.max(0, (cliente ? cliente.saldo_fiado : 0) - valor);
+    await sb.from('clientes').update({ saldo_fiado: novoSaldo }).eq('id', p.cliente_id);
+    await loadClientes();
+  }
 
   toast('Pagamento confirmado!');
-  await loadClientes();
   await loadPedidos();
   abrirPedidoDetalhe(id);
 }
@@ -1614,7 +1723,9 @@ async function marcarPedidoEntregue() {
   const id = currentPedidoDetalheId;
   const { error } = await sb.from('pedidos').update({ status_entrega: 'entregue', data_entrega: new Date().toISOString() }).eq('id', id);
   if (error) { toast('Erro ao marcar entregue: ' + error.message, true); return; }
-  toast('Pedido marcado como entregue!');
+  toast('Pedido marcado como entregue! Estoque e saldos atualizados.');
+  await loadClientes();
+  await loadEstoque();
   await loadPedidos();
   abrirPedidoDetalhe(id);
 }
@@ -1623,48 +1734,60 @@ async function cancelarPedido() {
   const id = currentPedidoDetalheId;
   const p = allPedidos.find(x => x.id === id);
   if (!p) return;
-  if (!confirm(`Cancelar o pedido de ${p.clientes ? p.clientes.nome : ''}? O estoque e os saldos afetados serão revertidos.`)) return;
 
-  const { data: itens } = await sb.from('itens_pedido').select('*').eq('pedido_id', id);
-  const cliente = allClientes.find(c => c.id === p.cliente_id);
-  let saldoComodatoDelta = 0;
+  const jaEntregue = p.status_entrega === 'entregue';
+  const aviso = jaEntregue
+    ? `Cancelar o pedido de ${p.clientes ? p.clientes.nome : ''}? Como já foi entregue, o estoque e os saldos afetados serão revertidos.`
+    : `Cancelar o pedido de ${p.clientes ? p.clientes.nome : ''}?`;
+  if (!confirm(aviso)) return;
 
-  for (const it of (itens || [])) {
-    if (it.lote_id) {
-      const { data: lote } = await sb.from('lotes_garrafao').select('*').eq('id', it.lote_id).single();
-      if (lote) {
-        const novoCheios = lote.qtd_cheios + it.quantidade;
-        const novoVazios = it.tipo_vasilhame === 'troca' ? Math.max(0, lote.qtd_vazios - it.quantidade) : lote.qtd_vazios;
-        await sb.from('lotes_garrafao').update({ qtd_cheios: novoCheios, qtd_vazios: novoVazios }).eq('id', it.lote_id);
-        await sb.from('movimentos_estoque').insert({ lote_id: it.lote_id, tipo: 'ajuste', quantidade: it.quantidade, referencia_pedido_id: id, observacao: 'Cancelamento de pedido', criado_por: currentUserId });
+  if (jaEntregue) {
+    const { data: itens } = await sb.from('itens_pedido').select('*').eq('pedido_id', id);
+    const cliente = allClientes.find(c => c.id === p.cliente_id);
+
+    for (const it of (itens || [])) {
+      if (it.lote_id) {
+        const { data: lote } = await sb.from('lotes_garrafao').select('*').eq('id', it.lote_id).single();
+        if (lote) {
+          await sb.from('lotes_garrafao').update({ qtd_cheios: lote.qtd_cheios + it.quantidade }).eq('id', it.lote_id);
+        }
+        if (it.tipo_vasilhame === 'troca') {
+          const anoDestino = it.ano_validade_vazio || (lote ? lote.ano_validade : null);
+          const { data: loteDestino } = await sb.from('lotes_garrafao').select('*')
+            .eq('marca_id', it.marca_id).eq('ano_validade', anoDestino)
+            .order('data_chegada', { ascending: false }).limit(1).maybeSingle();
+          if (loteDestino) {
+            await sb.from('lotes_garrafao').update({ qtd_vazios: Math.max(0, loteDestino.qtd_vazios - it.quantidade) }).eq('id', loteDestino.id);
+          }
+        }
+        await sb.from('movimentos_estoque').insert({ lote_id: it.lote_id, tipo: 'ajuste', quantidade: it.quantidade, referencia_pedido_id: id, observacao: 'Cancelamento de pedido entregue', criado_por: currentUserId });
+      } else {
+        const { data: estoque } = await sb.from('estoque_gas').select('*').eq('marca_id', it.marca_id).single();
+        if (estoque) {
+          const novoVazios = it.tipo_vasilhame === 'troca' ? Math.max(0, estoque.qtd_vazios - it.quantidade) : estoque.qtd_vazios;
+          await sb.from('estoque_gas').update({ qtd_cheios: estoque.qtd_cheios + it.quantidade, qtd_vazios: novoVazios }).eq('id', estoque.id);
+        }
       }
-    } else {
-      const estoque = allEstoqueGas.find(g => g.marca_id === it.marca_id);
-      if (estoque) {
-        const novoCheios = estoque.qtd_cheios + it.quantidade;
-        const novoVazios = it.tipo_vasilhame === 'troca' ? Math.max(0, estoque.qtd_vazios - it.quantidade) : estoque.qtd_vazios;
-        await sb.from('estoque_gas').update({ qtd_cheios: novoCheios, qtd_vazios: novoVazios }).eq('id', estoque.id);
+
+      if (it.tipo_vasilhame === 'comodato' && cliente) {
+        await sb.from('movimentos_comodato').delete().eq('referencia_pedido_id', id).eq('tipo', 'emprestimo');
+        await sb.from('clientes').update({ saldo_comodato_garrafoes: Math.max(0, cliente.saldo_comodato_garrafoes - it.quantidade) }).eq('id', p.cliente_id);
       }
     }
-    if (it.tipo_vasilhame === 'comodato') saldoComodatoDelta += it.quantidade;
-  }
 
-  if (saldoComodatoDelta > 0 && cliente) {
-    await sb.from('clientes').update({ saldo_comodato_garrafoes: Math.max(0, cliente.saldo_comodato_garrafoes - saldoComodatoDelta) }).eq('id', p.cliente_id);
-  }
-
-  if (p.forma_pagamento === 'fiado' && cliente) {
-    const { data: pagamentos } = await sb.from('pagamentos_fiado').select('valor').eq('pedido_id', id);
-    const totalPago = (pagamentos || []).reduce((s, x) => s + parseFloat(x.valor), 0);
-    const pendente = Math.max(0, p.total - totalPago);
-    if (pendente > 0) {
-      await sb.from('clientes').update({ saldo_fiado: Math.max(0, cliente.saldo_fiado - pendente) }).eq('id', p.cliente_id);
+    if (p.forma_pagamento === 'fiado' && cliente) {
+      const { data: pagamentos } = await sb.from('pagamentos_pedido').select('valor').eq('pedido_id', id);
+      const totalPago = (pagamentos || []).reduce((s, x) => s + parseFloat(x.valor), 0);
+      const pendente = Math.max(0, p.total - totalPago);
+      if (pendente > 0) {
+        await sb.from('clientes').update({ saldo_fiado: Math.max(0, cliente.saldo_fiado - pendente) }).eq('id', p.cliente_id);
+      }
     }
   }
 
   await sb.from('pedidos').update({ status: 'cancelado', status_entrega: 'cancelada' }).eq('id', id);
 
-  toast('Pedido cancelado e estoque revertido.');
+  toast('Pedido cancelado.' + (jaEntregue ? ' Estoque e saldos revertidos.' : ''));
   closeModal('modal-pedido-detalhe');
   await loadClientes();
   await loadEstoque();
@@ -1717,16 +1840,35 @@ async function marcarEntregaConcluida(id) {
 // DASHBOARD
 // ============================================================
 async function loadDashboard() {
-  const hojeStr = new Date().toISOString().slice(0, 10);
-  const { data: caixaRows } = await sb.from('vw_caixa_dia').select('*');
-  const hoje = (caixaRows || []).filter(r => (r.dia || '').slice(0, 10) === hojeStr);
-  const dinheiro = hoje.find(r => r.forma_pagamento === 'dinheiro');
-  const pix = hoje.find(r => r.forma_pagamento === 'pix');
-  const totalDinheiro = dinheiro ? parseFloat(dinheiro.total) : 0;
-  const totalPix = pix ? parseFloat(pix.total) : 0;
-  document.getElementById('dash-caixa-dinheiro').textContent = fmtMoeda(totalDinheiro);
-  document.getElementById('dash-caixa-pix').textContent = fmtMoeda(totalPix);
-  document.getElementById('dash-caixa-total').textContent = fmtMoeda(totalDinheiro + totalPix);
+  const inicio = new Date(); inicio.setHours(0, 0, 0, 0);
+  const fim = new Date(inicio); fim.setDate(fim.getDate() + 1);
+
+  const { data: pedidosHojeRaw } = await sb.from('pedidos')
+    .select('id, total, status, status_entrega, forma_pagamento')
+    .gte('data', inicio.toISOString())
+    .lt('data', fim.toISOString());
+  const pedidosHoje = (pedidosHojeRaw || []).filter(p => p.status !== 'cancelado');
+
+  const vendasHoje = pedidosHoje.reduce((s, p) => s + parseFloat(p.total), 0);
+
+  let pagamentosEfetuados = 0;
+  const idsHoje = pedidosHoje.map(p => p.id);
+  if (idsHoje.length) {
+    const { data: pagamentos } = await sb.from('pagamentos_pedido').select('valor').in('pedido_id', idsHoje);
+    pagamentosEfetuados = (pagamentos || []).reduce((s, x) => s + parseFloat(x.valor), 0);
+  }
+  const pagamentosPendentes = Math.max(0, vendasHoje - pagamentosEfetuados);
+
+  const entregasTotal = pedidosHoje.length;
+  const entregasEfetuadas = pedidosHoje.filter(p => p.status_entrega === 'entregue').length;
+  const entregasPendentes = pedidosHoje.filter(p => p.status_entrega === 'pendente').length;
+
+  document.getElementById('dash-vendas-hoje').textContent = fmtMoeda(vendasHoje);
+  document.getElementById('dash-pagamentos-efetuados').textContent = fmtMoeda(pagamentosEfetuados);
+  document.getElementById('dash-pagamentos-pendentes').textContent = fmtMoeda(pagamentosPendentes);
+  document.getElementById('dash-entregas-total').textContent = entregasTotal;
+  document.getElementById('dash-entregas-efetuadas').textContent = entregasEfetuadas;
+  document.getElementById('dash-entregas-pendentes').textContent = entregasPendentes;
 
   if (!allMarcas.length || !allLotes.length) await loadEstoque();
 
