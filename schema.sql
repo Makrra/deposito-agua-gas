@@ -99,14 +99,15 @@ CREATE INDEX IF NOT EXISTS idx_estoque_gas_marca ON estoque_gas(marca_id);
 -- ------------------------------------------------------------
 -- 5. CLIENTES
 -- ------------------------------------------------------------
+-- Não há mais saldo/limite agregado por cliente (era exclusivo do fiado,
+-- removido). Pendência de pagamento é controlada por pedido (ver
+-- pagamentos_pedido), agregada on-the-fly quando necessário.
 CREATE TABLE IF NOT EXISTS clientes (
   id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   tipo                     TEXT NOT NULL DEFAULT 'pf' CHECK (tipo IN ('pf','pj')),
   nome                     TEXT NOT NULL,
   telefone                 TEXT,
   endereco                 TEXT,
-  saldo_fiado              NUMERIC(10,2) NOT NULL DEFAULT 0,
-  limite_fiado             NUMERIC(10,2) NOT NULL DEFAULT 0,
   saldo_comodato_garrafoes INTEGER NOT NULL DEFAULT 0 CHECK (saldo_comodato_garrafoes >= 0),
   ativo                    BOOLEAN NOT NULL DEFAULT true,
   observacao               TEXT,
@@ -114,16 +115,16 @@ CREATE TABLE IF NOT EXISTS clientes (
 );
 
 CREATE INDEX IF NOT EXISTS idx_clientes_nome  ON clientes(nome);
-CREATE INDEX IF NOT EXISTS idx_clientes_saldo ON clientes(saldo_fiado) WHERE saldo_fiado > 0;
 
 -- ------------------------------------------------------------
 -- 6. PEDIDOS (cabeçalho da venda/entrega)
 -- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS pedidos (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  numero          SERIAL UNIQUE, -- código curto pra identificar o pedido (#1, #2...)
   cliente_id      UUID NOT NULL REFERENCES clientes(id) ON DELETE RESTRICT,
   data            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  forma_pagamento TEXT NOT NULL CHECK (forma_pagamento IN ('dinheiro','pix','fiado')),
+  forma_pagamento TEXT NOT NULL CHECK (forma_pagamento IN ('dinheiro','pix','cartao_credito')),
   status          TEXT NOT NULL DEFAULT 'aberto' CHECK (status IN ('aberto','concluido','cancelado')),
   total           NUMERIC(10,2) NOT NULL DEFAULT 0,
   entregador_id   UUID REFERENCES usuarios(id),
@@ -168,7 +169,7 @@ CREATE TABLE IF NOT EXISTS movimentos_estoque (
   id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   lote_id              UUID REFERENCES lotes_garrafao(id) ON DELETE RESTRICT,
   ano_validade         INTEGER, -- usado quando o movimento é do pool de vazios (lote_id fica NULL)
-  tipo                 TEXT NOT NULL CHECK (tipo IN ('entrada_fabrica','saida_venda','retorno_vazio','avaria','ajuste')),
+  tipo                 TEXT NOT NULL CHECK (tipo IN ('entrada_fabrica','saida_venda','retorno_vazio','avaria','ajuste','reaproveitamento')),
   quantidade           INTEGER NOT NULL,
   referencia_pedido_id UUID REFERENCES pedidos(id),
   observacao           TEXT,
@@ -198,14 +199,15 @@ CREATE INDEX IF NOT EXISTS idx_avarias_lote ON avarias(lote_id);
 
 -- ------------------------------------------------------------
 -- 10. PAGAMENTOS_PEDIDO (qualquer forma de pagamento, vinculado a um
--- pedido específico; quando o pedido é fiado, também abate saldo_fiado)
+-- pedido específico; pendência é calculada on-the-fly: total do pedido
+-- menos a soma dos pagamentos registrados aqui)
 -- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS pagamentos_pedido (
   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   cliente_id UUID NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
   pedido_id  UUID REFERENCES pedidos(id) ON DELETE SET NULL,
   valor      NUMERIC(10,2) NOT NULL CHECK (valor > 0),
-  forma      TEXT NOT NULL DEFAULT 'dinheiro' CHECK (forma IN ('dinheiro','pix')),
+  forma      TEXT NOT NULL DEFAULT 'dinheiro' CHECK (forma IN ('dinheiro','pix','cartao_credito')),
   data       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   observacao TEXT,
   criado_por UUID REFERENCES usuarios(id)
@@ -309,28 +311,13 @@ CREATE TRIGGER trg_guard_pedidos_entregador
   BEFORE UPDATE ON pedidos
   FOR EACH ROW EXECUTE FUNCTION public.guard_pedidos_entregador();
 
--- caixa não pode alterar limite_fiado de clientes
-CREATE OR REPLACE FUNCTION public.guard_clientes_caixa()
-RETURNS TRIGGER LANGUAGE plpgsql AS $$
-BEGIN
-  IF public.current_role() = 'caixa' AND NEW.limite_fiado IS DISTINCT FROM OLD.limite_fiado THEN
-    RAISE EXCEPTION 'caixa não pode alterar o limite de fiado do cliente';
-  END IF;
-  RETURN NEW;
-END;
-$$;
-
-DROP TRIGGER IF EXISTS trg_guard_clientes_caixa ON clientes;
-CREATE TRIGGER trg_guard_clientes_caixa
-  BEFORE UPDATE ON clientes
-  FOR EACH ROW EXECUTE FUNCTION public.guard_clientes_caixa();
 
 -- ============================================================
 -- PROCESSAMENTO DA ENTREGA (SECURITY DEFINER): roda quando status_entrega
 -- passa de 'pendente' para 'entregue', seja pelo administrador/caixa ou
--- pelo entregador. É só nesse momento que o estoque (cheios/vazios),
--- o comodato e o débito de fiado de fato se efetivam — pedido recém-
--- criado fica "pendente" sem mexer em nada disso. Por que trigger e não
+-- pelo entregador. É só nesse momento que o estoque (cheios/vazios) e
+-- o comodato de fato se efetivam — pedido recém-criado fica "pendente"
+-- sem mexer em nada disso. Por que trigger e não
 -- chamadas sequenciais no JS: o entregador não tem (e não deve ter) RLS
 -- de escrita em lotes_garrafao/estoque_gas/clientes/movimentos_*, então
 -- isso precisa rodar com privilégio elevado no banco.
@@ -399,10 +386,6 @@ BEGIN
     END IF;
 
   END LOOP;
-
-  IF NEW.forma_pagamento = 'fiado' THEN
-    UPDATE clientes SET saldo_fiado = saldo_fiado + NEW.total WHERE id = NEW.cliente_id;
-  END IF;
 
   RETURN NEW;
 END;
@@ -564,8 +547,7 @@ DROP POLICY IF EXISTS "descontos_delete_admin" ON descontos_cliente;
 CREATE POLICY "descontos_delete_admin" ON descontos_cliente FOR DELETE
   USING (public.current_role() = 'administrador');
 
--- clientes: administrador/caixa podem ver/criar/editar (limite_fiado é
--- protegido por trigger, não por RLS); só administrador pode excluir um
+-- clientes: administrador/caixa podem ver/criar/editar; só administrador pode excluir um
 -- cliente; entregador só vê clientes de entregas do dia atribuídas a ele.
 DROP POLICY IF EXISTS "clientes_admin_caixa_all" ON clientes;
 DROP POLICY IF EXISTS "clientes_select_admin_caixa" ON clientes;
@@ -1002,6 +984,12 @@ ON CONFLICT (chave) DO NOTHING;
 -- quantidade = EXCLUDED.quantidade" (substituição, não soma) pra ser
 -- seguro re-rodar o script inteiro do zero mesmo após uma tentativa
 -- que falhou no meio.
+
+-- ============================================================
+-- MIGRAÇÃO: remove fiado (saldo/limite agregado por cliente) e cria
+-- cartão de crédito; número curto do pedido; reaproveitamento de
+-- vazios na entrada de garrafão. Script completo enviado ao usuário.
+-- ============================================================
 
 -- Após rodar este script, crie o primeiro usuário em:
 -- Authentication > Users > Add user (email + senha)

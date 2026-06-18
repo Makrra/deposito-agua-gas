@@ -278,8 +278,23 @@ select.form-control option { background: var(--surface); }
 
 <!-- ======= PAGE: DASHBOARD ======= -->
 <div class="page active" id="page-dash">
+  <div class="tabs">
+    <button class="tab-btn active" id="tab-periodo-hoje" onclick="dashboardSetPeriodo('hoje')">Hoje</button>
+    <button class="tab-btn" id="tab-periodo-semana" onclick="dashboardSetPeriodo('semana')">Esta Semana</button>
+    <button class="tab-btn" id="tab-periodo-mes" onclick="dashboardSetPeriodo('mes')">Este Mês</button>
+    <button class="tab-btn" id="tab-periodo-personalizado" onclick="dashboardSetPeriodo('personalizado')">Personalizado</button>
+  </div>
+  <div id="dash-periodo-custom" style="display:none;margin-bottom:14px">
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+      <input type="date" class="form-control" id="dash-data-inicio" style="flex:1;padding:8px;font-size:.8rem">
+      <span class="card-sub">até</span>
+      <input type="date" class="form-control" id="dash-data-fim" style="flex:1;padding:8px;font-size:.8rem">
+    </div>
+    <button class="btn btn-primary btn-sm btn-block" onclick="loadDashboard()">Aplicar</button>
+  </div>
+
   <div class="stats" id="dash-stats">
-    <div class="stat-card"><div class="stat-val" id="dash-vendas-hoje">—</div><div class="stat-lbl">Vendas Hoje</div></div>
+    <div class="stat-card"><div class="stat-val" id="dash-vendas-hoje">—</div><div class="stat-lbl">Vendas no Período</div></div>
     <div class="stat-card"><div class="stat-val text-green" id="dash-pagamentos-efetuados">—</div><div class="stat-lbl">Pagamentos Efetuados</div></div>
     <div class="stat-card" style="cursor:pointer" onclick="irParaPedidosPagamentoPendente()"><div class="stat-val text-red" id="dash-pagamentos-pendentes">—</div><div class="stat-lbl">Pagamentos Pendentes</div></div>
     <div class="stat-card"><div class="stat-val" id="dash-entregas-total">—</div><div class="stat-lbl">Qtd. de Entregas</div></div>
@@ -428,12 +443,23 @@ select.form-control option { background: var(--surface); }
     <div class="modal-title">Registrar Entrada de Garrafão</div>
     <div class="card-sub" style="margin-bottom:14px">Se já existir um lote dessa marca e validade, a quantidade é somada nele. Senão, um novo é criado.</div>
     <div class="form-group">
+      <label class="form-label">Origem do Vasilhame</label>
+      <select class="form-control" id="lote-origem" onchange="atualizarOrigemLote()">
+        <option value="novo">Vasilhame Novo</option>
+        <option value="reaproveitado">Reaproveitado do Estoque de Vazios</option>
+      </select>
+    </div>
+    <div class="form-group">
       <label class="form-label">Marca</label>
       <select class="form-control" id="lote-marca"></select>
     </div>
-    <div class="form-group">
+    <div class="form-group" id="lote-ano-wrap">
       <label class="form-label">Ano de Validade</label>
       <input class="form-control" id="lote-ano-validade" type="number" inputmode="numeric" min="2000" max="2100" maxlength="4" placeholder="2027">
+    </div>
+    <div class="form-group" id="lote-vazio-origem-wrap" style="display:none">
+      <label class="form-label">Vazio a Reaproveitar</label>
+      <select class="form-control" id="lote-vazio-origem"></select>
     </div>
     <div class="form-group">
       <label class="form-label">Quantidade Recebida</label>
@@ -533,10 +559,6 @@ select.form-control option { background: var(--surface); }
     <div class="form-group">
       <label class="form-label">Endereço de Entrega</label>
       <textarea class="form-control" id="cliente-endereco" rows="2" placeholder="Rua, número, bairro..."></textarea>
-    </div>
-    <div class="form-group">
-      <label class="form-label">Limite Pagamento Pendente (R$)</label>
-      <input class="form-control" id="cliente-limite-fiado" type="number" step="0.01" placeholder="0.00">
     </div>
     <div class="form-group">
       <label class="form-label">Observação</label>
@@ -639,7 +661,7 @@ select.form-control option { background: var(--surface); }
       <select class="form-control" id="np-forma-pagamento">
         <option value="dinheiro">Dinheiro</option>
         <option value="pix">Pix</option>
-        <option value="fiado">Fiado (Pendência)</option>
+        <option value="cartao_credito">Cartão de Crédito</option>
       </select>
     </div>
 
@@ -678,12 +700,8 @@ select.form-control option { background: var(--surface); }
     <div id="pd-pagamento-card" class="card" style="display:none">
       <div class="card-title" style="margin-bottom:10px">Confirmar Pagamento</div>
       <div class="card-sub" id="pd-pagamento-info" style="margin-bottom:8px"></div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+      <div class="form-group">
         <input class="form-control" id="pd-pagamento-valor" type="number" step="0.01">
-        <select class="form-control" id="pd-pagamento-forma" style="display:none">
-          <option value="dinheiro">Dinheiro</option>
-          <option value="pix">Pix</option>
-        </select>
       </div>
       <button class="btn btn-success btn-block btn-sm" onclick="confirmarPagamentoPedido()">Confirmar Pagamento</button>
     </div>
@@ -731,6 +749,27 @@ let allPedidos = [];
 let allEntregadores = [];
 let currentPedidoFilter = 'todos';
 let pagamentosPorPedido = {};
+let dashboardPeriodo = 'hoje';
+let pendentesPorCliente = {};
+
+async function calcularPendentesPorCliente() {
+  const { data: pedidos } = await sb.from('pedidos').select('id, cliente_id, total').neq('status', 'cancelado');
+  const ids = (pedidos || []).map(p => p.id);
+  let pagamentos = [];
+  if (ids.length) {
+    const { data } = await sb.from('pagamentos_pedido').select('pedido_id, valor').in('pedido_id', ids);
+    pagamentos = data || [];
+  }
+  const pagoPorPedido = {};
+  pagamentos.forEach(pg => { pagoPorPedido[pg.pedido_id] = (pagoPorPedido[pg.pedido_id] || 0) + parseFloat(pg.valor); });
+  const mapa = {};
+  (pedidos || []).forEach(p => {
+    const pago = pagoPorPedido[p.id] || 0;
+    const pendente = Math.max(0, parseFloat(p.total) - pago);
+    if (pendente > 0) mapa[p.cliente_id] = (mapa[p.cliente_id] || 0) + pendente;
+  });
+  return mapa;
+}
 let pedidoItemSeq = 0;
 let pedidoClienteDescontos = [];
 let precoVasilhameAvulso = 0;
@@ -977,24 +1016,36 @@ function renderVaziosList() {
         <div class="card-title">Validade ${v.ano_validade}</div>
         ${badgeValidadeAno(v.ano_validade)}
       </div>
-      <div class="item-value">${v.quantidade}</div>
-      <div class="item-detail">vazios em estoque</div>
+      <div style="display:flex;justify-content:space-between;align-items:flex-end">
+        <div><div class="item-value">${v.quantidade}</div><div class="item-detail">vazios em estoque</div></div>
+        <button class="btn btn-outline btn-sm" onclick="abrirHistoricoVazios(${v.ano_validade})">Ver Histórico</button>
+      </div>
     </div>
   `).join('');
 }
 
-async function abrirHistoricoLote(loteId, marcaNome, anoValidade) {
-  const { data } = await sb.from('movimentos_estoque').select('*').eq('lote_id', loteId).order('data', { ascending: false });
-  const tipoLabel = { entrada_fabrica: 'Entrada', saida_venda: 'Saída (venda)', ajuste: 'Ajuste', avaria: 'Avaria' };
-  document.getElementById('historico-completo-titulo').textContent = `${marcaNome} · validade ${anoValidade}`;
+const TIPO_MOVIMENTO_LABEL = { entrada_fabrica: 'Entrada', saida_venda: 'Saída (venda)', ajuste: 'Ajuste', avaria: 'Avaria', retorno_vazio: 'Retorno de Vazio', reaproveitamento: 'Reaproveitamento' };
+
+function renderHistoricoMovimentos(data, titulo) {
+  document.getElementById('historico-completo-titulo').textContent = titulo;
   const linhas = (data || []).map(m => `
     <div class="list-item">
-      <div class="item-info"><div class="item-name">${tipoLabel[m.tipo] || m.tipo}</div><div class="item-detail">${fmtData(m.data)}${m.observacao ? ' · ' + m.observacao : ''}</div></div>
+      <div class="item-info"><div class="item-name">${TIPO_MOVIMENTO_LABEL[m.tipo] || m.tipo}</div><div class="item-detail">${fmtData(m.data)}${m.observacao ? ' · ' + m.observacao : ''}</div></div>
       <div class="item-value ${m.quantidade < 0 ? 'text-red' : 'text-green'}">${m.quantidade > 0 ? '+' : ''}${m.quantidade}</div>
     </div>
   `);
   document.getElementById('historico-completo-lista').innerHTML = linhas.length ? linhas.join('') : '<div class="empty-state">Sem movimentos registrados</div>';
   openModal('modal-historico-completo');
+}
+
+async function abrirHistoricoLote(loteId, marcaNome, anoValidade) {
+  const { data } = await sb.from('movimentos_estoque').select('*').eq('lote_id', loteId).order('data', { ascending: false });
+  renderHistoricoMovimentos(data, `${marcaNome} · validade ${anoValidade}`);
+}
+
+async function abrirHistoricoVazios(anoValidade) {
+  const { data } = await sb.from('movimentos_estoque').select('*').eq('ano_validade', anoValidade).is('lote_id', null).order('data', { ascending: false });
+  renderHistoricoMovimentos(data, `Vazios · validade ${anoValidade}`);
 }
 
 async function abrirAjusteVazios() {
@@ -1035,18 +1086,48 @@ function abrirNovoLote() {
   const sel = document.getElementById('lote-marca');
   sel.innerHTML = allMarcas.filter(m => m.ativo && m.tipo === 'agua').map(m => `<option value="${m.id}">${m.nome}</option>`).join('')
     || '<option value="">Nenhuma marca de água cadastrada</option>';
+  document.getElementById('lote-origem').value = 'novo';
   document.getElementById('lote-ano-validade').value = new Date().getFullYear() + 3;
   document.getElementById('lote-qtd-cheios').value = '';
   document.getElementById('lote-data-entrada').value = new Date().toISOString().slice(0, 10);
+  atualizarOrigemLote();
   openModal('modal-lote');
 }
 
+function atualizarOrigemLote() {
+  const origem = document.getElementById('lote-origem').value;
+  document.getElementById('lote-ano-wrap').style.display = origem === 'novo' ? 'block' : 'none';
+  document.getElementById('lote-vazio-origem-wrap').style.display = origem === 'reaproveitado' ? 'block' : 'none';
+  if (origem === 'reaproveitado') {
+    const sel = document.getElementById('lote-vazio-origem');
+    const disponiveis = allEstoqueVazios.filter(v => v.quantidade > 0).sort((a, b) => a.ano_validade - b.ano_validade);
+    sel.innerHTML = disponiveis.length
+      ? disponiveis.map(v => `<option value="${v.ano_validade}">Validade ${v.ano_validade} (${v.quantidade} disponíveis)</option>`).join('')
+      : '<option value="">Nenhum vazio em estoque</option>';
+  }
+}
+
 async function salvarLote() {
+  const origem = document.getElementById('lote-origem').value;
   const marca_id = document.getElementById('lote-marca').value;
-  const ano_validade = parseInt(document.getElementById('lote-ano-validade').value || 0, 10);
   const qtd_recebida = parseInt(document.getElementById('lote-qtd-cheios').value || 0, 10);
   const data_entrada = document.getElementById('lote-data-entrada').value;
-  if (!marca_id || String(ano_validade).length !== 4 || qtd_recebida <= 0) { toast('Preencha marca, ano de validade e quantidade', true); return; }
+  if (!marca_id || qtd_recebida <= 0) { toast('Preencha marca e quantidade', true); return; }
+
+  let ano_validade;
+  let vazioOrigem = null;
+  if (origem === 'reaproveitado') {
+    ano_validade = parseInt(document.getElementById('lote-vazio-origem').value || 0, 10);
+    if (!ano_validade) { toast('Selecione o vazio a reaproveitar', true); return; }
+    vazioOrigem = allEstoqueVazios.find(v => v.ano_validade === ano_validade);
+    if (!vazioOrigem || qtd_recebida > vazioOrigem.quantidade) {
+      toast(`Só há ${vazioOrigem ? vazioOrigem.quantidade : 0} vazios de validade ${ano_validade} disponíveis`, true);
+      return;
+    }
+  } else {
+    ano_validade = parseInt(document.getElementById('lote-ano-validade').value || 0, 10);
+    if (String(ano_validade).length !== 4) { toast('Informe um ano de validade com 4 números', true); return; }
+  }
 
   const existente = allLotes.find(l => l.marca_id === marca_id && l.ano_validade === ano_validade);
   let loteId;
@@ -1060,11 +1141,27 @@ async function salvarLote() {
     loteId = lote.id;
   }
 
-  await sb.from('movimentos_estoque').insert({
-    lote_id: loteId, tipo: 'entrada_fabrica', quantidade: qtd_recebida,
-    data: data_entrada ? new Date(data_entrada).toISOString() : undefined,
-    criado_por: currentUserId,
-  });
+  const marcaNome = (allMarcas.find(m => m.id === marca_id) || {}).nome || '';
+
+  if (origem === 'reaproveitado') {
+    await sb.from('estoque_vazios').update({ quantidade: vazioOrigem.quantidade - qtd_recebida }).eq('id', vazioOrigem.id);
+    await sb.from('movimentos_estoque').insert({
+      ano_validade, tipo: 'reaproveitamento', quantidade: -qtd_recebida,
+      observacao: `Reaproveitado para encher com ${marcaNome}`, criado_por: currentUserId,
+    });
+    await sb.from('movimentos_estoque').insert({
+      lote_id: loteId, tipo: 'reaproveitamento', quantidade: qtd_recebida,
+      observacao: 'Reaproveitado do estoque de vazios',
+      data: data_entrada ? new Date(data_entrada).toISOString() : undefined,
+      criado_por: currentUserId,
+    });
+  } else {
+    await sb.from('movimentos_estoque').insert({
+      lote_id: loteId, tipo: 'entrada_fabrica', quantidade: qtd_recebida,
+      data: data_entrada ? new Date(data_entrada).toISOString() : undefined,
+      criado_por: currentUserId,
+    });
+  }
 
   closeModal('modal-lote');
   toast(existente ? 'Entrada somada ao lote existente!' : 'Lote criado!');
@@ -1130,6 +1227,7 @@ async function salvarAvaria() {
 async function loadClientes() {
   const { data } = await sb.from('clientes').select('*').order('nome');
   allClientes = data || [];
+  pendentesPorCliente = await calcularPendentesPorCliente();
   renderClientesList(allClientes);
 }
 
@@ -1152,15 +1250,11 @@ function renderClientesList(lista) {
         <div class="item-detail">${c.telefone || 'sem telefone'}${c.saldo_comodato_garrafoes > 0 ? ` · ${c.saldo_comodato_garrafoes} vasilhame(s) em comodato` : ''}</div>
       </div>
       <div style="text-align:right">
-        <div class="${c.saldo_fiado > 0 ? 'saldo-negative' : 'saldo-positive'}" style="font-size:0.85rem">${fmtMoeda(c.saldo_fiado)}</div>
+        <div class="${(pendentesPorCliente[c.id] || 0) > 0 ? 'saldo-negative' : 'saldo-positive'}" style="font-size:0.85rem">${fmtMoeda(pendentesPorCliente[c.id] || 0)}</div>
         <button class="btn btn-outline btn-sm" style="margin-top:4px" onclick="abrirEditarCliente('${c.id}')">Editar</button>
       </div>
     </div>
   `).join('');
-}
-
-function aplicarRestricaoLimiteFiado() {
-  document.getElementById('cliente-limite-fiado').disabled = currentUserRole !== 'administrador';
 }
 
 function abrirNovoCliente() {
@@ -1170,9 +1264,7 @@ function abrirNovoCliente() {
   document.getElementById('cliente-nome').value = '';
   document.getElementById('cliente-telefone').value = '';
   document.getElementById('cliente-endereco').value = '';
-  document.getElementById('cliente-limite-fiado').value = '0';
   document.getElementById('cliente-observacao').value = '';
-  aplicarRestricaoLimiteFiado();
   document.getElementById('btn-excluir-cliente').style.display = 'none';
   openModal('modal-cliente');
 }
@@ -1186,9 +1278,7 @@ function abrirEditarCliente(id) {
   document.getElementById('cliente-nome').value = c.nome;
   document.getElementById('cliente-telefone').value = c.telefone || '';
   document.getElementById('cliente-endereco').value = c.endereco || '';
-  document.getElementById('cliente-limite-fiado').value = c.limite_fiado;
   document.getElementById('cliente-observacao').value = c.observacao || '';
-  aplicarRestricaoLimiteFiado();
   document.getElementById('btn-excluir-cliente').style.display = currentUserRole === 'administrador' ? 'block' : 'none';
   openModal('modal-cliente');
 }
@@ -1228,9 +1318,6 @@ async function salvarCliente() {
     endereco: document.getElementById('cliente-endereco').value.trim(),
     observacao: document.getElementById('cliente-observacao').value.trim(),
   };
-  if (currentUserRole === 'administrador') {
-    payload.limite_fiado = parseFloat(document.getElementById('cliente-limite-fiado').value || 0);
-  }
 
   const { error } = id
     ? await sb.from('clientes').update(payload).eq('id', id)
@@ -1243,7 +1330,7 @@ async function salvarCliente() {
 }
 
 // ============================================================
-// EXTRATO DO CLIENTE (fiado + comodato)
+// EXTRATO DO CLIENTE (pendência de pagamento + comodato)
 // ============================================================
 let currentComodatoFull = [];
 let currentPagamentosFull = [];
@@ -1254,7 +1341,7 @@ async function abrirExtratoCliente(id) {
 
   document.getElementById('extrato-cliente-nome').textContent = c.nome;
   document.getElementById('extrato-cliente-id').value = c.id;
-  document.getElementById('extrato-saldo-fiado').textContent = fmtMoeda(c.saldo_fiado);
+  document.getElementById('extrato-saldo-fiado').textContent = fmtMoeda(pendentesPorCliente[c.id] || 0);
   document.getElementById('extrato-saldo-comodato').textContent = c.saldo_comodato_garrafoes;
 
   await loadDescontosCliente(id);
@@ -1499,8 +1586,9 @@ async function selecionarClientePedido(id) {
   const c = allClientes.find(x => x.id === id);
   if (!c) return;
   document.getElementById('np-cliente-id').value = id;
+  const pendenteAtual = pendentesPorCliente[id] || 0;
   document.getElementById('np-cliente-selecionado').innerHTML =
-    `Selecionado: <strong>${c.nome}</strong>${c.saldo_fiado > 0 ? ` · pendência atual: <span class="text-red">${fmtMoeda(c.saldo_fiado)}</span>` : ''}`;
+    `Selecionado: <strong>${c.nome}</strong>${pendenteAtual > 0 ? ` · pendência atual: <span class="text-red">${fmtMoeda(pendenteAtual)}</span>` : ''}`;
   document.getElementById('np-busca-cliente').value = '';
   document.getElementById('np-cliente-picker').innerHTML = '';
 
@@ -1694,12 +1782,6 @@ async function salvarPedido() {
   const forma_pagamento = document.getElementById('np-forma-pagamento').value;
   const entregador_id = document.getElementById('np-entregador').value || null;
   const observacao = document.getElementById('np-observacao').value.trim();
-  const cliente = allClientes.find(c => c.id === cliente_id);
-
-  if (forma_pagamento === 'fiado' && cliente && (cliente.saldo_fiado + total) > cliente.limite_fiado) {
-    const seguir = confirm(`Esse pedido vai deixar a pendência de ${cliente.nome} em ${fmtMoeda(cliente.saldo_fiado + total)}, acima do limite de ${fmtMoeda(cliente.limite_fiado)}.\n\nLançar mesmo assim?`);
-    if (!seguir) return;
-  }
 
   // O pedido nasce com pagamento e entrega pendentes. Nada de estoque ou
   // saldo é alterado agora — isso só acontece quando o pedido é marcado
@@ -1761,7 +1843,7 @@ async function irParaPedidosPagamentoPendente() {
 }
 
 function badgePagamento(forma) {
-  const labels = { dinheiro: 'Dinheiro', pix: 'Pix', fiado: 'Fiado' };
+  const labels = { dinheiro: 'Dinheiro', pix: 'Pix', cartao_credito: 'Cartão de Crédito' };
   return `<span class="badge badge-blue">${labels[forma] || forma}</span>`;
 }
 
@@ -1794,7 +1876,7 @@ function renderPedidosList() {
     <div class="card" style="cursor:pointer" onclick="abrirPedidoDetalhe('${p.id}')">
       <div class="card-header">
         <div>
-          <div class="card-title">${p.clientes ? p.clientes.nome : '—'}</div>
+          <div class="card-title">#${p.numero} · ${p.clientes ? p.clientes.nome : '—'}</div>
           <div class="card-sub">${fmtData(p.data)}${p.usuarios ? ' · entregador: ' + p.usuarios.nome : ''}</div>
         </div>
         <div class="item-value">${fmtMoeda(p.total)}</div>
@@ -1814,7 +1896,7 @@ async function abrirPedidoDetalhe(id) {
   if (!p) return;
   currentPedidoDetalheId = id;
 
-  document.getElementById('pd-titulo').textContent = p.clientes ? p.clientes.nome : 'Pedido';
+  document.getElementById('pd-titulo').textContent = `#${p.numero} · ${p.clientes ? p.clientes.nome : 'Pedido'}`;
   document.getElementById('pd-info').innerHTML = `
     <div class="card-sub">${fmtData(p.data)}</div>
     <div style="margin-top:6px">${badgePagamento(p.forma_pagamento)} ${badgeStatusPagamento(p)} ${badgeStatusEntrega(p.status_entrega)}</div>
@@ -1864,7 +1946,6 @@ async function abrirPedidoDetalhe(id) {
       pagamentoCard.style.display = 'block';
       document.getElementById('pd-pagamento-info').textContent = `Pago até agora: ${fmtMoeda(totalPago)} · Pendente: ${fmtMoeda(pendente)}`;
       document.getElementById('pd-pagamento-valor').value = pendente.toFixed(2);
-      document.getElementById('pd-pagamento-forma').style.display = p.forma_pagamento === 'fiado' ? 'block' : 'none';
     } else {
       pagamentoCard.style.display = 'none';
     }
@@ -1883,21 +1964,14 @@ async function confirmarPagamentoPedido() {
   const p = allPedidos.find(x => x.id === id);
   if (!p) return;
   const valor = parseFloat(document.getElementById('pd-pagamento-valor').value || 0);
-  const forma = p.forma_pagamento === 'fiado' ? document.getElementById('pd-pagamento-forma').value : p.forma_pagamento;
   if (valor <= 0) { toast('Informe um valor válido', true); return; }
 
-  const { error } = await sb.from('pagamentos_pedido').insert({ cliente_id: p.cliente_id, pedido_id: id, valor, forma, criado_por: currentUserId });
+  const { error } = await sb.from('pagamentos_pedido').insert({ cliente_id: p.cliente_id, pedido_id: id, valor, forma: p.forma_pagamento, criado_por: currentUserId });
   if (error) { toast('Erro ao confirmar pagamento: ' + error.message, true); return; }
-
-  if (p.forma_pagamento === 'fiado') {
-    const cliente = allClientes.find(c => c.id === p.cliente_id);
-    const novoSaldo = Math.max(0, (cliente ? cliente.saldo_fiado : 0) - valor);
-    await sb.from('clientes').update({ saldo_fiado: novoSaldo }).eq('id', p.cliente_id);
-    await loadClientes();
-  }
 
   toast('Pagamento confirmado!');
   await loadPedidos();
+  await loadClientes();
   abrirPedidoDetalhe(id);
 }
 
@@ -1959,15 +2033,6 @@ async function cancelarPedido() {
       await sb.from('movimentos_comodato').delete().eq('referencia_pedido_id', id).eq('tipo', 'emprestimo');
       await sb.from('clientes').update({ saldo_comodato_garrafoes: Math.max(0, cliente.saldo_comodato_garrafoes - totalEmprestado) }).eq('id', p.cliente_id);
     }
-
-    if (p.forma_pagamento === 'fiado' && cliente) {
-      const { data: pagamentos } = await sb.from('pagamentos_pedido').select('valor').eq('pedido_id', id);
-      const totalPago = (pagamentos || []).reduce((s, x) => s + parseFloat(x.valor), 0);
-      const pendente = Math.max(0, p.total - totalPago);
-      if (pendente > 0) {
-        await sb.from('clientes').update({ saldo_fiado: Math.max(0, cliente.saldo_fiado - pendente) }).eq('id', p.cliente_id);
-      }
-    }
   }
 
   await sb.from('pedidos').update({ status: 'cancelado', status_entrega: 'cancelada' }).eq('id', id);
@@ -1999,7 +2064,7 @@ async function loadEntregas() {
       <div class="card">
         <div class="card-header">
           <div>
-            <div class="card-title">${p.clientes ? p.clientes.nome : '—'}</div>
+            <div class="card-title">#${p.numero} · ${p.clientes ? p.clientes.nome : '—'}</div>
             <div class="card-sub">${p.clientes ? (p.clientes.telefone || '') : ''}</div>
           </div>
           ${badgeStatusEntrega(p.status_entrega)}
@@ -2160,9 +2225,42 @@ async function efetivarEntrega(pedidoId, onConcluido) {
 // ============================================================
 // DASHBOARD
 // ============================================================
+function dashboardSetPeriodo(periodo) {
+  dashboardPeriodo = periodo;
+  ['hoje', 'semana', 'mes', 'personalizado'].forEach(p =>
+    document.getElementById('tab-periodo-' + p).classList.toggle('active', p === periodo)
+  );
+  document.getElementById('dash-periodo-custom').style.display = periodo === 'personalizado' ? 'block' : 'none';
+  if (periodo !== 'personalizado') loadDashboard();
+}
+
+function calcularIntervaloDashboard() {
+  const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+  let inicio, fim;
+
+  if (dashboardPeriodo === 'hoje') {
+    inicio = new Date(hoje);
+    fim = new Date(hoje); fim.setDate(fim.getDate() + 1);
+  } else if (dashboardPeriodo === 'semana') {
+    const diaSemana = hoje.getDay(); // 0=domingo
+    const diffSegunda = diaSemana === 0 ? 6 : diaSemana - 1;
+    inicio = new Date(hoje); inicio.setDate(inicio.getDate() - diffSegunda);
+    fim = new Date(hoje); fim.setDate(fim.getDate() + 1);
+  } else if (dashboardPeriodo === 'mes') {
+    inicio = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+    fim = new Date(hoje); fim.setDate(fim.getDate() + 1);
+  } else {
+    const valIni = document.getElementById('dash-data-inicio').value;
+    const valFim = document.getElementById('dash-data-fim').value;
+    inicio = valIni ? new Date(valIni + 'T00:00:00') : new Date(hoje);
+    fim = valFim ? new Date(valFim + 'T00:00:00') : new Date(hoje);
+    fim.setDate(fim.getDate() + 1);
+  }
+  return { inicio, fim };
+}
+
 async function loadDashboard() {
-  const inicio = new Date(); inicio.setHours(0, 0, 0, 0);
-  const fim = new Date(inicio); fim.setDate(fim.getDate() + 1);
+  const { inicio, fim } = calcularIntervaloDashboard();
 
   const { data: pedidosHojeRaw } = await sb.from('pedidos')
     .select('id, total, status, status_entrega, forma_pagamento')
@@ -2199,24 +2297,29 @@ async function loadDashboard() {
     resumoAgua[nome] = (resumoAgua[nome] || 0) + l.qtd_cheios;
   });
   const nomesAgua = Object.keys(resumoAgua);
-  document.getElementById('dash-estoque-agua').innerHTML = nomesAgua.length ? nomesAgua.map(nome => `
-    <div class="list-item"><div class="item-info"><div class="item-name">${nome}</div></div><div class="item-detail">${resumoAgua[nome]} cheios</div></div>
-  `).join('') : '<div class="empty-state">Sem lotes cadastrados</div>';
+  const totalCheios = Object.values(resumoAgua).reduce((s, n) => s + n, 0);
+  document.getElementById('dash-estoque-agua').innerHTML = nomesAgua.length ? `
+    <div class="list-item"><div class="item-info"><div class="item-name">Total</div></div><div class="item-value">${totalCheios}</div></div>
+    ${nomesAgua.map(nome => `<div class="list-item"><div class="item-info"><div class="item-name">${nome}</div></div><div class="item-detail">${resumoAgua[nome]} cheios</div></div>`).join('')}
+  ` : '<div class="empty-state">Sem lotes cadastrados</div>';
 
-  document.getElementById('dash-estoque-vazios').innerHTML = allEstoqueVazios.length ? [...allEstoqueVazios].sort((a, b) => a.ano_validade - b.ano_validade).map(v => `
-    <div class="list-item"><div class="item-info"><div class="item-name">Validade ${v.ano_validade}</div></div><div class="item-detail">${v.quantidade} vazios</div></div>
-  `).join('') : '<div class="empty-state">Sem vazios em estoque</div>';
+  const totalVazios = allEstoqueVazios.reduce((s, v) => s + v.quantidade, 0);
+  document.getElementById('dash-estoque-vazios').innerHTML = allEstoqueVazios.length ? `
+    <div class="list-item"><div class="item-info"><div class="item-name">Total</div></div><div class="item-value">${totalVazios}</div></div>
+    ${[...allEstoqueVazios].sort((a, b) => a.ano_validade - b.ano_validade).map(v => `<div class="list-item"><div class="item-info"><div class="item-name">Validade ${v.ano_validade}</div></div><div class="item-detail">${v.quantidade} vazios</div></div>`).join('')}
+  ` : '<div class="empty-state">Sem vazios em estoque</div>';
 
   document.getElementById('dash-estoque-gas').innerHTML = allEstoqueGas.length ? allEstoqueGas.map(g => `
     <div class="list-item"><div class="item-info"><div class="item-name">${g.marcas ? g.marcas.nome : '—'}</div></div><div class="item-detail">${g.qtd_cheios} cheios / ${g.qtd_vazios} vazios</div></div>
   `).join('') : '<div class="empty-state">Sem estoque de gás cadastrado</div>';
 
   if (!allClientes.length) await loadClientes();
-  const devedores = allClientes.filter(c => c.saldo_fiado > 0 || c.saldo_comodato_garrafoes > 0);
+  pendentesPorCliente = await calcularPendentesPorCliente();
+  const devedores = allClientes.filter(c => (pendentesPorCliente[c.id] || 0) > 0 || c.saldo_comodato_garrafoes > 0);
   document.getElementById('dash-devedores').innerHTML = devedores.length ? devedores.map(c => `
     <div class="list-item">
       <div class="item-info"><div class="item-name">${c.nome}</div><div class="item-detail">${c.saldo_comodato_garrafoes > 0 ? c.saldo_comodato_garrafoes + ' vasilhame(s) em comodato' : ''}</div></div>
-      <div class="item-value text-red">${fmtMoeda(c.saldo_fiado)}</div>
+      <div class="item-value text-red">${fmtMoeda(pendentesPorCliente[c.id] || 0)}</div>
     </div>
   `).join('') : '<div class="empty-state">Nenhum cliente devendo</div>';
 }
@@ -2278,9 +2381,9 @@ function applyRoleUI(role) {
     goPage('dash');
   }
 
-  // Campos sensíveis a marca/limite de fiado serão bloqueados na UI da
-  // Fase 3 quando role === 'caixa' (RLS + trigger no banco já garantem
-  // o bloqueio mesmo se a UI for contornada).
+  // Campos sensíveis a preço de marca são bloqueados na UI quando
+  // role === 'caixa' (RLS no banco já garante o bloqueio mesmo se a UI
+  // for contornada).
 }
 
 async function init() {
