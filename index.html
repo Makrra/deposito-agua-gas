@@ -661,6 +661,16 @@ select.form-control option { background: var(--surface); }
   </div>
 </div>
 
+<!-- ===== MODAL: Confirmar Vasilhames Devolvidos (após marcar entregue) ===== -->
+<div class="modal-overlay" id="modal-confirmar-entrega">
+  <div class="modal">
+    <div class="modal-title">Confirmar Vasilhames Devolvidos</div>
+    <div class="card-sub" style="margin-bottom:14px">Informe o ano de validade de cada vasilhame que o cliente devolveu na troca.</div>
+    <div id="ce-itens-container"></div>
+    <button class="btn btn-primary btn-block" onclick="confirmarAnoVazioEEntregar()">Confirmar Entrega</button>
+  </div>
+</div>
+
 </div>
 
 <script>
@@ -690,6 +700,8 @@ let pedidoItemSeq = 0;
 let pedidoClienteDescontos = [];
 let precoVasilhameAvulso = 0;
 let currentPedidoDetalheId = null;
+let pendingEntregaPedidoId = null;
+let pendingEntregaOnDone = null;
 
 // ============================================================
 // NAVIGATION
@@ -887,7 +899,14 @@ function badgeValidadeAno(anoValidade) {
 function renderLotesList() {
   const el = document.getElementById('lotes-list');
   if (!allLotes.length) { el.innerHTML = '<div class="empty-state">Nenhum lote cadastrado</div>'; return; }
-  el.innerHTML = allLotes.map(l => `
+  const lotesOrdenados = [...allLotes].sort((a, b) => {
+    const aEsgotado = a.qtd_cheios === 0 ? 1 : 0;
+    const bEsgotado = b.qtd_cheios === 0 ? 1 : 0;
+    if (aEsgotado !== bEsgotado) return aEsgotado - bEsgotado;
+    if (a.ano_validade !== b.ano_validade) return a.ano_validade - b.ano_validade;
+    return new Date(a.data_chegada) - new Date(b.data_chegada);
+  });
+  el.innerHTML = lotesOrdenados.map(l => `
     <div class="card${l.qtd_cheios === 0 ? ' card-esgotado' : ''}">
       <div class="card-header">
         <div>
@@ -1326,17 +1345,6 @@ async function removerDesconto(id, clienteId) {
 // ============================================================
 // PEDIDOS: HELPERS DE PREÇO/ESTOQUE
 // ============================================================
-function resolverOrigemEstoque(marcaId) {
-  const marca = allMarcas.find(m => m.id === marcaId);
-  if (!marca) return null;
-  if (marca.tipo === 'gas') {
-    const estoque = allEstoqueGas.find(g => g.marca_id === marcaId);
-    return { tipo: 'gas', marca, lote: null, disponivel: estoque ? estoque.qtd_cheios : 0 };
-  }
-  const lote = allLotes.filter(l => l.marca_id === marcaId && l.qtd_cheios > 0).sort((a, b) => a.ano_validade - b.ano_validade)[0];
-  return { tipo: 'agua', marca, lote: lote || null, disponivel: lote ? lote.qtd_cheios : 0 };
-}
-
 function precoComDesconto(marca) {
   let preco = marca.preco_venda_atual;
   const especifico = pedidoClienteDescontos.find(d => d.marca_id === marca.id);
@@ -1386,27 +1394,30 @@ function itemPedidoRowHTML(idx) {
   const gasOpts  = allMarcas.filter(m => m.ativo && m.tipo === 'gas').map(m => `<option value="${m.id}">${m.nome}</option>`).join('');
   return `
     <div class="card pedido-item-row" data-idx="${idx}" style="margin-bottom:10px">
-      <div style="display:grid;grid-template-columns:2fr 1fr;gap:8px;margin-bottom:8px">
-        <select class="form-control item-marca" onchange="atualizarItemPedido(${idx})">
+      <div class="form-group" style="margin-bottom:8px">
+        <label class="form-label">Marca</label>
+        <select class="form-control item-marca" onchange="onMarcaChangeItemPedido(${idx})">
           <option value="">Selecione a marca...</option>
           ${aguaOpts ? `<optgroup label="Água">${aguaOpts}</optgroup>` : ''}
           ${gasOpts ? `<optgroup label="Gás">${gasOpts}</optgroup>` : ''}
         </select>
-        <input type="number" class="form-control item-qtd" min="1" value="1" onchange="atualizarItemPedido(${idx})">
       </div>
-      <div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;margin-bottom:8px">
+      <div class="form-group item-lote-wrap" style="display:none;margin-bottom:8px">
+        <label class="form-label">Lote</label>
+        <select class="form-control item-lote" onchange="atualizarItemPedido(${idx})"></select>
+      </div>
+      <div style="display:grid;grid-template-columns:2fr 1fr;gap:8px;margin-bottom:8px">
         <select class="form-control item-vasilhame" onchange="atualizarItemPedido(${idx})">
           <option value="troca">Troca de Vasilhame</option>
           <option value="venda">Venda do Vasilhame</option>
           <option value="comodato">Comodato (Empréstimo)</option>
         </select>
-        <button class="btn btn-outline btn-sm" onclick="removerItemPedido(${idx})">Remover</button>
+        <input type="number" class="form-control item-qtd" min="1" value="1" onchange="atualizarItemPedido(${idx})">
       </div>
-      <div class="form-group item-ano-vazio-wrap" style="display:none;margin-bottom:0">
-        <label class="form-label">Ano de Validade do Vasilhame Devolvido</label>
-        <input type="number" class="form-control item-ano-vazio" inputmode="numeric" min="2000" max="2100" maxlength="4" placeholder="Ex: 2027">
+      <div style="text-align:right;margin-bottom:8px">
+        <button class="btn btn-outline btn-sm" onclick="removerItemPedido(${idx})">Remover Item</button>
       </div>
-      <div class="card-sub item-info-linha" style="margin-top:6px">Selecione uma marca</div>
+      <div class="card-sub item-info-linha">Selecione uma marca</div>
     </div>
   `;
 }
@@ -1422,42 +1433,65 @@ function removerItemPedido(idx) {
   recalcularTotalPedido();
 }
 
+function onMarcaChangeItemPedido(idx) {
+  const row = document.querySelector(`.pedido-item-row[data-idx="${idx}"]`);
+  if (!row) return;
+  const marcaId = row.querySelector('.item-marca').value;
+  const marca = allMarcas.find(m => m.id === marcaId);
+  const loteWrap = row.querySelector('.item-lote-wrap');
+  const loteSel = row.querySelector('.item-lote');
+
+  if (marca && marca.tipo === 'agua') {
+    const lotes = allLotes.filter(l => l.marca_id === marcaId && l.qtd_cheios > 0)
+      .sort((a, b) => a.ano_validade - b.ano_validade || new Date(a.data_chegada) - new Date(b.data_chegada));
+    loteSel.innerHTML = lotes.length
+      ? lotes.map(l => `<option value="${l.id}">Val. ${l.ano_validade} · chegou ${fmtData(l.data_chegada)} · ${l.qtd_cheios} cheios</option>`).join('')
+      : '<option value="">Nenhum lote com estoque</option>';
+    loteWrap.style.display = 'block';
+  } else {
+    loteSel.innerHTML = '';
+    loteWrap.style.display = 'none';
+  }
+  atualizarItemPedido(idx);
+}
+
 function lerItemRow(row) {
+  const marcaId = row.querySelector('.item-marca').value;
+  const marca = allMarcas.find(m => m.id === marcaId);
   return {
-    marcaId: row.querySelector('.item-marca').value,
+    marcaId,
+    loteId: (marca && marca.tipo === 'agua') ? row.querySelector('.item-lote').value : null,
     quantidade: parseInt(row.querySelector('.item-qtd').value || 0, 10),
     tipoVasilhame: row.querySelector('.item-vasilhame').value,
-    anoValidadeVazio: row.querySelector('.item-ano-vazio').value ? parseInt(row.querySelector('.item-ano-vazio').value, 10) : null,
   };
+}
+
+function disponivelParaItem(marca, loteId) {
+  if (marca.tipo === 'agua') {
+    const lote = allLotes.find(l => l.id === loteId);
+    return lote ? lote.qtd_cheios : 0;
+  }
+  const estoque = allEstoqueGas.find(g => g.marca_id === marca.id);
+  return estoque ? estoque.qtd_cheios : 0;
 }
 
 function atualizarItemPedido(idx) {
   const row = document.querySelector(`.pedido-item-row[data-idx="${idx}"]`);
   if (!row) return;
-  const { marcaId, quantidade, tipoVasilhame } = lerItemRow(row);
+  const { marcaId, loteId, quantidade, tipoVasilhame } = lerItemRow(row);
   const infoEl = row.querySelector('.item-info-linha');
-  const anoVazioWrap = row.querySelector('.item-ano-vazio-wrap');
-  const anoVazioInput = row.querySelector('.item-ano-vazio');
 
-  if (!marcaId) { infoEl.textContent = 'Selecione uma marca'; anoVazioWrap.style.display = 'none'; recalcularTotalPedido(); return; }
+  if (!marcaId) { infoEl.textContent = 'Selecione uma marca'; recalcularTotalPedido(); return; }
+  const marca = allMarcas.find(m => m.id === marcaId);
+  if (!marca) { recalcularTotalPedido(); return; }
+  if (marca.tipo === 'agua' && !loteId) { infoEl.innerHTML = '<span class="text-red">Selecione um lote</span>'; recalcularTotalPedido(); return; }
 
-  const origem = resolverOrigemEstoque(marcaId);
-  if (!origem || (origem.tipo === 'agua' && !origem.lote)) {
-    infoEl.innerHTML = '<span class="text-red">Sem lote disponível dessa marca</span>';
-    anoVazioWrap.style.display = 'none';
-    recalcularTotalPedido();
-    return;
-  }
-
-  const mostrarAnoVazio = origem.tipo === 'agua' && tipoVasilhame === 'troca';
-  anoVazioWrap.style.display = mostrarAnoVazio ? 'block' : 'none';
-  if (mostrarAnoVazio && !anoVazioInput.value) anoVazioInput.value = origem.lote.ano_validade;
-
-  const preco = precoComDesconto(origem.marca);
+  const disponivel = disponivelParaItem(marca, loteId);
+  const preco = precoComDesconto(marca);
   const precoVasilhame = tipoVasilhame === 'venda' ? precoVasilhameAvulso : 0;
   const totalItem = (preco + precoVasilhame) * quantidade;
-  const avisoEstoque = quantidade > origem.disponivel ? ` <span class="text-red">(só há ${origem.disponivel} disponível)</span>` : '';
-  infoEl.innerHTML = `${fmtMoeda(preco)} cada${precoVasilhame > 0 ? ' + ' + fmtMoeda(precoVasilhame) + ' vasilhame' : ''} · disponível: ${origem.disponivel}${avisoEstoque} · subtotal: ${fmtMoeda(totalItem)}`;
+  const avisoEstoque = quantidade > disponivel ? ` <span class="text-red">(só há ${disponivel} disponível)</span>` : '';
+  infoEl.innerHTML = `${fmtMoeda(preco)} cada${precoVasilhame > 0 ? ' + ' + fmtMoeda(precoVasilhame) + ' vasilhame' : ''} · disponível: ${disponivel}${avisoEstoque} · subtotal: ${fmtMoeda(totalItem)}`;
   recalcularTotalPedido();
 }
 
@@ -1466,9 +1500,9 @@ function recalcularTotalPedido() {
   document.querySelectorAll('.pedido-item-row').forEach(row => {
     const { marcaId, quantidade, tipoVasilhame } = lerItemRow(row);
     if (!marcaId) return;
-    const origem = resolverOrigemEstoque(marcaId);
-    if (!origem) return;
-    const preco = precoComDesconto(origem.marca);
+    const marca = allMarcas.find(m => m.id === marcaId);
+    if (!marca) return;
+    const preco = precoComDesconto(marca);
     const precoVasilhame = tipoVasilhame === 'venda' ? precoVasilhameAvulso : 0;
     total += (preco + precoVasilhame) * quantidade;
   });
@@ -1517,18 +1551,19 @@ async function salvarPedido() {
   const rows = [...document.querySelectorAll('.pedido-item-row')];
   const itens = [];
   for (const row of rows) {
-    const { marcaId, quantidade, tipoVasilhame, anoValidadeVazio } = lerItemRow(row);
+    const { marcaId, loteId, quantidade, tipoVasilhame } = lerItemRow(row);
     if (!marcaId || quantidade <= 0) continue;
-    const origem = resolverOrigemEstoque(marcaId);
-    if (!origem || (origem.tipo === 'agua' && !origem.lote) || quantidade > origem.disponivel) {
-      toast(`Estoque insuficiente para ${origem ? origem.marca.nome : 'um dos itens'}`, true);
-      return;
-    }
-    const preco_base = origem.marca.preco_venda_atual;
-    const preco_unitario = precoComDesconto(origem.marca);
+    const marca = allMarcas.find(m => m.id === marcaId);
+    if (!marca) continue;
+    if (marca.tipo === 'agua' && !loteId) { toast(`Selecione o lote de ${marca.nome}`, true); return; }
+
+    const disponivel = disponivelParaItem(marca, loteId);
+    if (quantidade > disponivel) { toast(`Estoque insuficiente para ${marca.nome}`, true); return; }
+
+    const preco_base = marca.preco_venda_atual;
+    const preco_unitario = precoComDesconto(marca);
     const preco_vasilhame = tipoVasilhame === 'venda' ? precoVasilhameAvulso : 0;
-    const ano_validade_vazio = (origem.tipo === 'agua' && tipoVasilhame === 'troca') ? anoValidadeVazio : null;
-    itens.push({ marca_id: marcaId, lote_id: origem.lote ? origem.lote.id : null, quantidade, tipo_vasilhame: tipoVasilhame, preco_base, preco_unitario, preco_vasilhame, ano_validade_vazio });
+    itens.push({ marca_id: marcaId, lote_id: marca.tipo === 'agua' ? loteId : null, quantidade, tipo_vasilhame: tipoVasilhame, preco_base, preco_unitario, preco_vasilhame });
   }
   if (!itens.length) { toast('Adicione pelo menos um item válido', true); return; }
 
@@ -1556,7 +1591,6 @@ async function salvarPedido() {
       pedido_id: pedido.id, lote_id: it.lote_id, marca_id: it.marca_id,
       quantidade: it.quantidade, preco_base: it.preco_base, preco_unitario: it.preco_unitario,
       tipo_vasilhame: it.tipo_vasilhame, preco_vasilhame: it.preco_vasilhame,
-      ano_validade_vazio: it.ano_validade_vazio,
     });
     if (errItem) { console.error('itens_pedido insert error:', errItem); toast('Erro ao salvar item do pedido: ' + errItem.message, true); }
   }
@@ -1621,14 +1655,16 @@ function renderPedidosList() {
   const lista = currentPedidoFilter === 'todos' ? allPedidos : allPedidos.filter(p => p.status_entrega === currentPedidoFilter);
   if (!lista.length) { el.innerHTML = '<div class="empty-state">Nenhum pedido encontrado</div>'; return; }
   el.innerHTML = lista.map(p => `
-    <div class="list-item" style="cursor:pointer" onclick="abrirPedidoDetalhe('${p.id}')">
-      <div class="item-info">
-        <div class="item-name">${p.clientes ? p.clientes.nome : '—'}</div>
-        <div class="item-detail">${fmtData(p.data)}${p.usuarios ? ' · entregador: ' + p.usuarios.nome : ''}</div>
-      </div>
-      <div style="text-align:right">
+    <div class="card" style="cursor:pointer" onclick="abrirPedidoDetalhe('${p.id}')">
+      <div class="card-header">
+        <div>
+          <div class="card-title">${p.clientes ? p.clientes.nome : '—'}</div>
+          <div class="card-sub">${fmtData(p.data)}${p.usuarios ? ' · entregador: ' + p.usuarios.nome : ''}</div>
+        </div>
         <div class="item-value">${fmtMoeda(p.total)}</div>
-        <div style="margin-top:4px">${badgePagamento(p.forma_pagamento)} ${badgeStatusPagamento(p)} ${badgeStatusEntrega(p.status_entrega)}</div>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
+        ${badgePagamento(p.forma_pagamento)} ${badgeStatusPagamento(p)} ${badgeStatusEntrega(p.status_entrega)}
       </div>
     </div>
   `).join('');
@@ -1721,13 +1757,13 @@ async function confirmarPagamentoPedido() {
 
 async function marcarPedidoEntregue() {
   const id = currentPedidoDetalheId;
-  const { error } = await sb.from('pedidos').update({ status_entrega: 'entregue', data_entrega: new Date().toISOString() }).eq('id', id);
-  if (error) { toast('Erro ao marcar entregue: ' + error.message, true); return; }
-  toast('Pedido marcado como entregue! Estoque e saldos atualizados.');
-  await loadClientes();
-  await loadEstoque();
-  await loadPedidos();
-  abrirPedidoDetalhe(id);
+  await iniciarConfirmacaoEntrega(id, async () => {
+    toast('Pedido marcado como entregue! Estoque e saldos atualizados.');
+    await loadClientes();
+    await loadEstoque();
+    await loadPedidos();
+    abrirPedidoDetalhe(id);
+  });
 }
 
 async function cancelarPedido() {
@@ -1830,10 +1866,56 @@ async function loadEntregas() {
 }
 
 async function marcarEntregaConcluida(id) {
-  const { error } = await sb.from('pedidos').update({ status_entrega: 'entregue', data_entrega: new Date().toISOString() }).eq('id', id);
-  if (error) { toast('Erro ao marcar entrega: ' + error.message, true); return; }
-  toast('Entrega confirmada!');
-  loadEntregas();
+  await iniciarConfirmacaoEntrega(id, () => {
+    toast('Entrega confirmada!');
+    loadEntregas();
+  });
+}
+
+// ============================================================
+// CONFIRMAÇÃO DE ENTREGA: pergunta o ano do vasilhame devolvido (só
+// pra itens de água com troca) antes de marcar o pedido como entregue
+// ============================================================
+async function iniciarConfirmacaoEntrega(pedidoId, onConcluido) {
+  const { data: itens } = await sb.from('itens_pedido')
+    .select('id, marcas(nome), lotes_garrafao(ano_validade)')
+    .eq('pedido_id', pedidoId).eq('tipo_vasilhame', 'troca').not('lote_id', 'is', null);
+
+  if (!itens || !itens.length) {
+    await efetivarEntrega(pedidoId, onConcluido);
+    return;
+  }
+
+  pendingEntregaPedidoId = pedidoId;
+  pendingEntregaOnDone = onConcluido;
+  document.getElementById('ce-itens-container').innerHTML = itens.map(it => `
+    <div class="form-group">
+      <label class="form-label">${it.marcas ? it.marcas.nome : ''} (vendido val. ${it.lotes_garrafao ? it.lotes_garrafao.ano_validade : '—'})</label>
+      <input type="hidden" class="ce-item-id" value="${it.id}">
+      <input class="form-control ce-item-ano" type="number" inputmode="numeric" min="2000" max="2100" maxlength="4" value="${it.lotes_garrafao ? it.lotes_garrafao.ano_validade : ''}">
+    </div>
+  `).join('');
+  openModal('modal-confirmar-entrega');
+}
+
+async function confirmarAnoVazioEEntregar() {
+  const grupos = [...document.querySelectorAll('#ce-itens-container .form-group')];
+  for (const grupo of grupos) {
+    const itemId = grupo.querySelector('.ce-item-id').value;
+    const ano = parseInt(grupo.querySelector('.ce-item-ano').value || 0, 10);
+    if (String(ano).length === 4) {
+      const { error } = await sb.from('itens_pedido').update({ ano_validade_vazio: ano }).eq('id', itemId);
+      if (error) { toast('Erro ao salvar ano do vasilhame: ' + error.message, true); return; }
+    }
+  }
+  closeModal('modal-confirmar-entrega');
+  await efetivarEntrega(pendingEntregaPedidoId, pendingEntregaOnDone);
+}
+
+async function efetivarEntrega(pedidoId, onConcluido) {
+  const { error } = await sb.from('pedidos').update({ status_entrega: 'entregue', data_entrega: new Date().toISOString() }).eq('id', pedidoId);
+  if (error) { toast('Erro ao marcar entregue: ' + error.message, true); return; }
+  if (onConcluido) await onConcluido();
 }
 
 // ============================================================

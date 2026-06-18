@@ -294,6 +294,32 @@ CREATE TRIGGER trg_guard_clientes_caixa
   BEFORE UPDATE ON clientes
   FOR EACH ROW EXECUTE FUNCTION public.guard_clientes_caixa();
 
+-- entregador só pode alterar ano_validade_vazio em itens_pedido (informa
+-- o ano do vasilhame devolvido na confirmação da entrega)
+CREATE OR REPLACE FUNCTION public.guard_itens_pedido_entregador()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+  IF public.current_role() = 'entregador' THEN
+    IF NEW.pedido_id        IS DISTINCT FROM OLD.pedido_id
+       OR NEW.lote_id          IS DISTINCT FROM OLD.lote_id
+       OR NEW.marca_id         IS DISTINCT FROM OLD.marca_id
+       OR NEW.quantidade       IS DISTINCT FROM OLD.quantidade
+       OR NEW.preco_base       IS DISTINCT FROM OLD.preco_base
+       OR NEW.preco_unitario   IS DISTINCT FROM OLD.preco_unitario
+       OR NEW.tipo_vasilhame   IS DISTINCT FROM OLD.tipo_vasilhame
+       OR NEW.preco_vasilhame  IS DISTINCT FROM OLD.preco_vasilhame THEN
+      RAISE EXCEPTION 'entregador só pode informar o ano de validade do vasilhame devolvido';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_guard_itens_pedido_entregador ON itens_pedido;
+CREATE TRIGGER trg_guard_itens_pedido_entregador
+  BEFORE UPDATE ON itens_pedido
+  FOR EACH ROW EXECUTE FUNCTION public.guard_itens_pedido_entregador();
+
 -- ============================================================
 -- PROCESSAMENTO DA ENTREGA (SECURITY DEFINER): roda quando status_entrega
 -- passa de 'pendente' para 'entregue', seja pelo administrador/caixa ou
@@ -423,11 +449,23 @@ DROP POLICY IF EXISTS "marcas_delete_admin" ON marcas;
 CREATE POLICY "marcas_delete_admin" ON marcas FOR DELETE
   USING (public.current_role() = 'administrador');
 
--- lotes_garrafao, estoque_gas, movimentos_estoque, avarias: administrador e caixa operam tudo.
+-- lotes_garrafao: leitura pra qualquer autenticado (entregador precisa ver
+-- a validade na confirmação de entrega); escrita só administrador/caixa.
 DROP POLICY IF EXISTS "lotes_admin_caixa_all" ON lotes_garrafao;
-CREATE POLICY "lotes_admin_caixa_all" ON lotes_garrafao FOR ALL
-  USING (public.current_role() IN ('administrador','caixa'))
+DROP POLICY IF EXISTS "lotes_select_auth" ON lotes_garrafao;
+CREATE POLICY "lotes_select_auth" ON lotes_garrafao FOR SELECT
+  USING (auth.role() = 'authenticated');
+DROP POLICY IF EXISTS "lotes_insert_admin_caixa" ON lotes_garrafao;
+CREATE POLICY "lotes_insert_admin_caixa" ON lotes_garrafao FOR INSERT
   WITH CHECK (public.current_role() IN ('administrador','caixa'));
+DROP POLICY IF EXISTS "lotes_update_admin_caixa" ON lotes_garrafao;
+CREATE POLICY "lotes_update_admin_caixa" ON lotes_garrafao FOR UPDATE
+  USING (public.current_role() IN ('administrador','caixa')) WITH CHECK (public.current_role() IN ('administrador','caixa'));
+DROP POLICY IF EXISTS "lotes_delete_admin_caixa" ON lotes_garrafao;
+CREATE POLICY "lotes_delete_admin_caixa" ON lotes_garrafao FOR DELETE
+  USING (public.current_role() IN ('administrador','caixa'));
+
+-- estoque_gas, movimentos_estoque, avarias: administrador e caixa operam tudo.
 
 DROP POLICY IF EXISTS "estoque_gas_admin_caixa_all" ON estoque_gas;
 CREATE POLICY "estoque_gas_admin_caixa_all" ON estoque_gas FOR ALL
@@ -556,6 +594,30 @@ CREATE POLICY "itens_pedido_admin_caixa_all" ON itens_pedido FOR ALL
 DROP POLICY IF EXISTS "itens_pedido_entregador_select" ON itens_pedido;
 CREATE POLICY "itens_pedido_entregador_select" ON itens_pedido FOR SELECT
   USING (
+    public.current_role() = 'entregador'
+    AND EXISTS (
+      SELECT 1 FROM pedidos p
+      WHERE p.id = itens_pedido.pedido_id
+        AND p.entregador_id = auth.uid()
+        AND p.data::date = CURRENT_DATE
+    )
+  );
+
+-- entregador também pode atualizar o item (só o ano_validade_vazio é
+-- liberado de fato — guarda de coluna abaixo bloqueia o resto), pra
+-- informar o ano do vasilhame devolvido na hora da entrega.
+DROP POLICY IF EXISTS "itens_pedido_entregador_update" ON itens_pedido;
+CREATE POLICY "itens_pedido_entregador_update" ON itens_pedido FOR UPDATE
+  USING (
+    public.current_role() = 'entregador'
+    AND EXISTS (
+      SELECT 1 FROM pedidos p
+      WHERE p.id = itens_pedido.pedido_id
+        AND p.entregador_id = auth.uid()
+        AND p.data::date = CURRENT_DATE
+    )
+  )
+  WITH CHECK (
     public.current_role() = 'entregador'
     AND EXISTS (
       SELECT 1 FROM pedidos p
@@ -782,6 +844,60 @@ ON CONFLICT (chave) DO NOTHING;
 --   FOR EACH ROW
 --   WHEN (NEW.status_entrega = 'entregue' AND OLD.status_entrega = 'pendente')
 --   EXECUTE FUNCTION public.processar_entrega_pedido();
+
+-- ============================================================
+-- MIGRAÇÃO: entregador informa o ano do vasilhame devolvido na
+-- confirmação da entrega (não mais no cadastro do pedido)
+-- ============================================================
+-- DROP POLICY IF EXISTS "itens_pedido_entregador_update" ON itens_pedido;
+-- CREATE POLICY "itens_pedido_entregador_update" ON itens_pedido FOR UPDATE
+--   USING (
+--     public.current_role() = 'entregador'
+--     AND EXISTS (SELECT 1 FROM pedidos p WHERE p.id = itens_pedido.pedido_id AND p.entregador_id = auth.uid() AND p.data::date = CURRENT_DATE)
+--   )
+--   WITH CHECK (
+--     public.current_role() = 'entregador'
+--     AND EXISTS (SELECT 1 FROM pedidos p WHERE p.id = itens_pedido.pedido_id AND p.entregador_id = auth.uid() AND p.data::date = CURRENT_DATE)
+--   );
+--
+-- CREATE OR REPLACE FUNCTION public.guard_itens_pedido_entregador()
+-- RETURNS TRIGGER LANGUAGE plpgsql AS $$
+-- BEGIN
+--   IF public.current_role() = 'entregador' THEN
+--     IF NEW.pedido_id IS DISTINCT FROM OLD.pedido_id
+--        OR NEW.lote_id IS DISTINCT FROM OLD.lote_id
+--        OR NEW.marca_id IS DISTINCT FROM OLD.marca_id
+--        OR NEW.quantidade IS DISTINCT FROM OLD.quantidade
+--        OR NEW.preco_base IS DISTINCT FROM OLD.preco_base
+--        OR NEW.preco_unitario IS DISTINCT FROM OLD.preco_unitario
+--        OR NEW.tipo_vasilhame IS DISTINCT FROM OLD.tipo_vasilhame
+--        OR NEW.preco_vasilhame IS DISTINCT FROM OLD.preco_vasilhame THEN
+--       RAISE EXCEPTION 'entregador só pode informar o ano de validade do vasilhame devolvido';
+--     END IF;
+--   END IF;
+--   RETURN NEW;
+-- END;
+-- $$;
+--
+-- DROP TRIGGER IF EXISTS trg_guard_itens_pedido_entregador ON itens_pedido;
+-- CREATE TRIGGER trg_guard_itens_pedido_entregador
+--   BEFORE UPDATE ON itens_pedido
+--   FOR EACH ROW EXECUTE FUNCTION public.guard_itens_pedido_entregador();
+
+-- ============================================================
+-- MIGRAÇÃO: lotes_garrafao passa a ter leitura liberada pra qualquer
+-- autenticado (entregador precisa ver a validade na tela de confirmar
+-- entrega), mantendo escrita restrita a administrador/caixa
+-- ============================================================
+-- DROP POLICY IF EXISTS "lotes_admin_caixa_all" ON lotes_garrafao;
+-- CREATE POLICY "lotes_select_auth" ON lotes_garrafao FOR SELECT
+--   USING (auth.role() = 'authenticated');
+-- CREATE POLICY "lotes_insert_admin_caixa" ON lotes_garrafao FOR INSERT
+--   WITH CHECK (public.current_role() IN ('administrador','caixa'));
+-- CREATE POLICY "lotes_update_admin_caixa" ON lotes_garrafao FOR UPDATE
+--   USING (public.current_role() IN ('administrador','caixa')) WITH CHECK (public.current_role() IN ('administrador','caixa'));
+-- CREATE POLICY "lotes_delete_admin_caixa" ON lotes_garrafao FOR DELETE
+--   USING (public.current_role() IN ('administrador','caixa'));
 
 -- Após rodar este script, crie o primeiro usuário em:
 -- Authentication > Users > Add user (email + senha)
