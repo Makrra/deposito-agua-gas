@@ -991,6 +991,17 @@ ON CONFLICT (chave) DO NOTHING;
 -- ser extenso (consolida lotes duplicados, migra avarias/comodato/
 -- movimentos_estoque pra usar ano_validade em vez de lote_id quando o
 -- assunto é vazio, e recria a função processar_entrega_pedido).
+--
+-- IMPORTANTE: a versão original usava CREATE TEMP TABLE pra mapear os
+-- lotes duplicados, mas o editor SQL do Supabase não preserva tabela
+-- temporária entre os comandos do mesmo script (pooler de conexões
+-- troca de sessão entre statements) — deu erro "lote_merge_map does
+-- not exist". A versão corrigida (enviada ao usuário) usa CTEs
+-- recalculadas em cada UPDATE/DELETE em vez de tabela temporária, e o
+-- passo de migrar qtd_vazios pra estoque_vazios usa "DO UPDATE SET
+-- quantidade = EXCLUDED.quantidade" (substituição, não soma) pra ser
+-- seguro re-rodar o script inteiro do zero mesmo após uma tentativa
+-- que falhou no meio.
 
 -- Após rodar este script, crie o primeiro usuário em:
 -- Authentication > Users > Add user (email + senha)
