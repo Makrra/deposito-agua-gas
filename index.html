@@ -1446,11 +1446,12 @@ async function salvarPedido() {
   if (error) { toast('Erro ao criar pedido: ' + error.message, true); return; }
 
   for (const it of itens) {
-    await sb.from('itens_pedido').insert({
+    const { error: errItem } = await sb.from('itens_pedido').insert({
       pedido_id: pedido.id, lote_id: it.lote_id, marca_id: it.marca_id,
       quantidade: it.quantidade, preco_unitario: it.preco_unitario,
       tipo_vasilhame: it.tipo_vasilhame, preco_vasilhame: it.preco_vasilhame,
     });
+    if (errItem) { console.error('itens_pedido insert error:', errItem); toast('Erro ao salvar item do pedido: ' + errItem.message, true); }
 
     if (it.origem.tipo === 'agua') {
       const lote = it.origem.lote;
@@ -1492,9 +1493,9 @@ async function salvarPedido() {
 async function loadPedidos() {
   await loadEntregadoresList();
   const { data, error } = await sb.from('pedidos')
-    .select('*, clientes(nome), usuarios!entregador_id(nome)')
+    .select('*, clientes(nome), usuarios!pedidos_entregador_id_fkey(nome)')
     .order('data', { ascending: false });
-  if (error) { toast('Erro ao carregar pedidos: ' + error.message, true); return; }
+  if (error) { console.error('loadPedidos error:', error); toast('Erro ao carregar pedidos: ' + error.message, true); return; }
   allPedidos = data || [];
   renderPedidosList();
 }
