@@ -1,6 +1,6 @@
 {
-  "name": "Depósito de Água - Gestão",
-  "short_name": "Depósito Água",
+  "name": "Depósito do Mago - Gestão",
+  "short_name": "Depósito do Mago",
   "description": "Gestão de pedidos, garrafões, clientes e entregas",
   "start_url": "./index.html",
   "scope": "./",
