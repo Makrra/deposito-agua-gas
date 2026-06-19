@@ -664,9 +664,40 @@ select.form-control option { background: var(--surface); }
       <label class="form-label">Telefone</label>
       <input class="form-control" id="cliente-telefone" placeholder="(00) 00000-0000">
     </div>
+    <div class="card-sub" id="cliente-endereco-legado" style="display:none;margin-bottom:8px"></div>
+    <div style="display:grid;grid-template-columns:2fr 1fr;gap:8px;margin-bottom:8px">
+      <div class="form-group" style="margin-bottom:0">
+        <label class="form-label">Rua</label>
+        <input class="form-control" id="cliente-endereco-rua" placeholder="Rua/Av.">
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label class="form-label">Número</label>
+        <input class="form-control" id="cliente-endereco-numero" placeholder="Nº">
+      </div>
+    </div>
     <div class="form-group">
-      <label class="form-label">Endereço de Entrega</label>
-      <textarea class="form-control" id="cliente-endereco" rows="2" placeholder="Rua, número, bairro..."></textarea>
+      <label class="form-label">Complemento</label>
+      <input class="form-control" id="cliente-endereco-complemento" placeholder="Apto, bloco, ponto de referência...">
+    </div>
+    <div style="display:grid;grid-template-columns:2fr 1fr;gap:8px;margin-bottom:8px">
+      <div class="form-group" style="margin-bottom:0">
+        <label class="form-label">Bairro</label>
+        <input class="form-control" id="cliente-endereco-bairro" placeholder="Bairro">
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label class="form-label">CEP</label>
+        <input class="form-control" id="cliente-endereco-cep" placeholder="00000-000">
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:2fr 1fr;gap:8px;margin-bottom:8px">
+      <div class="form-group" style="margin-bottom:0">
+        <label class="form-label">Cidade</label>
+        <input class="form-control" id="cliente-endereco-cidade" placeholder="Cidade">
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label class="form-label">Estado</label>
+        <input class="form-control" id="cliente-endereco-estado" placeholder="UF" maxlength="2" style="text-transform:uppercase">
+      </div>
     </div>
     <div class="form-group">
       <label class="form-label">Observação</label>
@@ -989,6 +1020,14 @@ function toast(msg, error = false) {
 const fmtMoeda = v => 'R$ ' + parseFloat(v || 0).toFixed(2).replace('.', ',');
 const fmtData  = d => d ? new Date(d).toLocaleDateString('pt-BR') : '—';
 const fmtDataHora = d => d ? new Date(d).toLocaleString('pt-BR') : '—';
+
+function formatEndereco(c) {
+  if (!c) return '';
+  const linha1 = [c.endereco_rua, c.endereco_numero].filter(Boolean).join(', ');
+  const linha2 = [c.endereco_bairro, c.endereco_cidade, c.endereco_estado].filter(Boolean).join(', ');
+  const partes = [linha1, c.endereco_complemento, linha2, c.endereco_cep].filter(Boolean);
+  return partes.length ? partes.join(' · ') : (c.endereco || '');
+}
 
 // ============================================================
 // ESTOQUE: MARCAS
@@ -1438,7 +1477,14 @@ function abrirNovoCliente() {
   document.getElementById('cliente-tipo').value = 'pf';
   document.getElementById('cliente-nome').value = '';
   document.getElementById('cliente-telefone').value = '';
-  document.getElementById('cliente-endereco').value = '';
+  document.getElementById('cliente-endereco-rua').value = '';
+  document.getElementById('cliente-endereco-numero').value = '';
+  document.getElementById('cliente-endereco-complemento').value = '';
+  document.getElementById('cliente-endereco-bairro').value = '';
+  document.getElementById('cliente-endereco-cidade').value = '';
+  document.getElementById('cliente-endereco-estado').value = '';
+  document.getElementById('cliente-endereco-cep').value = '';
+  document.getElementById('cliente-endereco-legado').style.display = 'none';
   document.getElementById('cliente-observacao').value = '';
   document.getElementById('btn-excluir-cliente').style.display = 'none';
   openModal('modal-cliente');
@@ -1452,7 +1498,16 @@ function abrirEditarCliente(id) {
   document.getElementById('cliente-tipo').value = c.tipo;
   document.getElementById('cliente-nome').value = c.nome;
   document.getElementById('cliente-telefone').value = c.telefone || '';
-  document.getElementById('cliente-endereco').value = c.endereco || '';
+  document.getElementById('cliente-endereco-rua').value = c.endereco_rua || '';
+  document.getElementById('cliente-endereco-numero').value = c.endereco_numero || '';
+  document.getElementById('cliente-endereco-complemento').value = c.endereco_complemento || '';
+  document.getElementById('cliente-endereco-bairro').value = c.endereco_bairro || '';
+  document.getElementById('cliente-endereco-cidade').value = c.endereco_cidade || '';
+  document.getElementById('cliente-endereco-estado').value = c.endereco_estado || '';
+  document.getElementById('cliente-endereco-cep').value = c.endereco_cep || '';
+  const legadoEl = document.getElementById('cliente-endereco-legado');
+  legadoEl.style.display = c.endereco ? 'block' : 'none';
+  legadoEl.textContent = c.endereco ? `Endereço cadastrado antes da separação em campos (referência): ${c.endereco}` : '';
   document.getElementById('cliente-observacao').value = c.observacao || '';
   document.getElementById('btn-excluir-cliente').style.display = currentUserRole === 'administrador' ? 'block' : 'none';
   openModal('modal-cliente');
@@ -1490,7 +1545,13 @@ async function salvarCliente() {
     tipo: document.getElementById('cliente-tipo').value,
     nome,
     telefone: document.getElementById('cliente-telefone').value.trim(),
-    endereco: document.getElementById('cliente-endereco').value.trim(),
+    endereco_rua: document.getElementById('cliente-endereco-rua').value.trim(),
+    endereco_numero: document.getElementById('cliente-endereco-numero').value.trim(),
+    endereco_complemento: document.getElementById('cliente-endereco-complemento').value.trim(),
+    endereco_bairro: document.getElementById('cliente-endereco-bairro').value.trim(),
+    endereco_cidade: document.getElementById('cliente-endereco-cidade').value.trim(),
+    endereco_estado: document.getElementById('cliente-endereco-estado').value.trim().toUpperCase(),
+    endereco_cep: document.getElementById('cliente-endereco-cep').value.trim(),
     observacao: document.getElementById('cliente-observacao').value.trim(),
   };
 
@@ -2404,7 +2465,7 @@ async function cancelarPedido() {
 // ============================================================
 async function loadEntregas() {
   const { data } = await sb.from('pedidos')
-    .select('*, clientes(nome, endereco)')
+    .select('*, clientes(nome, endereco, endereco_rua, endereco_numero, endereco_complemento, endereco_bairro, endereco_cidade, endereco_estado, endereco_cep)')
     .eq('entregador_id', currentUserId)
     .neq('status', 'cancelado')
     .order('data', { ascending: true });
@@ -2428,7 +2489,7 @@ async function loadEntregas() {
           </div>
           ${badgeStatusEntrega(p.status_entrega)}
         </div>
-        <div class="card-sub" style="margin:8px 0">${p.clientes ? (p.clientes.endereco || 'Sem endereço cadastrado') : ''}</div>
+        <div class="card-sub" style="margin:8px 0">${p.clientes ? (formatEndereco(p.clientes) || 'Sem endereço cadastrado') : ''}</div>
         <div class="item-detail" style="margin-bottom:6px">${itensTexto}</div>
         <div style="margin-bottom:10px">${badgePagamento(p.forma_pagamento)}</div>
         ${p.status_entrega === 'pendente' ? `<button class="btn btn-success btn-block btn-sm" onclick="marcarEntregaConcluida('${p.id}')">Marcar como Entregue</button>` : ''}

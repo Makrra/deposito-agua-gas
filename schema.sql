@@ -107,7 +107,14 @@ CREATE TABLE IF NOT EXISTS clientes (
   tipo                     TEXT NOT NULL DEFAULT 'pf' CHECK (tipo IN ('pf','pj')),
   nome                     TEXT NOT NULL,
   telefone                 TEXT,
-  endereco                 TEXT,
+  endereco                 TEXT, -- legado, texto livre; preservado pra clientes cadastrados antes da separação em campos
+  endereco_rua             TEXT,
+  endereco_numero          TEXT,
+  endereco_complemento     TEXT,
+  endereco_bairro          TEXT,
+  endereco_cidade          TEXT,
+  endereco_estado          TEXT,
+  endereco_cep             TEXT,
   saldo_comodato_garrafoes INTEGER NOT NULL DEFAULT 0 CHECK (saldo_comodato_garrafoes >= 0),
   ativo                    BOOLEAN NOT NULL DEFAULT true,
   observacao               TEXT,
@@ -1217,6 +1224,22 @@ ON CONFLICT (chave) DO NOTHING;
 -- CREATE POLICY "caixa_movimentos_admin_caixa_all" ON caixa_movimentos FOR ALL
 --   USING (public.current_role() IN ('administrador','caixa'))
 --   WITH CHECK (public.current_role() IN ('administrador','caixa'));
+
+-- ============================================================
+-- MIGRAÇÃO: separa o endereço de entrega em campos próprios (rua,
+-- número, complemento, bairro, cidade, estado, CEP), pra reduzir erro
+-- de digitação na entrega. A coluna "endereco" antiga (texto livre) é
+-- preservada — clientes já cadastrados ficam com os campos novos em
+-- branco até serem revisados; o formatEndereco() do app cai pro texto
+-- livre antigo enquanto os campos novos não forem preenchidos.
+-- ============================================================
+-- ALTER TABLE clientes ADD COLUMN IF NOT EXISTS endereco_rua TEXT;
+-- ALTER TABLE clientes ADD COLUMN IF NOT EXISTS endereco_numero TEXT;
+-- ALTER TABLE clientes ADD COLUMN IF NOT EXISTS endereco_complemento TEXT;
+-- ALTER TABLE clientes ADD COLUMN IF NOT EXISTS endereco_bairro TEXT;
+-- ALTER TABLE clientes ADD COLUMN IF NOT EXISTS endereco_cidade TEXT;
+-- ALTER TABLE clientes ADD COLUMN IF NOT EXISTS endereco_estado TEXT;
+-- ALTER TABLE clientes ADD COLUMN IF NOT EXISTS endereco_cep TEXT;
 
 -- Após rodar este script, crie o primeiro usuário em:
 -- Authentication > Users > Add user (email + senha)
