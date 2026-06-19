@@ -217,6 +217,24 @@ CREATE INDEX IF NOT EXISTS idx_pag_pedido_cliente ON pagamentos_pedido(cliente_i
 CREATE INDEX IF NOT EXISTS idx_pag_pedido_pedido  ON pagamentos_pedido(pedido_id);
 
 -- ------------------------------------------------------------
+-- 10b. RECEBIMENTOS_ENTREGA (declaração informativa do entregador sobre
+-- o que recebeu na entrega — pode ser dividido entre formas, ex: parte
+-- dinheiro + parte Pix. Não baixa o pedido: quem confirma o pagamento
+-- de fato é o caixa, em pagamentos_pedido)
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS recebimentos_entrega (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  pedido_id     UUID NOT NULL REFERENCES pedidos(id) ON DELETE CASCADE,
+  entregador_id UUID REFERENCES usuarios(id),
+  forma         TEXT NOT NULL CHECK (forma IN ('dinheiro','pix','cartao_credito')),
+  valor         NUMERIC(10,2) NOT NULL CHECK (valor > 0),
+  data          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  criado_por    UUID REFERENCES usuarios(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_recebimentos_entrega_pedido ON recebimentos_entrega(pedido_id);
+
+-- ------------------------------------------------------------
 -- 11. MOVIMENTOS_COMODATO (empréstimo e devolução de vasilhame;
 -- empréstimo soma saldo_comodato_garrafoes do cliente, devolução abate)
 -- ------------------------------------------------------------
@@ -413,6 +431,7 @@ ALTER TABLE itens_pedido        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE movimentos_estoque  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE avarias             ENABLE ROW LEVEL SECURITY;
 ALTER TABLE pagamentos_pedido   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE recebimentos_entrega ENABLE ROW LEVEL SECURITY;
 ALTER TABLE movimentos_comodato ENABLE ROW LEVEL SECURITY;
 ALTER TABLE descontos_cliente   ENABLE ROW LEVEL SECURITY;
 
@@ -507,6 +526,34 @@ DROP POLICY IF EXISTS "pagamentos_pedido_admin_caixa_all" ON pagamentos_pedido;
 CREATE POLICY "pagamentos_pedido_admin_caixa_all" ON pagamentos_pedido FOR ALL
   USING (public.current_role() IN ('administrador','caixa'))
   WITH CHECK (public.current_role() IN ('administrador','caixa'));
+
+-- recebimentos_entrega: administrador/caixa têm acesso total (para
+-- conferir o que o entregador declarou); entregador só lê/insere
+-- declarações dos próprios pedidos de hoje.
+DROP POLICY IF EXISTS "recebimentos_entrega_admin_caixa_all" ON recebimentos_entrega;
+CREATE POLICY "recebimentos_entrega_admin_caixa_all" ON recebimentos_entrega FOR ALL
+  USING (public.current_role() IN ('administrador','caixa'))
+  WITH CHECK (public.current_role() IN ('administrador','caixa'));
+
+DROP POLICY IF EXISTS "recebimentos_entrega_entregador_select" ON recebimentos_entrega;
+CREATE POLICY "recebimentos_entrega_entregador_select" ON recebimentos_entrega FOR SELECT
+  USING (
+    public.current_role() = 'entregador'
+    AND entregador_id = auth.uid()
+  );
+
+DROP POLICY IF EXISTS "recebimentos_entrega_entregador_insert" ON recebimentos_entrega;
+CREATE POLICY "recebimentos_entrega_entregador_insert" ON recebimentos_entrega FOR INSERT
+  WITH CHECK (
+    public.current_role() = 'entregador'
+    AND entregador_id = auth.uid()
+    AND EXISTS (
+      SELECT 1 FROM pedidos p
+      WHERE p.id = pedido_id
+        AND p.entregador_id = auth.uid()
+        AND p.data::date = CURRENT_DATE
+    )
+  );
 
 -- movimentos_comodato: administrador e caixa podem ver/criar/editar (tanto
 -- empréstimo quanto devolução), mas só administrador pode excluir uma
@@ -990,6 +1037,46 @@ ON CONFLICT (chave) DO NOTHING;
 -- cartão de crédito; número curto do pedido; reaproveitamento de
 -- vazios na entrada de garrafão. Script completo enviado ao usuário.
 -- ============================================================
+
+-- ============================================================
+-- MIGRAÇÃO: recebimentos_entrega (declaração informativa do entregador
+-- sobre o que recebeu na entrega, podendo dividir entre formas — ex:
+-- parte dinheiro + parte Pix. Não baixa o pedido: a confirmação oficial
+-- do pagamento continua sendo feita pelo caixa em pagamentos_pedido)
+-- ============================================================
+-- CREATE TABLE IF NOT EXISTS recebimentos_entrega (
+--   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+--   pedido_id     UUID NOT NULL REFERENCES pedidos(id) ON DELETE CASCADE,
+--   entregador_id UUID REFERENCES usuarios(id),
+--   forma         TEXT NOT NULL CHECK (forma IN ('dinheiro','pix','cartao_credito')),
+--   valor         NUMERIC(10,2) NOT NULL CHECK (valor > 0),
+--   data          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+--   criado_por    UUID REFERENCES usuarios(id)
+-- );
+-- CREATE INDEX IF NOT EXISTS idx_recebimentos_entrega_pedido ON recebimentos_entrega(pedido_id);
+-- ALTER TABLE recebimentos_entrega ENABLE ROW LEVEL SECURITY;
+--
+-- CREATE POLICY "recebimentos_entrega_admin_caixa_all" ON recebimentos_entrega FOR ALL
+--   USING (public.current_role() IN ('administrador','caixa'))
+--   WITH CHECK (public.current_role() IN ('administrador','caixa'));
+--
+-- CREATE POLICY "recebimentos_entrega_entregador_select" ON recebimentos_entrega FOR SELECT
+--   USING (
+--     public.current_role() = 'entregador'
+--     AND entregador_id = auth.uid()
+--   );
+--
+-- CREATE POLICY "recebimentos_entrega_entregador_insert" ON recebimentos_entrega FOR INSERT
+--   WITH CHECK (
+--     public.current_role() = 'entregador'
+--     AND entregador_id = auth.uid()
+--     AND EXISTS (
+--       SELECT 1 FROM pedidos p
+--       WHERE p.id = pedido_id
+--         AND p.entregador_id = auth.uid()
+--         AND p.data::date = CURRENT_DATE
+--     )
+--   );
 
 -- Após rodar este script, crie o primeiro usuário em:
 -- Authentication > Users > Add user (email + senha)

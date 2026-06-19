@@ -703,13 +703,20 @@ select.form-control option { background: var(--surface); }
     <div class="card-title" style="margin:14px 0 8px">Itens</div>
     <div id="pd-itens" class="card"></div>
 
+    <div id="pd-recebimento-entregador" class="card-sub" style="margin:8px 0"></div>
+
     <div id="pd-pagamento-card" class="card" style="display:none">
       <div class="card-title" style="margin-bottom:10px">Confirmar Pagamento</div>
       <div class="card-sub" id="pd-pagamento-info" style="margin-bottom:8px"></div>
-      <div class="form-group">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <select class="form-control" id="pd-pagamento-forma">
+          <option value="dinheiro">Dinheiro</option>
+          <option value="pix">Pix</option>
+          <option value="cartao_credito">Cartão de Crédito</option>
+        </select>
         <input class="form-control" id="pd-pagamento-valor" type="number" step="0.01">
       </div>
-      <button class="btn btn-success btn-block btn-sm" onclick="confirmarPagamentoPedido()">Confirmar Pagamento</button>
+      <button class="btn btn-success btn-block btn-sm" style="margin-top:8px" onclick="confirmarPagamentoPedido()">Confirmar Pagamento</button>
     </div>
 
     <div style="display:flex;gap:8px;margin-top:14px">
@@ -719,13 +726,23 @@ select.form-control option { background: var(--surface); }
   </div>
 </div>
 
-<!-- ===== MODAL: Confirmar Vasilhames Devolvidos (após marcar entregue) ===== -->
+<!-- ===== MODAL: Confirmar Entrega (vasilhames devolvidos + valores recebidos) ===== -->
 <div class="modal-overlay" id="modal-confirmar-entrega">
   <div class="modal">
-    <div class="modal-title">Confirmar Vasilhames Devolvidos</div>
+    <div class="modal-title">Confirmar Entrega</div>
     <div class="card-sub" style="margin-bottom:14px">Informe o ano de validade de cada vasilhame que o cliente devolveu na troca.</div>
     <div id="ce-itens-container"></div>
-    <button class="btn btn-primary btn-block" onclick="confirmarAnoVazioEEntregar()">Confirmar Entrega</button>
+
+    <div class="form-group" style="margin-top:10px">
+      <label class="form-label">Valores Recebidos na Entrega</label>
+      <div class="card-sub" id="ce-total-pedido-info" style="margin-bottom:8px"></div>
+      <div id="ce-recebimento-container"></div>
+      <button class="btn btn-outline btn-sm btn-block" style="margin-top:4px" onclick="adicionarRecebimentoCE()">+ Adicionar Forma de Pagamento</button>
+      <div class="card-sub" id="ce-recebimento-total" style="margin-top:8px"></div>
+      <div class="card-sub" style="margin-top:4px">Esse valor é só um informe — quem dá baixa oficial no pagamento é o caixa.</div>
+    </div>
+
+    <button class="btn btn-primary btn-block" style="margin-top:10px" onclick="confirmarAnoVazioEEntregar()">Confirmar Entrega</button>
   </div>
 </div>
 
@@ -2034,6 +2051,18 @@ async function abrirPedidoDetalhe(id) {
     `;
   }).join('') || '<div class="empty-state">Sem itens</div>';
 
+  const recebimentoEl = document.getElementById('pd-recebimento-entregador');
+  const { data: recebimentos } = await sb.from('recebimentos_entrega').select('forma, valor').eq('pedido_id', id);
+  if (recebimentos && recebimentos.length) {
+    const porForma = {};
+    recebimentos.forEach(r => { porForma[r.forma] = (porForma[r.forma] || 0) + parseFloat(r.valor); });
+    const labels = { dinheiro: 'Dinheiro', pix: 'Pix', cartao_credito: 'Cartão de Crédito' };
+    const linhas = Object.entries(porForma).map(([forma, valor]) => `${labels[forma] || forma}: ${fmtMoeda(valor)}`).join(' · ');
+    recebimentoEl.innerHTML = `<span class="text-yellow">Informado pelo entregador (ainda não baixado): ${linhas}</span>`;
+  } else {
+    recebimentoEl.innerHTML = '';
+  }
+
   const pagamentoCard = document.getElementById('pd-pagamento-card');
   if (p.status !== 'cancelado') {
     const { data: pagamentos } = await sb.from('pagamentos_pedido').select('valor').eq('pedido_id', id);
@@ -2042,6 +2071,7 @@ async function abrirPedidoDetalhe(id) {
     if (pendente > 0) {
       pagamentoCard.style.display = 'block';
       document.getElementById('pd-pagamento-info').textContent = `Pago até agora: ${fmtMoeda(totalPago)} · Pendente: ${fmtMoeda(pendente)}`;
+      document.getElementById('pd-pagamento-forma').value = p.forma_pagamento;
       document.getElementById('pd-pagamento-valor').value = pendente.toFixed(2);
     } else {
       pagamentoCard.style.display = 'none';
@@ -2062,8 +2092,9 @@ async function confirmarPagamentoPedido() {
   if (!p) return;
   const valor = parseFloat(document.getElementById('pd-pagamento-valor').value || 0);
   if (valor <= 0) { toast('Informe um valor válido', true); return; }
+  const forma = document.getElementById('pd-pagamento-forma').value;
 
-  const { error } = await sb.from('pagamentos_pedido').insert({ cliente_id: p.cliente_id, pedido_id: id, valor, forma: p.forma_pagamento, criado_por: currentUserId });
+  const { error } = await sb.from('pagamentos_pedido').insert({ cliente_id: p.cliente_id, pedido_id: id, valor, forma, criado_por: currentUserId });
   if (error) { toast('Erro ao confirmar pagamento: ' + error.message, true); return; }
 
   toast('Pagamento confirmado!');
@@ -2193,23 +2224,67 @@ async function marcarEntregaConcluida(id) {
 // validade (só pra itens de água com troca) antes de marcar entregue
 // ============================================================
 let ceItemSeq = 0;
+let ceRecebimentoSeq = 0;
 
 async function iniciarConfirmacaoEntrega(pedidoId, onConcluido) {
-  const { data: itens } = await sb.from('itens_pedido')
-    .select('id, marca_id, quantidade, marcas(nome), lotes_garrafao(ano_validade)')
-    .eq('pedido_id', pedidoId).eq('tipo_vasilhame', 'troca').not('lote_id', 'is', null);
-
-  if (!itens || !itens.length) {
-    await efetivarEntrega(pedidoId, onConcluido);
-    return;
-  }
+  // busca direto no banco (não usa o cache allPedidos, que pode estar
+  // vazio na sessão do entregador) pra saber o total do pedido
+  const [{ data: itens }, { data: pedido }] = await Promise.all([
+    sb.from('itens_pedido')
+      .select('id, marca_id, quantidade, marcas(nome), lotes_garrafao(ano_validade)')
+      .eq('pedido_id', pedidoId).eq('tipo_vasilhame', 'troca').not('lote_id', 'is', null),
+    sb.from('pedidos').select('total').eq('id', pedidoId).single(),
+  ]);
 
   pendingEntregaPedidoId = pedidoId;
   pendingEntregaOnDone = onConcluido;
   ceItemSeq = 0;
-  document.getElementById('ce-itens-container').innerHTML = itens.map(ceItemCardHTML).join('');
+  document.getElementById('ce-itens-container').innerHTML = (itens && itens.length)
+    ? itens.map(ceItemCardHTML).join('')
+    : '<div class="card-sub" style="margin-bottom:12px">Sem troca de vasilhame neste pedido.</div>';
   document.querySelectorAll('.ce-item-card').forEach(card => atualizarTotalCE(parseInt(card.dataset.idx, 10)));
+
+  ceRecebimentoSeq = 0;
+  document.getElementById('ce-total-pedido-info').textContent = `Total do pedido: ${fmtMoeda(pedido ? pedido.total : 0)}`;
+  document.getElementById('ce-recebimento-container').innerHTML = ceRecebimentoRowHTML();
+  atualizarTotalRecebimentoCE();
+
   openModal('modal-confirmar-entrega');
+}
+
+function ceRecebimentoRowHTML() {
+  const idx = ceRecebimentoSeq++;
+  return `
+    <div class="ce-recebimento-row" data-idx="${idx}" style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px;margin-bottom:6px;align-items:center">
+      <select class="form-control ce-recebimento-forma" onchange="atualizarTotalRecebimentoCE()">
+        <option value="dinheiro">Dinheiro</option>
+        <option value="pix">Pix</option>
+        <option value="cartao_credito">Cartão de Crédito</option>
+      </select>
+      <input class="form-control ce-recebimento-valor" type="number" step="0.01" min="0" placeholder="R$ 0,00" onchange="atualizarTotalRecebimentoCE()">
+      <button class="btn btn-outline btn-sm" onclick="removerRecebimentoCE(this)">×</button>
+    </div>
+  `;
+}
+
+function adicionarRecebimentoCE() {
+  document.getElementById('ce-recebimento-container').insertAdjacentHTML('beforeend', ceRecebimentoRowHTML());
+}
+
+function removerRecebimentoCE(btn) {
+  const container = document.getElementById('ce-recebimento-container');
+  if (container.children.length <= 1) {
+    btn.closest('.ce-recebimento-row').querySelector('.ce-recebimento-valor').value = '';
+  } else {
+    btn.closest('.ce-recebimento-row').remove();
+  }
+  atualizarTotalRecebimentoCE();
+}
+
+function atualizarTotalRecebimentoCE() {
+  let total = 0;
+  document.querySelectorAll('.ce-recebimento-valor').forEach(inp => total += parseFloat(inp.value || 0));
+  document.getElementById('ce-recebimento-total').textContent = `Total informado: ${fmtMoeda(total)}`;
 }
 
 function ceItemCardHTML(it) {
@@ -2312,6 +2387,26 @@ async function confirmarAnoVazioEEntregar() {
   for (const s of todosOsSplits) {
     const { error } = await sb.from('vazios_devolvidos_pedido').insert(s);
     if (error) { toast('Erro ao salvar divisão de vasilhame: ' + error.message, true); return; }
+  }
+
+  // recebimento informado é só um registro pro caixa conferir depois —
+  // não cria pagamentos_pedido nem altera o pedido, quem dá baixa de fato
+  // no pagamento é o caixa na tela de detalhe do pedido
+  const recebimentos = [...document.querySelectorAll('.ce-recebimento-row')].map(row => ({
+    forma: row.querySelector('.ce-recebimento-forma').value,
+    valor: parseFloat(row.querySelector('.ce-recebimento-valor').value || 0),
+  })).filter(r => r.valor > 0);
+
+  if (recebimentos.length) {
+    const { data: pedidoAtual } = await sb.from('pedidos').select('entregador_id').eq('id', pendingEntregaPedidoId).single();
+    for (const r of recebimentos) {
+      const { error } = await sb.from('recebimentos_entrega').insert({
+        pedido_id: pendingEntregaPedidoId,
+        entregador_id: pedidoAtual ? pedidoAtual.entregador_id : currentUserId,
+        forma: r.forma, valor: r.valor, criado_por: currentUserId,
+      });
+      if (error) { toast('Erro ao registrar recebimento: ' + error.message, true); return; }
+    }
   }
 
   closeModal('modal-confirmar-entrega');
