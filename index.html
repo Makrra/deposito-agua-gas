@@ -440,7 +440,7 @@ select.form-control option { background: var(--surface); }
 
 <!-- ======= NAV (administrador/caixa) ======= -->
 <nav class="nav" id="main-nav">
-  <button class="nav-btn active" onclick="goPage('dash')">
+  <button class="nav-btn active" id="nav-btn-dash" onclick="goPage('dash')">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
     Dashboard
   </button>
@@ -940,6 +940,7 @@ let caixaSessaoAtual = null; // sessão com status='aberto', ou null se não hou
 // NAVIGATION
 // ============================================================
 function goPage(name) {
+  if (currentUserRole === 'caixa' && name === 'dash') name = 'pedidos'; // caixa não tem acesso ao dashboard
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.getElementById('page-' + name).classList.add('active');
 
@@ -1975,6 +1976,11 @@ async function loadEntregadoresList() {
 }
 
 async function abrirNovoPedido() {
+  if (currentUserRole === 'caixa') {
+    await carregarCaixaSessaoAtual();
+    if (!caixaSessaoAtual) { toast('Abra o caixa antes de criar pedidos.', true); return; }
+  }
+
   document.getElementById('np-cliente-id').value = '';
   document.getElementById('np-cliente-selecionado').textContent = '';
   document.getElementById('np-busca-cliente').value = '';
@@ -2004,6 +2010,11 @@ async function abrirNovoPedido() {
 }
 
 async function salvarPedido() {
+  if (currentUserRole === 'caixa') {
+    await carregarCaixaSessaoAtual();
+    if (!caixaSessaoAtual) { toast('Abra o caixa antes de criar pedidos.', true); return; }
+  }
+
   const cliente_id = document.getElementById('np-cliente-id').value;
   if (!cliente_id) { toast('Selecione um cliente', true); return; }
 
@@ -2720,7 +2731,12 @@ async function salvarAberturaCaixa() {
 
   closeModal('modal-abrir-caixa');
   toast('Caixa aberto!');
-  await loadCaixa();
+  await carregarCaixaSessaoAtual();
+  if (currentUserRole === 'caixa') {
+    goPage('pedidos'); // caixa vai direto pra tela de vendas
+  } else {
+    await loadCaixa();
+  }
 }
 
 function abrirModalCaixaMovimento(tipo) {
@@ -2975,8 +2991,15 @@ function applyRoleUI(role) {
   document.getElementById('entregador-nav').style.display = isEntregador ? 'flex' : 'none';
   document.getElementById('header-role-badge').textContent = role;
 
+  // Caixa não tem acesso ao Dashboard — só pedidos, estoque, clientes e caixa.
+  document.getElementById('nav-btn-dash').style.display = role === 'caixa' ? 'none' : 'flex';
+
   if (isEntregador) {
     goPage('entregas');
+  } else if (role === 'caixa') {
+    // Caixa cai direto na tela de abertura se o caixa estiver fechado,
+    // ou na tela de vendas (pedidos) se já estiver aberto.
+    goPage(caixaSessaoAtual ? 'pedidos' : 'caixa');
   } else {
     goPage('dash');
   }
