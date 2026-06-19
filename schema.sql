@@ -1080,9 +1080,10 @@ ON CONFLICT (chave) DO NOTHING;
 
 -- ============================================================
 -- MIGRAÇÃO: forma de pagamento "misto" (Dinheiro + Pix) no Novo Pedido.
--- O caixa informa quanto já recebeu em dinheiro na hora (vira um
--- pagamentos_pedido confirmado de imediato) e o restante fica registrado
--- como Pix pendente, pra ser conferido/baixado pelo adm depois.
+-- O caixa só declara a divisão combinada (ex: Dinheiro R$50 + Pix R$30),
+-- guardada como referência na observação do pedido — nenhum pagamento é
+-- confirmado automaticamente. A baixa de cada parte (dinheiro e Pix)
+-- continua sendo feita à parte pelo caixa/adm em pagamentos_pedido.
 -- ============================================================
 -- ALTER TABLE pedidos DROP CONSTRAINT IF EXISTS pedidos_forma_pagamento_check;
 -- ALTER TABLE pedidos ADD CONSTRAINT pedidos_forma_pagamento_check

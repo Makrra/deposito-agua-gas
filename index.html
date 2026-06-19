@@ -1850,14 +1850,19 @@ function lerTotalPedidoAtual() {
 function onFormaPagamentoChangeNP() {
   const forma = document.getElementById('np-forma-pagamento').value;
   document.getElementById('np-misto-container').style.display = forma === 'misto' ? 'block' : 'none';
-  if (forma === 'misto') atualizarSplitPagamentoNP();
+  if (forma === 'misto') {
+    // só preenche um valor inicial ao abrir a seção — não fazer isso a
+    // cada tecla digitada, senão sobrescreve o que a pessoa está digitando
+    // (ex: input type=number reporta value="" no instante entre "12" e "12.5")
+    const dinheiroInput = document.getElementById('np-misto-dinheiro');
+    if (!dinheiroInput.value) dinheiroInput.value = lerTotalPedidoAtual().toFixed(2);
+    atualizarSplitPagamentoNP();
+  }
 }
 
 function atualizarSplitPagamentoNP() {
   const total = lerTotalPedidoAtual();
-  const dinheiroInput = document.getElementById('np-misto-dinheiro');
-  if (dinheiroInput.value === '') dinheiroInput.value = total.toFixed(2);
-  const dinheiro = parseFloat(dinheiroInput.value || 0);
+  const dinheiro = parseFloat(document.getElementById('np-misto-dinheiro').value || 0);
   const pix = total - dinheiro;
   document.getElementById('np-misto-pix-info').innerHTML = pix >= 0
     ? `Pix (fica pendente até confirmação): ${fmtMoeda(pix)}`
@@ -1927,7 +1932,7 @@ async function salvarPedido() {
   const total = itens.reduce((s, it) => s + (it.preco_unitario + it.preco_vasilhame) * it.quantidade, 0);
   const forma_pagamento = document.getElementById('np-forma-pagamento').value;
   const entregador_id = document.getElementById('np-entregador').value || null;
-  const observacao = document.getElementById('np-observacao').value.trim();
+  let observacao = document.getElementById('np-observacao').value.trim();
 
   let valorDinheiroMisto = 0, valorPixMisto = 0;
   if (forma_pagamento === 'misto') {
@@ -1937,6 +1942,10 @@ async function salvarPedido() {
       return;
     }
     valorPixMisto = total - valorDinheiroMisto;
+    // só registra o combinado como referência pro caixa — não confirma
+    // nenhum pagamento ainda, a baixa de cada parte é feita à parte
+    const combinado = `Combinado: Dinheiro ${fmtMoeda(valorDinheiroMisto)} + Pix ${fmtMoeda(valorPixMisto)} (ambos pendentes até confirmação)`;
+    observacao = observacao ? `${observacao}\n${combinado}` : combinado;
   }
 
   // O pedido nasce com pagamento e entrega pendentes. Nada de estoque ou
@@ -1956,19 +1965,9 @@ async function salvarPedido() {
     if (errItem) { console.error('itens_pedido insert error:', errItem); toast('Erro ao salvar item do pedido: ' + errItem.message, true); }
   }
 
-  // forma "misto": o dinheiro já foi recebido na hora, então baixa essa
-  // parte agora; o Pix fica pendente até o adm confirmar no fim do dia.
-  if (forma_pagamento === 'misto') {
-    const { error: errPag } = await sb.from('pagamentos_pedido').insert({
-      cliente_id, pedido_id: pedido.id, valor: valorDinheiroMisto, forma: 'dinheiro', criado_por: currentUserId,
-      observacao: `Dinheiro recebido na criação do pedido (Pix de ${fmtMoeda(valorPixMisto)} fica pendente)`,
-    });
-    if (errPag) { console.error('pagamentos_pedido insert error:', errPag); toast('Pedido criado, mas houve erro ao registrar o dinheiro recebido: ' + errPag.message, true); }
-  }
-
   closeModal('modal-novo-pedido');
   toast(forma_pagamento === 'misto'
-    ? `Pedido criado! Dinheiro de ${fmtMoeda(valorDinheiroMisto)} já registrado como recebido — Pix de ${fmtMoeda(valorPixMisto)} fica pendente.`
+    ? `Pedido criado! Combinado Dinheiro ${fmtMoeda(valorDinheiroMisto)} + Pix ${fmtMoeda(valorPixMisto)} — ambos ficam pendentes até o caixa confirmar o recebimento de cada um.`
     : 'Pedido criado! Pagamento e entrega ficam pendentes até a confirmação.');
   await loadPedidos();
 }
@@ -2125,7 +2124,7 @@ async function abrirPedidoDetalhe(id) {
     if (pendente > 0) {
       pagamentoCard.style.display = 'block';
       document.getElementById('pd-pagamento-info').textContent = `Pago até agora: ${fmtMoeda(totalPago)} · Pendente: ${fmtMoeda(pendente)}`;
-      document.getElementById('pd-pagamento-forma').value = p.forma_pagamento === 'misto' ? 'pix' : p.forma_pagamento;
+      document.getElementById('pd-pagamento-forma').value = p.forma_pagamento === 'misto' ? 'dinheiro' : p.forma_pagamento;
       document.getElementById('pd-pagamento-valor').value = pendente.toFixed(2);
     } else {
       pagamentoCard.style.display = 'none';
