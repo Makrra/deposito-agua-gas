@@ -779,6 +779,40 @@ async function calcularPendentesPorCliente() {
 let pedidoItemSeq = 0;
 let pedidoClienteDescontos = [];
 let precoVasilhameAvulso = 0;
+let reservasLotePendentes = {}; // lote_id -> quantidade já comprometida em pedidos com entrega pendente
+let reservasGasPendentes = {}; // marca_id (gás) -> quantidade já comprometida em pedidos com entrega pendente
+
+// O estoque só é baixado quando o pedido é marcado como entregue, então um
+// lote pode ser "vendido" em vários pedidos pendentes ao mesmo tempo sem que
+// qtd_cheios mude. Pra não deixar cadastrar mais do que existe de fato,
+// somamos o que já está comprometido em outros pedidos pendentes + o que já
+// foi usado em outras linhas deste mesmo pedido, e descontamos do estoque
+// físico antes de validar.
+async function loadReservasPendentes() {
+  const { data, error } = await sb.from('itens_pedido')
+    .select('lote_id, marca_id, quantidade, pedidos!inner(status_entrega)')
+    .eq('pedidos.status_entrega', 'pendente');
+  if (error) { console.error('loadReservasPendentes error:', error); toast('Erro ao carregar reservas de estoque: ' + error.message, true); }
+  reservasLotePendentes = {};
+  reservasGasPendentes = {};
+  (data || []).forEach(it => {
+    if (it.lote_id) reservasLotePendentes[it.lote_id] = (reservasLotePendentes[it.lote_id] || 0) + it.quantidade;
+    else reservasGasPendentes[it.marca_id] = (reservasGasPendentes[it.marca_id] || 0) + it.quantidade;
+  });
+}
+
+function quantidadeReservadaNoFormulario(marca, loteId, excludeIdx) {
+  let total = 0;
+  document.querySelectorAll('.pedido-item-row').forEach(row => {
+    const idx = parseInt(row.dataset.idx, 10);
+    if (idx === excludeIdx) return;
+    const r = lerItemRow(row);
+    if (r.marcaId !== marca.id) return;
+    if (marca.tipo === 'agua') { if (r.loteId === loteId) total += r.quantidade; }
+    else total += r.quantidade;
+  });
+  return total;
+}
 let currentPedidoDetalheId = null;
 let pendingEntregaPedidoId = null;
 let pendingEntregaOnDone = null;
@@ -1691,10 +1725,15 @@ function onMarcaChangeItemPedido(idx) {
   const loteSel = row.querySelector('.item-lote');
 
   if (marca && marca.tipo === 'agua') {
-    const lotes = allLotes.filter(l => l.marca_id === marcaId && l.qtd_cheios > 0)
+    // mostra o saldo já líquido de reservas de outros pedidos pendentes,
+    // pra não oferecer um lote que na prática já está todo comprometido
+    const lotes = allLotes
+      .filter(l => l.marca_id === marcaId)
+      .map(l => ({ ...l, disponivelLiquido: l.qtd_cheios - (reservasLotePendentes[l.id] || 0) }))
+      .filter(l => l.disponivelLiquido > 0)
       .sort((a, b) => a.ano_validade - b.ano_validade);
     loteSel.innerHTML = lotes.length
-      ? lotes.map(l => `<option value="${l.id}">Val. ${l.ano_validade} · ${l.qtd_cheios} cheios</option>`).join('')
+      ? lotes.map(l => `<option value="${l.id}">Val. ${l.ano_validade} · ${l.disponivelLiquido} disponível</option>`).join('')
       : '<option value="">Nenhum lote com estoque</option>';
     loteWrap.style.display = 'block';
   } else {
@@ -1733,13 +1772,19 @@ function lerItemRow(row) {
   };
 }
 
-function disponivelParaItem(marca, loteId) {
+function disponivelParaItem(marca, loteId, excludeIdx) {
+  let estoqueFisico, reservadoPendentes;
   if (marca.tipo === 'agua') {
     const lote = allLotes.find(l => l.id === loteId);
-    return lote ? lote.qtd_cheios : 0;
+    estoqueFisico = lote ? lote.qtd_cheios : 0;
+    reservadoPendentes = reservasLotePendentes[loteId] || 0;
+  } else {
+    const estoque = allEstoqueGas.find(g => g.marca_id === marca.id);
+    estoqueFisico = estoque ? estoque.qtd_cheios : 0;
+    reservadoPendentes = reservasGasPendentes[marca.id] || 0;
   }
-  const estoque = allEstoqueGas.find(g => g.marca_id === marca.id);
-  return estoque ? estoque.qtd_cheios : 0;
+  const reservadoNoFormulario = quantidadeReservadaNoFormulario(marca, loteId, excludeIdx);
+  return Math.max(0, estoqueFisico - reservadoPendentes - reservadoNoFormulario);
 }
 
 function atualizarItemPedido(idx) {
@@ -1753,7 +1798,7 @@ function atualizarItemPedido(idx) {
   if (!marca) { recalcularTotalPedido(); return; }
   if (marca.tipo === 'agua' && !loteId) { infoEl.innerHTML = '<span class="text-red">Selecione um lote</span>'; recalcularTotalPedido(); return; }
 
-  const disponivel = disponivelParaItem(marca, loteId);
+  const disponivel = disponivelParaItem(marca, loteId, idx);
   const precoTabela = precoComDesconto(marca);
   const totalItem = (precoUnitario + precoVasilhame) * quantidade;
   const avisoEstoque = quantidade > disponivel ? ` <span class="text-red">(só há ${disponivel} disponível)</span>` : '';
@@ -1791,7 +1836,7 @@ async function abrirNovoPedido() {
   pedidoClienteDescontos = [];
   pedidoItemSeq = 0;
 
-  await Promise.all([loadEstoque(), loadClientes()]);
+  await Promise.all([loadEstoque(), loadClientes(), loadReservasPendentes()]);
 
   if (!precoVasilhameAvulso) {
     const { data } = await sb.from('configuracoes').select('valor').eq('chave', 'preco_vasilhame_avulso').maybeSingle();
@@ -1814,6 +1859,7 @@ async function salvarPedido() {
   const rows = [...document.querySelectorAll('.pedido-item-row')];
   const itens = [];
   for (const row of rows) {
+    const idx = parseInt(row.dataset.idx, 10);
     const { marcaId, loteId, quantidade, tipoVasilhame, precoUnitario, precoVasilhame } = lerItemRow(row);
     if (!marcaId || quantidade <= 0) continue;
     const marca = allMarcas.find(m => m.id === marcaId);
@@ -1821,8 +1867,8 @@ async function salvarPedido() {
     if (marca.tipo === 'agua' && !loteId) { toast(`Selecione o lote de ${marca.nome}`, true); return; }
     if (precoUnitario <= 0) { toast(`Informe um preço unitário válido para ${marca.nome}`, true); return; }
 
-    const disponivel = disponivelParaItem(marca, loteId);
-    if (quantidade > disponivel) { toast(`Estoque insuficiente para ${marca.nome}`, true); return; }
+    const disponivel = disponivelParaItem(marca, loteId, idx);
+    if (quantidade > disponivel) { toast(`Estoque insuficiente para ${marca.nome} (só há ${disponivel} disponível considerando pedidos pendentes)`, true); return; }
 
     const preco_base = marca.preco_venda_atual;
     itens.push({ marca_id: marcaId, lote_id: marca.tipo === 'agua' ? loteId : null, quantidade, tipo_vasilhame: tipoVasilhame, preco_base, preco_unitario: precoUnitario, preco_vasilhame: precoVasilhame });
