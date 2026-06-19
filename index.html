@@ -355,6 +355,12 @@ select.form-control option { background: var(--surface); }
 
   <div id="estoque-view-vazios" style="display:none">
     <div class="card-sub" style="margin-bottom:14px">Vasilhames vazios não pertencem a uma marca — o mesmo garrafão pode ser enchido por qualquer marca depois.</div>
+    <div class="stats" id="vazios-resumo-stats" style="grid-template-columns:repeat(2,1fr)">
+      <div class="stat-card"><div class="stat-val" id="vazios-resumo-total">—</div><div class="stat-lbl">Total de Garrafões</div></div>
+      <div class="stat-card"><div class="stat-val" id="vazios-resumo-cheios">—</div><div class="stat-lbl">Cheios</div></div>
+      <div class="stat-card"><div class="stat-val" id="vazios-resumo-vazios">—</div><div class="stat-lbl">Vazios</div></div>
+      <div class="stat-card"><div class="stat-val text-red" id="vazios-resumo-emprestados">—</div><div class="stat-lbl">Emprestados</div></div>
+    </div>
     <button class="btn btn-primary btn-sm btn-block" style="margin-bottom:14px" onclick="abrirAjusteVazios()">+ Ajuste Manual</button>
     <div id="vazios-list" class="loading"><div class="spinner"></div>Carregando...</div>
   </div>
@@ -856,6 +862,7 @@ async function loadEstoque() {
   const { data: vazios } = await sb.from('estoque_vazios').select('*').order('ano_validade');
   allEstoqueVazios = vazios || [];
   renderVaziosList();
+  await renderResumoVazios();
 
   const { data: gas } = await sb.from('estoque_gas').select('*, marcas(nome)').order('criado_em');
   allEstoqueGas = gas || [];
@@ -1024,6 +1031,19 @@ function renderVaziosList() {
   `).join('');
 }
 
+async function renderResumoVazios() {
+  const totalCheios = allLotes.reduce((s, l) => s + l.qtd_cheios, 0);
+  const totalVazios = allEstoqueVazios.reduce((s, v) => s + v.quantidade, 0);
+
+  const { data: emprestimos } = await sb.from('clientes').select('saldo_comodato_garrafoes');
+  const totalEmprestados = (emprestimos || []).reduce((s, c) => s + c.saldo_comodato_garrafoes, 0);
+
+  document.getElementById('vazios-resumo-cheios').textContent = totalCheios;
+  document.getElementById('vazios-resumo-vazios').textContent = totalVazios;
+  document.getElementById('vazios-resumo-emprestados').textContent = totalEmprestados;
+  document.getElementById('vazios-resumo-total').textContent = totalCheios + totalVazios + totalEmprestados;
+}
+
 const TIPO_MOVIMENTO_LABEL = { entrada_fabrica: 'Entrada', saida_venda: 'Saída (venda)', ajuste: 'Ajuste', avaria: 'Avaria', retorno_vazio: 'Retorno de Vazio', reaproveitamento: 'Reaproveitamento' };
 
 function renderHistoricoMovimentos(data, titulo) {
@@ -1169,7 +1189,6 @@ async function salvarLote() {
 }
 
 function abrirAvaria() {
-  preencherSelectLotes(document.getElementById('avaria-lote'));
   document.getElementById('avaria-tipo').value = 'cheio';
   document.getElementById('avaria-quantidade').value = '';
   document.getElementById('avaria-motivo').value = '';
@@ -1181,7 +1200,7 @@ function atualizarCampoAvaria() {
   const tipo = document.getElementById('avaria-tipo').value;
   document.getElementById('avaria-lote-wrap').style.display = tipo === 'cheio' ? 'block' : 'none';
   document.getElementById('avaria-ano-wrap').style.display = tipo === 'vazio' ? 'block' : 'none';
-  if (tipo === 'cheio') preencherSelectLotes(document.getElementById('avaria-lote'));
+  if (tipo === 'cheio') preencherSelectLotes(document.getElementById('avaria-lote'), { somenteComCheios: true });
 }
 
 async function salvarAvaria() {
@@ -1594,7 +1613,16 @@ async function selecionarClientePedido(id) {
 
   const { data } = await sb.from('descontos_cliente').select('*').eq('cliente_id', id);
   pedidoClienteDescontos = data || [];
-  document.querySelectorAll('.pedido-item-row').forEach(row => atualizarItemPedido(parseInt(row.dataset.idx, 10)));
+  // recalcula o preço sugerido de cada item já adicionado, já que o
+  // desconto do cliente mudou (sobrescreve preço editado manualmente
+  // antes de escolher o cliente — fluxo normal é escolher o cliente primeiro)
+  document.querySelectorAll('.pedido-item-row').forEach(row => {
+    const idx = parseInt(row.dataset.idx, 10);
+    const marcaId = row.querySelector('.item-marca').value;
+    const marca = allMarcas.find(m => m.id === marcaId);
+    if (marca) row.querySelector('.item-preco').value = precoComDesconto(marca).toFixed(2);
+    atualizarItemPedido(idx);
+  });
 }
 
 // ============================================================
@@ -1618,12 +1646,22 @@ function itemPedidoRowHTML(idx) {
         <select class="form-control item-lote" onchange="atualizarItemPedido(${idx})"></select>
       </div>
       <div style="display:grid;grid-template-columns:2fr 1fr;gap:8px;margin-bottom:8px">
-        <select class="form-control item-vasilhame" onchange="atualizarItemPedido(${idx})">
+        <select class="form-control item-vasilhame" onchange="onVasilhameChangeItemPedido(${idx})">
           <option value="troca">Troca de Vasilhame</option>
           <option value="venda">Venda do Vasilhame</option>
           <option value="comodato">Comodato (Empréstimo)</option>
         </select>
         <input type="number" class="form-control item-qtd" min="1" value="1" onchange="atualizarItemPedido(${idx})">
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+        <div class="form-group" style="margin-bottom:0">
+          <label class="form-label">Preço Unitário (R$)</label>
+          <input type="number" class="form-control item-preco" step="0.01" onchange="atualizarItemPedido(${idx})">
+        </div>
+        <div class="form-group item-preco-vasilhame-wrap" style="margin-bottom:0;display:none">
+          <label class="form-label">Preço do Vasilhame (R$)</label>
+          <input type="number" class="form-control item-preco-vasilhame" step="0.01" onchange="atualizarItemPedido(${idx})">
+        </div>
       </div>
       <div style="text-align:right;margin-bottom:8px">
         <button class="btn btn-outline btn-sm" onclick="removerItemPedido(${idx})">Remover Item</button>
@@ -1663,17 +1701,35 @@ function onMarcaChangeItemPedido(idx) {
     loteSel.innerHTML = '';
     loteWrap.style.display = 'none';
   }
+  // pré-preenche o preço com o valor de tabela já com desconto do cliente
+  // aplicado — fica editável daqui pra frente (desconto pontual ou ajuste
+  // do preço do vasilhame, ver atualizarItemPedido)
+  if (marca) row.querySelector('.item-preco').value = precoComDesconto(marca).toFixed(2);
+  atualizarItemPedido(idx);
+}
+
+function onVasilhameChangeItemPedido(idx) {
+  const row = document.querySelector(`.pedido-item-row[data-idx="${idx}"]`);
+  if (!row) return;
+  const tipoVasilhame = row.querySelector('.item-vasilhame').value;
+  const wrap = row.querySelector('.item-preco-vasilhame-wrap');
+  const inputVasilhame = row.querySelector('.item-preco-vasilhame');
+  wrap.style.display = tipoVasilhame === 'venda' ? 'block' : 'none';
+  if (tipoVasilhame === 'venda' && !inputVasilhame.value) inputVasilhame.value = precoVasilhameAvulso.toFixed(2);
   atualizarItemPedido(idx);
 }
 
 function lerItemRow(row) {
   const marcaId = row.querySelector('.item-marca').value;
   const marca = allMarcas.find(m => m.id === marcaId);
+  const tipoVasilhame = row.querySelector('.item-vasilhame').value;
   return {
     marcaId,
     loteId: (marca && marca.tipo === 'agua') ? row.querySelector('.item-lote').value : null,
     quantidade: parseInt(row.querySelector('.item-qtd').value || 0, 10),
-    tipoVasilhame: row.querySelector('.item-vasilhame').value,
+    tipoVasilhame,
+    precoUnitario: parseFloat(row.querySelector('.item-preco').value || 0),
+    precoVasilhame: tipoVasilhame === 'venda' ? parseFloat(row.querySelector('.item-preco-vasilhame').value || 0) : 0,
   };
 }
 
@@ -1689,7 +1745,7 @@ function disponivelParaItem(marca, loteId) {
 function atualizarItemPedido(idx) {
   const row = document.querySelector(`.pedido-item-row[data-idx="${idx}"]`);
   if (!row) return;
-  const { marcaId, loteId, quantidade, tipoVasilhame } = lerItemRow(row);
+  const { marcaId, loteId, quantidade, precoUnitario, precoVasilhame } = lerItemRow(row);
   const infoEl = row.querySelector('.item-info-linha');
 
   if (!marcaId) { infoEl.textContent = 'Selecione uma marca'; recalcularTotalPedido(); return; }
@@ -1698,24 +1754,20 @@ function atualizarItemPedido(idx) {
   if (marca.tipo === 'agua' && !loteId) { infoEl.innerHTML = '<span class="text-red">Selecione um lote</span>'; recalcularTotalPedido(); return; }
 
   const disponivel = disponivelParaItem(marca, loteId);
-  const preco = precoComDesconto(marca);
-  const precoVasilhame = tipoVasilhame === 'venda' ? precoVasilhameAvulso : 0;
-  const totalItem = (preco + precoVasilhame) * quantidade;
+  const precoTabela = precoComDesconto(marca);
+  const totalItem = (precoUnitario + precoVasilhame) * quantidade;
   const avisoEstoque = quantidade > disponivel ? ` <span class="text-red">(só há ${disponivel} disponível)</span>` : '';
-  infoEl.innerHTML = `${fmtMoeda(preco)} cada${precoVasilhame > 0 ? ' + ' + fmtMoeda(precoVasilhame) + ' vasilhame' : ''} · disponível: ${disponivel}${avisoEstoque} · subtotal: ${fmtMoeda(totalItem)}`;
+  const avisoPreco = precoUnitario !== precoTabela ? ` <span class="text-yellow">(preço de tabela: ${fmtMoeda(precoTabela)})</span>` : '';
+  infoEl.innerHTML = `Disponível: ${disponivel}${avisoEstoque}${avisoPreco} · Subtotal: ${fmtMoeda(totalItem)}`;
   recalcularTotalPedido();
 }
 
 function recalcularTotalPedido() {
   let total = 0;
   document.querySelectorAll('.pedido-item-row').forEach(row => {
-    const { marcaId, quantidade, tipoVasilhame } = lerItemRow(row);
+    const { marcaId, quantidade, precoUnitario, precoVasilhame } = lerItemRow(row);
     if (!marcaId) return;
-    const marca = allMarcas.find(m => m.id === marcaId);
-    if (!marca) return;
-    const preco = precoComDesconto(marca);
-    const precoVasilhame = tipoVasilhame === 'venda' ? precoVasilhameAvulso : 0;
-    total += (preco + precoVasilhame) * quantidade;
+    total += (precoUnitario + precoVasilhame) * quantidade;
   });
   document.getElementById('np-total').textContent = fmtMoeda(total);
 }
@@ -1762,19 +1814,18 @@ async function salvarPedido() {
   const rows = [...document.querySelectorAll('.pedido-item-row')];
   const itens = [];
   for (const row of rows) {
-    const { marcaId, loteId, quantidade, tipoVasilhame } = lerItemRow(row);
+    const { marcaId, loteId, quantidade, tipoVasilhame, precoUnitario, precoVasilhame } = lerItemRow(row);
     if (!marcaId || quantidade <= 0) continue;
     const marca = allMarcas.find(m => m.id === marcaId);
     if (!marca) continue;
     if (marca.tipo === 'agua' && !loteId) { toast(`Selecione o lote de ${marca.nome}`, true); return; }
+    if (precoUnitario <= 0) { toast(`Informe um preço unitário válido para ${marca.nome}`, true); return; }
 
     const disponivel = disponivelParaItem(marca, loteId);
     if (quantidade > disponivel) { toast(`Estoque insuficiente para ${marca.nome}`, true); return; }
 
     const preco_base = marca.preco_venda_atual;
-    const preco_unitario = precoComDesconto(marca);
-    const preco_vasilhame = tipoVasilhame === 'venda' ? precoVasilhameAvulso : 0;
-    itens.push({ marca_id: marcaId, lote_id: marca.tipo === 'agua' ? loteId : null, quantidade, tipo_vasilhame: tipoVasilhame, preco_base, preco_unitario, preco_vasilhame });
+    itens.push({ marca_id: marcaId, lote_id: marca.tipo === 'agua' ? loteId : null, quantidade, tipo_vasilhame: tipoVasilhame, preco_base, preco_unitario: precoUnitario, preco_vasilhame });
   }
   if (!itens.length) { toast('Adicione pelo menos um item válido', true); return; }
 
