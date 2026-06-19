@@ -1,4 +1,4 @@
-const CACHE = 'deposito-agua-v1';
+const CACHE = 'deposito-agua-v2';
 const ASSETS = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', (e) => {
@@ -21,8 +21,11 @@ self.addEventListener('fetch', (e) => {
   // Supabase requests sempre vão para a rede (dados precisam ser atuais)
   if (e.request.url.includes('supabase.co')) return;
 
+  // 'reload' ignora o cache HTTP do navegador (o GitHub Pages manda
+  // Cache-Control: max-age=600, então sem isso a "busca na rede" podia
+  // devolver uma resposta de até 10min atrás mesmo estando online)
   e.respondWith(
-    fetch(e.request)
+    fetch(e.request, { cache: 'reload' })
       .then((res) => {
         const resClone = res.clone();
         caches.open(CACHE).then((cache) => cache.put(e.request, resClone));
