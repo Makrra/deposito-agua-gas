@@ -664,11 +664,18 @@ select.form-control option { background: var(--surface); }
 
     <div class="form-group">
       <label class="form-label">Forma de Pagamento</label>
-      <select class="form-control" id="np-forma-pagamento">
+      <select class="form-control" id="np-forma-pagamento" onchange="onFormaPagamentoChangeNP()">
         <option value="dinheiro">Dinheiro</option>
         <option value="pix">Pix</option>
         <option value="cartao_credito">Cartão de Crédito</option>
+        <option value="misto">Dinheiro + Pix</option>
       </select>
+    </div>
+
+    <div class="form-group" id="np-misto-container" style="display:none">
+      <label class="form-label">Valor recebido em Dinheiro agora (o restante fica em Pix, pendente)</label>
+      <input class="form-control" id="np-misto-dinheiro" type="number" step="0.01" min="0" oninput="atualizarSplitPagamentoNP()">
+      <div class="card-sub" id="np-misto-pix-info" style="margin-top:6px"></div>
     </div>
 
     <div class="form-group">
@@ -1825,13 +1832,36 @@ function atualizarItemPedido(idx) {
 }
 
 function recalcularTotalPedido() {
+  const total = lerTotalPedidoAtual();
+  document.getElementById('np-total').textContent = fmtMoeda(total);
+  if (document.getElementById('np-forma-pagamento').value === 'misto') atualizarSplitPagamentoNP();
+}
+
+function lerTotalPedidoAtual() {
   let total = 0;
   document.querySelectorAll('.pedido-item-row').forEach(row => {
     const { marcaId, quantidade, precoUnitario, precoVasilhame } = lerItemRow(row);
     if (!marcaId) return;
     total += (precoUnitario + precoVasilhame) * quantidade;
   });
-  document.getElementById('np-total').textContent = fmtMoeda(total);
+  return total;
+}
+
+function onFormaPagamentoChangeNP() {
+  const forma = document.getElementById('np-forma-pagamento').value;
+  document.getElementById('np-misto-container').style.display = forma === 'misto' ? 'block' : 'none';
+  if (forma === 'misto') atualizarSplitPagamentoNP();
+}
+
+function atualizarSplitPagamentoNP() {
+  const total = lerTotalPedidoAtual();
+  const dinheiroInput = document.getElementById('np-misto-dinheiro');
+  if (dinheiroInput.value === '') dinheiroInput.value = total.toFixed(2);
+  const dinheiro = parseFloat(dinheiroInput.value || 0);
+  const pix = total - dinheiro;
+  document.getElementById('np-misto-pix-info').innerHTML = pix >= 0
+    ? `Pix (fica pendente até confirmação): ${fmtMoeda(pix)}`
+    : `<span class="text-red">Valor em dinheiro maior que o total do pedido</span>`;
 }
 
 // ============================================================
@@ -1849,6 +1879,8 @@ async function abrirNovoPedido() {
   document.getElementById('np-cliente-picker').innerHTML = '';
   document.getElementById('np-itens-container').innerHTML = '';
   document.getElementById('np-forma-pagamento').value = 'dinheiro';
+  document.getElementById('np-misto-container').style.display = 'none';
+  document.getElementById('np-misto-dinheiro').value = '';
   document.getElementById('np-observacao').value = '';
   pedidoClienteDescontos = [];
   pedidoItemSeq = 0;
@@ -1897,6 +1929,16 @@ async function salvarPedido() {
   const entregador_id = document.getElementById('np-entregador').value || null;
   const observacao = document.getElementById('np-observacao').value.trim();
 
+  let valorDinheiroMisto = 0, valorPixMisto = 0;
+  if (forma_pagamento === 'misto') {
+    valorDinheiroMisto = parseFloat(document.getElementById('np-misto-dinheiro').value || 0);
+    if (valorDinheiroMisto <= 0 || valorDinheiroMisto >= total) {
+      toast('Para Dinheiro + Pix, informe um valor em dinheiro maior que zero e menor que o total do pedido', true);
+      return;
+    }
+    valorPixMisto = total - valorDinheiroMisto;
+  }
+
   // O pedido nasce com pagamento e entrega pendentes. Nada de estoque ou
   // saldo é alterado agora — isso só acontece quando o pedido é marcado
   // como entregue (ver trigger processar_entrega_pedido no banco).
@@ -1914,8 +1956,20 @@ async function salvarPedido() {
     if (errItem) { console.error('itens_pedido insert error:', errItem); toast('Erro ao salvar item do pedido: ' + errItem.message, true); }
   }
 
+  // forma "misto": o dinheiro já foi recebido na hora, então baixa essa
+  // parte agora; o Pix fica pendente até o adm confirmar no fim do dia.
+  if (forma_pagamento === 'misto') {
+    const { error: errPag } = await sb.from('pagamentos_pedido').insert({
+      cliente_id, pedido_id: pedido.id, valor: valorDinheiroMisto, forma: 'dinheiro', criado_por: currentUserId,
+      observacao: `Dinheiro recebido na criação do pedido (Pix de ${fmtMoeda(valorPixMisto)} fica pendente)`,
+    });
+    if (errPag) { console.error('pagamentos_pedido insert error:', errPag); toast('Pedido criado, mas houve erro ao registrar o dinheiro recebido: ' + errPag.message, true); }
+  }
+
   closeModal('modal-novo-pedido');
-  toast('Pedido criado! Pagamento e entrega ficam pendentes até a confirmação.');
+  toast(forma_pagamento === 'misto'
+    ? `Pedido criado! Dinheiro de ${fmtMoeda(valorDinheiroMisto)} já registrado como recebido — Pix de ${fmtMoeda(valorPixMisto)} fica pendente.`
+    : 'Pedido criado! Pagamento e entrega ficam pendentes até a confirmação.');
   await loadPedidos();
 }
 
@@ -1957,7 +2011,7 @@ async function irParaPedidosPagamentoPendente() {
 }
 
 function badgePagamento(forma) {
-  const labels = { dinheiro: 'Dinheiro', pix: 'Pix', cartao_credito: 'Cartão de Crédito' };
+  const labels = { dinheiro: 'Dinheiro', pix: 'Pix', cartao_credito: 'Cartão de Crédito', misto: 'Dinheiro + Pix' };
   return `<span class="badge badge-blue">${labels[forma] || forma}</span>`;
 }
 
@@ -2071,7 +2125,7 @@ async function abrirPedidoDetalhe(id) {
     if (pendente > 0) {
       pagamentoCard.style.display = 'block';
       document.getElementById('pd-pagamento-info').textContent = `Pago até agora: ${fmtMoeda(totalPago)} · Pendente: ${fmtMoeda(pendente)}`;
-      document.getElementById('pd-pagamento-forma').value = p.forma_pagamento;
+      document.getElementById('pd-pagamento-forma').value = p.forma_pagamento === 'misto' ? 'pix' : p.forma_pagamento;
       document.getElementById('pd-pagamento-valor').value = pendente.toFixed(2);
     } else {
       pagamentoCard.style.display = 'none';

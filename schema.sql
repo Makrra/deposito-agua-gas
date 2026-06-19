@@ -124,7 +124,7 @@ CREATE TABLE IF NOT EXISTS pedidos (
   numero          SERIAL UNIQUE, -- código curto pra identificar o pedido (#1, #2...)
   cliente_id      UUID NOT NULL REFERENCES clientes(id) ON DELETE RESTRICT,
   data            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  forma_pagamento TEXT NOT NULL CHECK (forma_pagamento IN ('dinheiro','pix','cartao_credito')),
+  forma_pagamento TEXT NOT NULL CHECK (forma_pagamento IN ('dinheiro','pix','cartao_credito','misto')),
   status          TEXT NOT NULL DEFAULT 'aberto' CHECK (status IN ('aberto','concluido','cancelado')),
   total           NUMERIC(10,2) NOT NULL DEFAULT 0,
   entregador_id   UUID REFERENCES usuarios(id),
@@ -1077,6 +1077,16 @@ ON CONFLICT (chave) DO NOTHING;
 --         AND p.data::date = CURRENT_DATE
 --     )
 --   );
+
+-- ============================================================
+-- MIGRAÇÃO: forma de pagamento "misto" (Dinheiro + Pix) no Novo Pedido.
+-- O caixa informa quanto já recebeu em dinheiro na hora (vira um
+-- pagamentos_pedido confirmado de imediato) e o restante fica registrado
+-- como Pix pendente, pra ser conferido/baixado pelo adm depois.
+-- ============================================================
+-- ALTER TABLE pedidos DROP CONSTRAINT IF EXISTS pedidos_forma_pagamento_check;
+-- ALTER TABLE pedidos ADD CONSTRAINT pedidos_forma_pagamento_check
+--   CHECK (forma_pagamento IN ('dinheiro','pix','cartao_credito','misto'));
 
 -- Após rodar este script, crie o primeiro usuário em:
 -- Authentication > Users > Add user (email + senha)
