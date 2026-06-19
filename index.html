@@ -386,6 +386,53 @@ select.form-control option { background: var(--surface); }
   <button class="fab" onclick="abrirNovoCliente()">+</button>
 </div>
 
+<!-- ======= PAGE: CAIXA (administrador/caixa) ======= -->
+<div class="page" id="page-caixa">
+
+  <div id="caixa-view-fechado" style="display:none">
+    <div class="card">
+      <div class="card-title">Caixa Fechado</div>
+      <div class="card-sub" style="margin:8px 0">Nenhuma sessão de caixa está aberta no momento.</div>
+      <button class="btn btn-primary btn-block" onclick="abrirModalAbrirCaixa()">Abrir Caixa</button>
+    </div>
+  </div>
+
+  <div id="caixa-view-aberto" style="display:none">
+    <div class="card">
+      <div class="card-title">Caixa Aberto</div>
+      <div class="card-sub" id="caixa-info-abertura" style="margin:8px 0"></div>
+    </div>
+
+    <div class="stats" style="grid-template-columns:repeat(2,1fr)">
+      <div class="stat-card"><div class="stat-val" id="caixa-troco-inicial">—</div><div class="stat-lbl">Troco Inicial</div></div>
+      <div class="stat-card"><div class="stat-val text-green" id="caixa-dinheiro-recebido">—</div><div class="stat-lbl">Dinheiro Recebido</div></div>
+      <div class="stat-card"><div class="stat-val text-green" id="caixa-suprimentos">—</div><div class="stat-lbl">Suprimentos</div></div>
+      <div class="stat-card"><div class="stat-val text-red" id="caixa-sangrias">—</div><div class="stat-lbl">Sangrias</div></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Valor Esperado na Gaveta</div>
+      <div class="stat-val" id="caixa-valor-esperado" style="font-size:1.6rem">—</div>
+    </div>
+
+    <div style="display:flex;gap:8px;margin:14px 0">
+      <button class="btn btn-outline btn-sm" style="flex:1" onclick="abrirModalCaixaMovimento('sangria')">- Sangria</button>
+      <button class="btn btn-outline btn-sm" style="flex:1" onclick="abrirModalCaixaMovimento('suprimento')">+ Suprimento</button>
+    </div>
+
+    <div class="card">
+      <div class="card-title" style="margin-bottom:10px">Movimentos da Sessão</div>
+      <div id="caixa-movimentos-list" class="loading"><div class="spinner"></div>Carregando...</div>
+    </div>
+
+    <button class="btn btn-outline btn-block" style="margin-top:14px;color:var(--red);border-color:var(--red)" onclick="abrirModalFecharCaixa()">Fechar Caixa</button>
+  </div>
+
+  <div class="card" style="margin-top:14px">
+    <div class="card-title" style="margin-bottom:10px">Histórico de Sessões</div>
+    <div id="caixa-historico-list" class="loading"><div class="spinner"></div>Carregando...</div>
+  </div>
+</div>
+
 <!-- ======= PAGE: ENTREGAS (entregador) ======= -->
 <div class="page" id="page-entregas">
   <div id="entregas-list" class="loading"><div class="spinner"></div>Carregando...</div>
@@ -408,6 +455,10 @@ select.form-control option { background: var(--surface); }
   <button class="nav-btn" onclick="goPage('clientes')">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
     Clientes
+  </button>
+  <button class="nav-btn" onclick="goPage('caixa')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="13" rx="2"/><line x1="2" y1="11" x2="22" y2="11"/><line x1="6" y1="15" x2="10" y2="15"/></svg>
+    Caixa
   </button>
 </nav>
 
@@ -539,6 +590,57 @@ select.form-control option { background: var(--surface); }
       <textarea class="form-control" id="avaria-motivo" rows="2" placeholder="Ex: rachado, vazando..."></textarea>
     </div>
     <button class="btn btn-primary btn-block" onclick="salvarAvaria()">Registrar</button>
+  </div>
+</div>
+
+<!-- ===== MODAL: Abrir Caixa ===== -->
+<div class="modal-overlay" id="modal-abrir-caixa">
+  <div class="modal">
+    <div class="modal-title">Abrir Caixa</div>
+    <div class="form-group">
+      <label class="form-label">Troco Inicial</label>
+      <input class="form-control" id="caixa-abertura-troco" type="number" step="0.01" min="0" placeholder="0,00">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Observação (opcional)</label>
+      <textarea class="form-control" id="caixa-abertura-obs" rows="2"></textarea>
+    </div>
+    <button class="btn btn-primary btn-block" onclick="salvarAberturaCaixa()">Abrir Caixa</button>
+  </div>
+</div>
+
+<!-- ===== MODAL: Sangria/Suprimento ===== -->
+<div class="modal-overlay" id="modal-caixa-movimento">
+  <div class="modal">
+    <div class="modal-title" id="caixa-mov-titulo">Registrar Sangria</div>
+    <input type="hidden" id="caixa-mov-tipo">
+    <div class="form-group">
+      <label class="form-label">Valor</label>
+      <input class="form-control" id="caixa-mov-valor" type="number" step="0.01" min="0.01" placeholder="0,00">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Motivo</label>
+      <textarea class="form-control" id="caixa-mov-motivo" rows="2" placeholder="Ex: combustível, alimentação, reforço de troco..."></textarea>
+    </div>
+    <button class="btn btn-primary btn-block" onclick="salvarCaixaMovimento()">Registrar</button>
+  </div>
+</div>
+
+<!-- ===== MODAL: Fechar Caixa ===== -->
+<div class="modal-overlay" id="modal-fechar-caixa">
+  <div class="modal">
+    <div class="modal-title">Fechar Caixa</div>
+    <div class="card-sub" id="caixa-fechamento-resumo" style="margin-bottom:12px"></div>
+    <div class="form-group">
+      <label class="form-label">Valor Contado na Gaveta</label>
+      <input class="form-control" id="caixa-fechamento-contado" type="number" step="0.01" min="0" placeholder="0,00" oninput="atualizarDiferencaFechamento()">
+    </div>
+    <div class="card-sub" id="caixa-fechamento-diferenca" style="margin-bottom:12px"></div>
+    <div class="form-group">
+      <label class="form-label">Observação (opcional)</label>
+      <textarea class="form-control" id="caixa-fechamento-obs" rows="2"></textarea>
+    </div>
+    <button class="btn btn-primary btn-block" onclick="salvarFechamentoCaixa()">Confirmar Fechamento</button>
   </div>
 </div>
 
@@ -760,7 +862,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 // ============================================================
 let currentUserRole = null; // 'administrador' | 'caixa' | 'entregador'
 let currentUserId = null;
-const PAGES_ADMIN_CAIXA = ['dash', 'pedidos', 'estoque', 'clientes'];
+const PAGES_ADMIN_CAIXA = ['dash', 'pedidos', 'estoque', 'clientes', 'caixa'];
 
 let allMarcas = [];
 let allLotes = [];
@@ -832,6 +934,7 @@ function quantidadeReservadaNoFormulario(marca, loteId, excludeIdx) {
 let currentPedidoDetalheId = null;
 let pendingEntregaPedidoId = null;
 let pendingEntregaOnDone = null;
+let caixaSessaoAtual = null; // sessão com status='aberto', ou null se não houver
 
 // ============================================================
 // NAVIGATION
@@ -851,6 +954,7 @@ function goPage(name) {
   if (name === 'dash')      loadDashboard();
   if (name === 'pedidos')   loadPedidos();
   if (name === 'entregas')  loadEntregas();
+  if (name === 'caixa')     loadCaixa();
 }
 
 // ============================================================
@@ -883,6 +987,7 @@ function toast(msg, error = false) {
 // ============================================================
 const fmtMoeda = v => 'R$ ' + parseFloat(v || 0).toFixed(2).replace('.', ',');
 const fmtData  = d => d ? new Date(d).toLocaleDateString('pt-BR') : '—';
+const fmtDataHora = d => d ? new Date(d).toLocaleString('pt-BR') : '—';
 
 // ============================================================
 // ESTOQUE: MARCAS
@@ -2173,7 +2278,15 @@ async function confirmarPagamentoPedido() {
   if (valor <= 0) { toast('Informe um valor válido', true); return; }
   const forma = document.getElementById('pd-pagamento-forma').value;
 
-  const { error } = await sb.from('pagamentos_pedido').insert({ cliente_id: p.cliente_id, pedido_id: id, valor, forma, criado_por: currentUserId });
+  if (forma === 'dinheiro') {
+    await carregarCaixaSessaoAtual();
+    if (!caixaSessaoAtual) { toast('Não há caixa aberto. Abra o caixa antes de confirmar pagamentos em dinheiro.', true); return; }
+  }
+
+  const { error } = await sb.from('pagamentos_pedido').insert({
+    cliente_id: p.cliente_id, pedido_id: id, valor, forma, criado_por: currentUserId,
+    caixa_sessao_id: caixaSessaoAtual ? caixaSessaoAtual.id : null,
+  });
   if (error) { toast('Erro ao confirmar pagamento: ' + error.message, true); return; }
 
   toast('Pagamento confirmado!');
@@ -2189,7 +2302,15 @@ async function confirmarPagamentoMistoParte(tipo) {
   const valor = parseFloat(tipo === 'dinheiro' ? p.valor_dinheiro_misto : p.valor_pix_misto);
   if (!(valor > 0)) return;
 
-  const { error } = await sb.from('pagamentos_pedido').insert({ cliente_id: p.cliente_id, pedido_id: id, valor, forma: tipo, criado_por: currentUserId });
+  if (tipo === 'dinheiro') {
+    await carregarCaixaSessaoAtual();
+    if (!caixaSessaoAtual) { toast('Não há caixa aberto. Abra o caixa antes de confirmar pagamentos em dinheiro.', true); return; }
+  }
+
+  const { error } = await sb.from('pagamentos_pedido').insert({
+    cliente_id: p.cliente_id, pedido_id: id, valor, forma: tipo, criado_por: currentUserId,
+    caixa_sessao_id: caixaSessaoAtual ? caixaSessaoAtual.id : null,
+  });
   if (error) { toast('Erro ao confirmar pagamento: ' + error.message, true); return; }
 
   toast(`${tipo === 'dinheiro' ? 'Dinheiro' : 'Pix'} confirmado!`);
@@ -2515,6 +2636,193 @@ async function efetivarEntrega(pedidoId, onConcluido) {
 }
 
 // ============================================================
+// CAIXA (administrador/caixa)
+// ============================================================
+async function carregarCaixaSessaoAtual() {
+  const { data } = await sb.from('caixa_sessoes')
+    .select('*, aberto_por_usuario:usuarios!caixa_sessoes_aberto_por_fkey(nome)')
+    .eq('status', 'aberto').maybeSingle();
+  caixaSessaoAtual = data || null;
+  return caixaSessaoAtual;
+}
+
+async function loadCaixa() {
+  await carregarCaixaSessaoAtual();
+  document.getElementById('caixa-view-fechado').style.display = caixaSessaoAtual ? 'none' : 'block';
+  document.getElementById('caixa-view-aberto').style.display  = caixaSessaoAtual ? 'block' : 'none';
+
+  if (caixaSessaoAtual) {
+    const nomeAbertura = caixaSessaoAtual.aberto_por_usuario?.nome || '—';
+    document.getElementById('caixa-info-abertura').textContent =
+      `Aberto por ${nomeAbertura} em ${fmtDataHora(caixaSessaoAtual.aberto_em)}`;
+    await calcularTotaisSessaoAtual();
+    await renderMovimentosSessao();
+  }
+
+  await loadHistoricoCaixa();
+}
+
+async function calcularTotaisSessaoAtual() {
+  const sessaoId = caixaSessaoAtual.id;
+  const { data: pagamentos } = await sb.from('pagamentos_pedido').select('valor').eq('caixa_sessao_id', sessaoId).eq('forma', 'dinheiro');
+  const dinheiroRecebido = (pagamentos || []).reduce((s, p) => s + parseFloat(p.valor), 0);
+
+  const { data: movimentos } = await sb.from('caixa_movimentos').select('tipo, valor').eq('caixa_sessao_id', sessaoId);
+  const suprimentos = (movimentos || []).filter(m => m.tipo === 'suprimento').reduce((s, m) => s + parseFloat(m.valor), 0);
+  const sangrias = (movimentos || []).filter(m => m.tipo === 'sangria').reduce((s, m) => s + parseFloat(m.valor), 0);
+
+  const trocoInicial = parseFloat(caixaSessaoAtual.troco_inicial);
+  const esperado = trocoInicial + dinheiroRecebido + suprimentos - sangrias;
+
+  document.getElementById('caixa-troco-inicial').textContent = fmtMoeda(trocoInicial);
+  document.getElementById('caixa-dinheiro-recebido').textContent = fmtMoeda(dinheiroRecebido);
+  document.getElementById('caixa-suprimentos').textContent = fmtMoeda(suprimentos);
+  document.getElementById('caixa-sangrias').textContent = fmtMoeda(sangrias);
+  document.getElementById('caixa-valor-esperado').textContent = fmtMoeda(esperado);
+
+  return { trocoInicial, dinheiroRecebido, suprimentos, sangrias, esperado };
+}
+
+async function renderMovimentosSessao() {
+  const { data } = await sb.from('caixa_movimentos').select('*, usuarios(nome)').eq('caixa_sessao_id', caixaSessaoAtual.id).order('data', { ascending: false });
+  const listEl = document.getElementById('caixa-movimentos-list');
+  listEl.innerHTML = (data || []).map(m => {
+    const nome = m.usuarios?.nome || '—';
+    const sinal = m.tipo === 'sangria' ? '-' : '+';
+    return `
+      <div class="list-item">
+        <div class="item-info">
+          <div class="item-name">${m.tipo === 'sangria' ? 'Sangria' : 'Suprimento'}</div>
+          <div class="item-detail">${m.motivo} · ${nome} · ${fmtDataHora(m.data)}</div>
+        </div>
+        <div class="item-value ${m.tipo === 'sangria' ? 'text-red' : 'text-green'}">${sinal}${fmtMoeda(m.valor)}</div>
+      </div>`;
+  }).join('') || '<div class="empty-state">Nenhum movimento nesta sessão</div>';
+}
+
+function abrirModalAbrirCaixa() {
+  document.getElementById('caixa-abertura-troco').value = '';
+  document.getElementById('caixa-abertura-obs').value = '';
+  openModal('modal-abrir-caixa');
+}
+
+async function salvarAberturaCaixa() {
+  const troco_inicial = parseFloat(document.getElementById('caixa-abertura-troco').value || -1);
+  const observacao_abertura = document.getElementById('caixa-abertura-obs').value.trim() || null;
+  if (!(troco_inicial >= 0)) { toast('Informe o troco inicial', true); return; }
+
+  const { error } = await sb.from('caixa_sessoes').insert({ troco_inicial, observacao_abertura, aberto_por: currentUserId });
+  if (error) {
+    if (error.code === '23505') toast('Já existe um caixa aberto. Feche-o antes de abrir um novo.', true);
+    else toast('Erro ao abrir caixa: ' + error.message, true);
+    return;
+  }
+
+  closeModal('modal-abrir-caixa');
+  toast('Caixa aberto!');
+  await loadCaixa();
+}
+
+function abrirModalCaixaMovimento(tipo) {
+  document.getElementById('caixa-mov-tipo').value = tipo;
+  document.getElementById('caixa-mov-titulo').textContent = tipo === 'sangria' ? 'Registrar Sangria' : 'Registrar Suprimento';
+  document.getElementById('caixa-mov-valor').value = '';
+  document.getElementById('caixa-mov-motivo').value = '';
+  openModal('modal-caixa-movimento');
+}
+
+async function salvarCaixaMovimento() {
+  if (!caixaSessaoAtual) { toast('Não há caixa aberto', true); return; }
+  const tipo = document.getElementById('caixa-mov-tipo').value;
+  const valor = parseFloat(document.getElementById('caixa-mov-valor').value || 0);
+  const motivo = document.getElementById('caixa-mov-motivo').value.trim();
+  if (!(valor > 0)) { toast('Informe um valor válido', true); return; }
+  if (!motivo) { toast('Informe o motivo', true); return; }
+
+  const { error } = await sb.from('caixa_movimentos').insert({ caixa_sessao_id: caixaSessaoAtual.id, tipo, valor, motivo, criado_por: currentUserId });
+  if (error) { toast('Erro ao registrar movimento: ' + error.message, true); return; }
+
+  closeModal('modal-caixa-movimento');
+  toast(tipo === 'sangria' ? 'Sangria registrada!' : 'Suprimento registrado!');
+  await loadCaixa();
+}
+
+async function abrirModalFecharCaixa() {
+  const totais = await calcularTotaisSessaoAtual();
+  document.getElementById('caixa-fechamento-resumo').innerHTML =
+    `Troco inicial: ${fmtMoeda(totais.trocoInicial)} · Dinheiro recebido: ${fmtMoeda(totais.dinheiroRecebido)} · ` +
+    `Suprimentos: ${fmtMoeda(totais.suprimentos)} · Sangrias: ${fmtMoeda(totais.sangrias)} · ` +
+    `<strong>Esperado: ${fmtMoeda(totais.esperado)}</strong>`;
+  document.getElementById('modal-fechar-caixa').dataset.esperado = totais.esperado;
+  document.getElementById('caixa-fechamento-contado').value = '';
+  document.getElementById('caixa-fechamento-diferenca').innerHTML = '';
+  document.getElementById('caixa-fechamento-obs').value = '';
+  openModal('modal-fechar-caixa');
+}
+
+function atualizarDiferencaFechamento() {
+  const esperado = parseFloat(document.getElementById('modal-fechar-caixa').dataset.esperado || 0);
+  const contadoStr = document.getElementById('caixa-fechamento-contado').value;
+  const diferencaEl = document.getElementById('caixa-fechamento-diferenca');
+  if (contadoStr === '') { diferencaEl.innerHTML = ''; return; }
+  const diferenca = parseFloat(contadoStr) - esperado;
+  diferencaEl.innerHTML = diferenca >= 0
+    ? `<span class="text-green">Sobra de ${fmtMoeda(diferenca)}</span>`
+    : `<span class="text-red">Falta de ${fmtMoeda(Math.abs(diferenca))}</span>`;
+}
+
+async function salvarFechamentoCaixa() {
+  const valor_contado = parseFloat(document.getElementById('caixa-fechamento-contado').value || -1);
+  if (!(valor_contado >= 0)) { toast('Informe o valor contado', true); return; }
+  const observacao_fechamento = document.getElementById('caixa-fechamento-obs').value.trim() || null;
+
+  const totais = await calcularTotaisSessaoAtual();
+  const diferenca = valor_contado - totais.esperado;
+
+  const { error } = await sb.from('caixa_sessoes').update({
+    status: 'fechado',
+    valor_contado,
+    valor_esperado: totais.esperado,
+    diferenca,
+    observacao_fechamento,
+    fechado_em: new Date().toISOString(),
+    fechado_por: currentUserId,
+  }).eq('id', caixaSessaoAtual.id);
+  if (error) { toast('Erro ao fechar caixa: ' + error.message, true); return; }
+
+  closeModal('modal-fechar-caixa');
+  toast('Caixa fechado!');
+  caixaSessaoAtual = null;
+  await loadCaixa();
+}
+
+async function loadHistoricoCaixa() {
+  const { data } = await sb.from('caixa_sessoes')
+    .select('*, aberto_por_usuario:usuarios!caixa_sessoes_aberto_por_fkey(nome)')
+    .order('aberto_em', { ascending: false }).limit(30);
+  const listEl = document.getElementById('caixa-historico-list');
+  listEl.innerHTML = (data || []).map(s => {
+    const nomeAbertura = s.aberto_por_usuario?.nome || '—';
+    if (s.status === 'aberto') {
+      return `
+        <div class="list-item">
+          <div class="item-info"><div class="item-name">${fmtDataHora(s.aberto_em)}</div><div class="item-detail">${nomeAbertura} · troco ${fmtMoeda(s.troco_inicial)}</div></div>
+          <span class="badge badge-yellow">Aberto</span>
+        </div>`;
+    }
+    const diferenca = parseFloat(s.diferenca || 0);
+    return `
+      <div class="list-item">
+        <div class="item-info">
+          <div class="item-name">${fmtDataHora(s.aberto_em)}</div>
+          <div class="item-detail">${nomeAbertura} · esperado ${fmtMoeda(s.valor_esperado)} · contado ${fmtMoeda(s.valor_contado)}</div>
+        </div>
+        <div class="item-value ${diferenca >= 0 ? 'text-green' : 'text-red'}">${diferenca >= 0 ? '+' : ''}${fmtMoeda(diferenca)}</div>
+      </div>`;
+  }).join('') || '<div class="empty-state">Nenhuma sessão registrada</div>';
+}
+
+// ============================================================
 // DASHBOARD
 // ============================================================
 function dashboardSetPeriodo(periodo) {
@@ -2686,6 +2994,7 @@ async function init() {
   } else {
     currentUserRole = usuario.role;
   }
+  await carregarCaixaSessaoAtual();
   applyRoleUI(currentUserRole);
 }
 

@@ -200,23 +200,68 @@ CREATE TABLE IF NOT EXISTS avarias (
 CREATE INDEX IF NOT EXISTS idx_avarias_lote ON avarias(lote_id);
 
 -- ------------------------------------------------------------
+-- 9b. CAIXA_SESSOES (abertura/fechamento de caixa, igual a um caixa de
+-- supermercado: troco inicial na abertura, conferência física no
+-- fechamento. Só pode existir uma sessão com status='aberto' por vez —
+-- garantido pelo índice único parcial abaixo, sem precisar de trigger).
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS caixa_sessoes (
+  id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  status                TEXT NOT NULL DEFAULT 'aberto' CHECK (status IN ('aberto','fechado')),
+  troco_inicial         NUMERIC(10,2) NOT NULL CHECK (troco_inicial >= 0),
+  valor_contado         NUMERIC(10,2), -- preenchido só no fechamento (dinheiro contado na gaveta)
+  valor_esperado        NUMERIC(10,2), -- snapshot calculado no fechamento (troco + dinheiro + suprimentos - sangrias)
+  diferenca             NUMERIC(10,2), -- valor_contado - valor_esperado
+  observacao_abertura   TEXT,
+  observacao_fechamento TEXT,
+  aberto_em             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  aberto_por            UUID REFERENCES usuarios(id),
+  fechado_em            TIMESTAMPTZ,
+  fechado_por           UUID REFERENCES usuarios(id)
+);
+
+-- Garante uma única sessão 'aberta' por vez (gaveta física única).
+CREATE UNIQUE INDEX IF NOT EXISTS uq_caixa_sessoes_unica_aberta
+  ON caixa_sessoes ((status)) WHERE status = 'aberto';
+CREATE INDEX IF NOT EXISTS idx_caixa_sessoes_aberto_em ON caixa_sessoes(aberto_em DESC);
+
+-- ------------------------------------------------------------
+-- 9c. CAIXA_MOVIMENTOS (sangria = retirada de dinheiro da sessão pra
+-- despesa/abastecimento/alimentação; suprimento = reforço de troco)
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS caixa_movimentos (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  caixa_sessao_id UUID NOT NULL REFERENCES caixa_sessoes(id) ON DELETE CASCADE,
+  tipo            TEXT NOT NULL CHECK (tipo IN ('sangria','suprimento')),
+  valor           NUMERIC(10,2) NOT NULL CHECK (valor > 0),
+  motivo          TEXT NOT NULL,
+  data            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  criado_por      UUID REFERENCES usuarios(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_caixa_mov_sessao ON caixa_movimentos(caixa_sessao_id);
+
+-- ------------------------------------------------------------
 -- 10. PAGAMENTOS_PEDIDO (qualquer forma de pagamento, vinculado a um
 -- pedido específico; pendência é calculada on-the-fly: total do pedido
 -- menos a soma dos pagamentos registrados aqui)
 -- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS pagamentos_pedido (
-  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  cliente_id UUID NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
-  pedido_id  UUID REFERENCES pedidos(id) ON DELETE SET NULL,
-  valor      NUMERIC(10,2) NOT NULL CHECK (valor > 0),
-  forma      TEXT NOT NULL DEFAULT 'dinheiro' CHECK (forma IN ('dinheiro','pix','cartao_credito')),
-  data       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  observacao TEXT,
-  criado_por UUID REFERENCES usuarios(id)
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  cliente_id      UUID NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
+  pedido_id       UUID REFERENCES pedidos(id) ON DELETE SET NULL,
+  valor           NUMERIC(10,2) NOT NULL CHECK (valor > 0),
+  forma           TEXT NOT NULL DEFAULT 'dinheiro' CHECK (forma IN ('dinheiro','pix','cartao_credito')),
+  caixa_sessao_id UUID REFERENCES caixa_sessoes(id), -- sessão de caixa aberta no momento da confirmação (obrigatória pra forma='dinheiro')
+  data            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  observacao      TEXT,
+  criado_por      UUID REFERENCES usuarios(id),
+  CONSTRAINT chk_pagamento_dinheiro_tem_sessao CHECK (forma != 'dinheiro' OR caixa_sessao_id IS NOT NULL)
 );
 
 CREATE INDEX IF NOT EXISTS idx_pag_pedido_cliente ON pagamentos_pedido(cliente_id);
 CREATE INDEX IF NOT EXISTS idx_pag_pedido_pedido  ON pagamentos_pedido(pedido_id);
+CREATE INDEX IF NOT EXISTS idx_pag_pedido_caixa_sessao ON pagamentos_pedido(caixa_sessao_id);
 
 -- ------------------------------------------------------------
 -- 10b. RECEBIMENTOS_ENTREGA (declaração informativa do entregador sobre
@@ -432,6 +477,8 @@ ALTER TABLE pedidos             ENABLE ROW LEVEL SECURITY;
 ALTER TABLE itens_pedido        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE movimentos_estoque  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE avarias             ENABLE ROW LEVEL SECURITY;
+ALTER TABLE caixa_sessoes       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE caixa_movimentos    ENABLE ROW LEVEL SECURITY;
 ALTER TABLE pagamentos_pedido   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE recebimentos_entrega ENABLE ROW LEVEL SECURITY;
 ALTER TABLE movimentos_comodato ENABLE ROW LEVEL SECURITY;
@@ -526,6 +573,18 @@ CREATE POLICY "avarias_admin_caixa_all" ON avarias FOR ALL
 DROP POLICY IF EXISTS "pagamentos_fiado_admin_caixa_all" ON pagamentos_pedido;
 DROP POLICY IF EXISTS "pagamentos_pedido_admin_caixa_all" ON pagamentos_pedido;
 CREATE POLICY "pagamentos_pedido_admin_caixa_all" ON pagamentos_pedido FOR ALL
+  USING (public.current_role() IN ('administrador','caixa'))
+  WITH CHECK (public.current_role() IN ('administrador','caixa'));
+
+-- caixa_sessoes, caixa_movimentos: administrador e caixa operam tudo
+-- (abrir/fechar caixa, registrar sangria/suprimento).
+DROP POLICY IF EXISTS "caixa_sessoes_admin_caixa_all" ON caixa_sessoes;
+CREATE POLICY "caixa_sessoes_admin_caixa_all" ON caixa_sessoes FOR ALL
+  USING (public.current_role() IN ('administrador','caixa'))
+  WITH CHECK (public.current_role() IN ('administrador','caixa'));
+
+DROP POLICY IF EXISTS "caixa_movimentos_admin_caixa_all" ON caixa_movimentos;
+CREATE POLICY "caixa_movimentos_admin_caixa_all" ON caixa_movimentos FOR ALL
   USING (public.current_role() IN ('administrador','caixa'))
   WITH CHECK (public.current_role() IN ('administrador','caixa'));
 
@@ -1101,6 +1160,63 @@ ON CONFLICT (chave) DO NOTHING;
 -- ============================================================
 -- ALTER TABLE pedidos ADD COLUMN IF NOT EXISTS valor_dinheiro_misto NUMERIC(10,2);
 -- ALTER TABLE pedidos ADD COLUMN IF NOT EXISTS valor_pix_misto NUMERIC(10,2);
+
+-- ============================================================
+-- MIGRAÇÃO: abertura/fechamento de caixa (sessão única, sangria e
+-- suprimento). Apenas uma sessão pode estar 'aberta' por vez (índice
+-- único parcial garante isso no banco). Pagamentos em dinheiro passam
+-- a exigir uma sessão aberta (bloqueio feito na aplicação e reforçado
+-- por CHECK constraint, com NOT VALID pra não falhar revalidando
+-- pagamentos antigos já existentes); pix e cartão de crédito continuam
+-- livres, mas se houver sessão aberta no momento da confirmação ela
+-- também é vinculada (caixa_sessao_id), pro fechamento poder somar tudo
+-- que passou pela gaveta durante o turno.
+-- ============================================================
+-- CREATE TABLE IF NOT EXISTS caixa_sessoes (
+--   id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+--   status                TEXT NOT NULL DEFAULT 'aberto' CHECK (status IN ('aberto','fechado')),
+--   troco_inicial         NUMERIC(10,2) NOT NULL CHECK (troco_inicial >= 0),
+--   valor_contado         NUMERIC(10,2),
+--   valor_esperado        NUMERIC(10,2),
+--   diferenca             NUMERIC(10,2),
+--   observacao_abertura   TEXT,
+--   observacao_fechamento TEXT,
+--   aberto_em             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+--   aberto_por            UUID REFERENCES usuarios(id),
+--   fechado_em            TIMESTAMPTZ,
+--   fechado_por           UUID REFERENCES usuarios(id)
+-- );
+--
+-- CREATE UNIQUE INDEX IF NOT EXISTS uq_caixa_sessoes_unica_aberta
+--   ON caixa_sessoes ((status)) WHERE status = 'aberto';
+-- CREATE INDEX IF NOT EXISTS idx_caixa_sessoes_aberto_em ON caixa_sessoes(aberto_em DESC);
+--
+-- CREATE TABLE IF NOT EXISTS caixa_movimentos (
+--   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+--   caixa_sessao_id UUID NOT NULL REFERENCES caixa_sessoes(id) ON DELETE CASCADE,
+--   tipo            TEXT NOT NULL CHECK (tipo IN ('sangria','suprimento')),
+--   valor           NUMERIC(10,2) NOT NULL CHECK (valor > 0),
+--   motivo          TEXT NOT NULL,
+--   data            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+--   criado_por      UUID REFERENCES usuarios(id)
+-- );
+-- CREATE INDEX IF NOT EXISTS idx_caixa_mov_sessao ON caixa_movimentos(caixa_sessao_id);
+--
+-- ALTER TABLE pagamentos_pedido ADD COLUMN IF NOT EXISTS caixa_sessao_id UUID REFERENCES caixa_sessoes(id);
+-- CREATE INDEX IF NOT EXISTS idx_pag_pedido_caixa_sessao ON pagamentos_pedido(caixa_sessao_id);
+-- ALTER TABLE pagamentos_pedido ADD CONSTRAINT chk_pagamento_dinheiro_tem_sessao
+--   CHECK (forma != 'dinheiro' OR caixa_sessao_id IS NOT NULL) NOT VALID;
+--
+-- ALTER TABLE caixa_sessoes    ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE caixa_movimentos ENABLE ROW LEVEL SECURITY;
+--
+-- CREATE POLICY "caixa_sessoes_admin_caixa_all" ON caixa_sessoes FOR ALL
+--   USING (public.current_role() IN ('administrador','caixa'))
+--   WITH CHECK (public.current_role() IN ('administrador','caixa'));
+--
+-- CREATE POLICY "caixa_movimentos_admin_caixa_all" ON caixa_movimentos FOR ALL
+--   USING (public.current_role() IN ('administrador','caixa'))
+--   WITH CHECK (public.current_role() IN ('administrador','caixa'));
 
 -- Após rodar este script, crie o primeiro usuário em:
 -- Authentication > Users > Add user (email + senha)
