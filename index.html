@@ -1825,7 +1825,7 @@ async function salvarPedido() {
     if (quantidade > disponivel) { toast(`Estoque insuficiente para ${marca.nome}`, true); return; }
 
     const preco_base = marca.preco_venda_atual;
-    itens.push({ marca_id: marcaId, lote_id: marca.tipo === 'agua' ? loteId : null, quantidade, tipo_vasilhame: tipoVasilhame, preco_base, preco_unitario: precoUnitario, preco_vasilhame });
+    itens.push({ marca_id: marcaId, lote_id: marca.tipo === 'agua' ? loteId : null, quantidade, tipo_vasilhame: tipoVasilhame, preco_base, preco_unitario: precoUnitario, preco_vasilhame: precoVasilhame });
   }
   if (!itens.length) { toast('Adicione pelo menos um item válido', true); return; }
 
