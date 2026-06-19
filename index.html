@@ -2146,28 +2146,33 @@ async function cancelarPedido() {
 // ============================================================
 async function loadEntregas() {
   const { data } = await sb.from('pedidos')
-    .select('*, clientes(nome, telefone, endereco)')
+    .select('*, clientes(nome, endereco)')
     .eq('entregador_id', currentUserId)
-    .order('data');
+    .neq('status', 'cancelado')
+    .order('data', { ascending: true });
   const pedidos = data || [];
 
   const el = document.getElementById('entregas-list');
   if (!pedidos.length) { el.innerHTML = '<div class="empty-state">Nenhuma entrega para hoje</div>'; return; }
 
   const cards = await Promise.all(pedidos.map(async p => {
-    const { data: itens } = await sb.from('itens_pedido').select('quantidade, marcas(nome)').eq('pedido_id', p.id);
-    const itensTexto = (itens || []).map(it => `${it.quantidade}x ${it.marcas ? it.marcas.nome : ''}`).join(', ');
+    const { data: itens } = await sb.from('itens_pedido')
+      .select('quantidade, marcas(nome), lotes_garrafao(ano_validade)')
+      .eq('pedido_id', p.id);
+    const itensTexto = (itens || []).map(it =>
+      `${it.quantidade}x ${it.marcas ? it.marcas.nome : ''}${it.lotes_garrafao ? ` (val. ${it.lotes_garrafao.ano_validade})` : ''}`
+    ).join(', ');
     return `
       <div class="card">
         <div class="card-header">
           <div>
             <div class="card-title">#${p.numero} · ${p.clientes ? p.clientes.nome : '—'}</div>
-            <div class="card-sub">${p.clientes ? (p.clientes.telefone || '') : ''}</div>
           </div>
           ${badgeStatusEntrega(p.status_entrega)}
         </div>
         <div class="card-sub" style="margin:8px 0">${p.clientes ? (p.clientes.endereco || 'Sem endereço cadastrado') : ''}</div>
-        <div class="item-detail" style="margin-bottom:10px">${itensTexto}</div>
+        <div class="item-detail" style="margin-bottom:6px">${itensTexto}</div>
+        <div style="margin-bottom:10px">${badgePagamento(p.forma_pagamento)}</div>
         ${p.status_entrega === 'pendente' ? `<button class="btn btn-success btn-block btn-sm" onclick="marcarEntregaConcluida('${p.id}')">Marcar como Entregue</button>` : ''}
       </div>
     `;
