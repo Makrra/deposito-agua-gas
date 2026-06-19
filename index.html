@@ -715,15 +715,7 @@ select.form-control option { background: var(--surface); }
     <div id="pd-pagamento-card" class="card" style="display:none">
       <div class="card-title" style="margin-bottom:10px">Confirmar Pagamento</div>
       <div class="card-sub" id="pd-pagamento-info" style="margin-bottom:8px"></div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-        <select class="form-control" id="pd-pagamento-forma">
-          <option value="dinheiro">Dinheiro</option>
-          <option value="pix">Pix</option>
-          <option value="cartao_credito">Cartão de Crédito</option>
-        </select>
-        <input class="form-control" id="pd-pagamento-valor" type="number" step="0.01">
-      </div>
-      <button class="btn btn-success btn-block btn-sm" style="margin-top:8px" onclick="confirmarPagamentoPedido()">Confirmar Pagamento</button>
+      <div id="pd-pagamento-conteudo"></div>
     </div>
 
     <div style="display:flex;gap:8px;margin-top:14px">
@@ -1952,7 +1944,9 @@ async function salvarPedido() {
   // saldo é alterado agora — isso só acontece quando o pedido é marcado
   // como entregue (ver trigger processar_entrega_pedido no banco).
   const { data: pedido, error } = await sb.from('pedidos').insert({
-    cliente_id, forma_pagamento, total, entregador_id, observacao, status: 'aberto', criado_por: currentUserId
+    cliente_id, forma_pagamento, total, entregador_id, observacao, status: 'aberto', criado_por: currentUserId,
+    valor_dinheiro_misto: forma_pagamento === 'misto' ? valorDinheiroMisto : null,
+    valor_pix_misto: forma_pagamento === 'misto' ? valorPixMisto : null,
   }).select().single();
   if (error) { toast('Erro ao criar pedido: ' + error.message, true); return; }
 
@@ -2117,15 +2111,47 @@ async function abrirPedidoDetalhe(id) {
   }
 
   const pagamentoCard = document.getElementById('pd-pagamento-card');
+  const conteudoEl = document.getElementById('pd-pagamento-conteudo');
   if (p.status !== 'cancelado') {
-    const { data: pagamentos } = await sb.from('pagamentos_pedido').select('valor').eq('pedido_id', id);
+    const { data: pagamentos } = await sb.from('pagamentos_pedido').select('forma, valor').eq('pedido_id', id);
     const totalPago = (pagamentos || []).reduce((s, x) => s + parseFloat(x.valor), 0);
     const pendente = Math.max(0, p.total - totalPago);
     if (pendente > 0) {
       pagamentoCard.style.display = 'block';
       document.getElementById('pd-pagamento-info').textContent = `Pago até agora: ${fmtMoeda(totalPago)} · Pendente: ${fmtMoeda(pendente)}`;
-      document.getElementById('pd-pagamento-forma').value = p.forma_pagamento === 'misto' ? 'dinheiro' : p.forma_pagamento;
-      document.getElementById('pd-pagamento-valor').value = pendente.toFixed(2);
+
+      if (p.forma_pagamento === 'misto' && p.valor_dinheiro_misto != null) {
+        // dinheiro e Pix são confirmados de forma independente: o que for
+        // confirmado já entra em pagamentos_pedido; enquanto a outra parte
+        // não for confirmada, o pedido continua com pendência (> 0 acima).
+        const dinheiroPago = (pagamentos || []).filter(x => x.forma === 'dinheiro').reduce((s, x) => s + parseFloat(x.valor), 0);
+        const pixPago = (pagamentos || []).filter(x => x.forma === 'pix').reduce((s, x) => s + parseFloat(x.valor), 0);
+        const dinheiroOk = dinheiroPago >= parseFloat(p.valor_dinheiro_misto);
+        const pixOk = pixPago >= parseFloat(p.valor_pix_misto);
+        conteudoEl.innerHTML = `
+          <div class="list-item">
+            <div class="item-info"><div class="item-name">Dinheiro</div><div class="item-detail">${fmtMoeda(p.valor_dinheiro_misto)}</div></div>
+            ${dinheiroOk ? '<span class="badge badge-green">Confirmado</span>' : `<button class="btn btn-success btn-sm" onclick="confirmarPagamentoMistoParte('dinheiro')">Confirmar</button>`}
+          </div>
+          <div class="list-item">
+            <div class="item-info"><div class="item-name">Pix</div><div class="item-detail">${fmtMoeda(p.valor_pix_misto)}</div></div>
+            ${pixOk ? '<span class="badge badge-green">Confirmado</span>' : `<button class="btn btn-success btn-sm" onclick="confirmarPagamentoMistoParte('pix')">Confirmar</button>`}
+          </div>
+        `;
+      } else {
+        conteudoEl.innerHTML = `
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <select class="form-control" id="pd-pagamento-forma">
+              <option value="dinheiro">Dinheiro</option>
+              <option value="pix">Pix</option>
+              <option value="cartao_credito">Cartão de Crédito</option>
+            </select>
+            <input class="form-control" id="pd-pagamento-valor" type="number" step="0.01" value="${pendente.toFixed(2)}">
+          </div>
+          <button class="btn btn-success btn-block btn-sm" style="margin-top:8px" onclick="confirmarPagamentoPedido()">Confirmar Pagamento</button>
+        `;
+        document.getElementById('pd-pagamento-forma').value = p.forma_pagamento === 'misto' ? 'dinheiro' : p.forma_pagamento;
+      }
     } else {
       pagamentoCard.style.display = 'none';
     }
@@ -2151,6 +2177,22 @@ async function confirmarPagamentoPedido() {
   if (error) { toast('Erro ao confirmar pagamento: ' + error.message, true); return; }
 
   toast('Pagamento confirmado!');
+  await loadPedidos();
+  await loadClientes();
+  abrirPedidoDetalhe(id);
+}
+
+async function confirmarPagamentoMistoParte(tipo) {
+  const id = currentPedidoDetalheId;
+  const p = allPedidos.find(x => x.id === id);
+  if (!p) return;
+  const valor = parseFloat(tipo === 'dinheiro' ? p.valor_dinheiro_misto : p.valor_pix_misto);
+  if (!(valor > 0)) return;
+
+  const { error } = await sb.from('pagamentos_pedido').insert({ cliente_id: p.cliente_id, pedido_id: id, valor, forma: tipo, criado_por: currentUserId });
+  if (error) { toast('Erro ao confirmar pagamento: ' + error.message, true); return; }
+
+  toast(`${tipo === 'dinheiro' ? 'Dinheiro' : 'Pix'} confirmado!`);
   await loadPedidos();
   await loadClientes();
   abrirPedidoDetalhe(id);

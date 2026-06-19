@@ -125,6 +125,8 @@ CREATE TABLE IF NOT EXISTS pedidos (
   cliente_id      UUID NOT NULL REFERENCES clientes(id) ON DELETE RESTRICT,
   data            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   forma_pagamento TEXT NOT NULL CHECK (forma_pagamento IN ('dinheiro','pix','cartao_credito','misto')),
+  valor_dinheiro_misto NUMERIC(10,2), -- só preenchido quando forma_pagamento='misto': parte combinada em dinheiro
+  valor_pix_misto      NUMERIC(10,2), -- só preenchido quando forma_pagamento='misto': parte combinada em Pix
   status          TEXT NOT NULL DEFAULT 'aberto' CHECK (status IN ('aberto','concluido','cancelado')),
   total           NUMERIC(10,2) NOT NULL DEFAULT 0,
   entregador_id   UUID REFERENCES usuarios(id),
@@ -1088,6 +1090,17 @@ ON CONFLICT (chave) DO NOTHING;
 -- ALTER TABLE pedidos DROP CONSTRAINT IF EXISTS pedidos_forma_pagamento_check;
 -- ALTER TABLE pedidos ADD CONSTRAINT pedidos_forma_pagamento_check
 --   CHECK (forma_pagamento IN ('dinheiro','pix','cartao_credito','misto'));
+
+-- ============================================================
+-- MIGRAÇÃO: guarda os valores combinados de dinheiro/Pix da forma
+-- "misto" em colunas próprias (em vez de só texto na observação), pra
+-- permitir confirmar cada parte separadamente na tela de detalhe —
+-- o que estiver confirmado já entra em pagamentos_pedido; enquanto uma
+-- das duas partes não for confirmada, o pedido continua "pendente"
+-- (a comparação já é feita automaticamente: total pago vs. pedidos.total).
+-- ============================================================
+-- ALTER TABLE pedidos ADD COLUMN IF NOT EXISTS valor_dinheiro_misto NUMERIC(10,2);
+-- ALTER TABLE pedidos ADD COLUMN IF NOT EXISTS valor_pix_misto NUMERIC(10,2);
 
 -- Após rodar este script, crie o primeiro usuário em:
 -- Authentication > Users > Add user (email + senha)
