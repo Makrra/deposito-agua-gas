@@ -988,12 +988,12 @@ async function calcularPendentesPorCliente() {
     pagamentos = data || [];
   }
   const pagoPorPedido = {};
-  pagamentos.forEach(pg => { pagoPorPedido[pg.pedido_id] = (pagoPorPedido[pg.pedido_id] || 0) + parseFloat(pg.valor); });
+  pagamentos.forEach(pg => { pagoPorPedido[pg.pedido_id] = roundMoeda((pagoPorPedido[pg.pedido_id] || 0) + parseFloat(pg.valor)); });
   const mapa = {};
   (pedidos || []).forEach(p => {
     const pago = pagoPorPedido[p.id] || 0;
-    const pendente = Math.max(0, parseFloat(p.total) - pago);
-    if (pendente > 0) mapa[p.cliente_id] = (mapa[p.cliente_id] || 0) + pendente;
+    const pendente = Math.max(0, roundMoeda(parseFloat(p.total) - pago));
+    if (pendente > 0) mapa[p.cliente_id] = roundMoeda((mapa[p.cliente_id] || 0) + pendente);
   });
   return mapa;
 }
@@ -1116,6 +1116,11 @@ function toastErro(acao, error) {
 // HELPERS
 // ============================================================
 const fmtMoeda = v => 'R$ ' + parseFloat(v || 0).toFixed(2).replace('.', ',');
+// O banco guarda dinheiro em NUMERIC exato, mas somar vários valores em JS
+// (reduce/+=) usa float — erro mínimo (ex: 0.1+0.2 !== 0.3) pode acumular
+// e estragar uma comparação tipo "pago >= total". Arredonda pro centavo
+// mais próximo depois de somar, antes de comparar/guardar.
+const roundMoeda = v => Math.round((v + Number.EPSILON) * 100) / 100;
 const fmtData  = d => d ? new Date(d).toLocaleDateString('pt-BR') : '—';
 const fmtDataHora = d => d ? new Date(d).toLocaleString('pt-BR') : '—';
 
@@ -2110,7 +2115,7 @@ function lerTotalPedidoAtual() {
   document.querySelectorAll('.pedido-item-row').forEach(row => {
     const { marcaId, quantidade, precoUnitario, precoVasilhame } = lerItemRow(row);
     if (!marcaId) return;
-    total += (precoUnitario + precoVasilhame) * quantidade;
+    total = roundMoeda(total + (precoUnitario + precoVasilhame) * quantidade);
   });
   return total;
 }
@@ -2207,7 +2212,7 @@ async function salvarPedido() {
   }
   if (!itens.length) { toast('Adicione pelo menos um item válido', true); return; }
 
-  const total = itens.reduce((s, it) => s + (it.preco_unitario + it.preco_vasilhame) * it.quantidade, 0);
+  const total = roundMoeda(itens.reduce((s, it) => s + (it.preco_unitario + it.preco_vasilhame) * it.quantidade, 0));
   const forma_pagamento = document.getElementById('np-forma-pagamento').value;
   const entregador_id = document.getElementById('np-entregador').value || null;
   let observacao = document.getElementById('np-observacao').value.trim();
@@ -2219,7 +2224,7 @@ async function salvarPedido() {
       toast('Para Dinheiro + Pix, informe um valor em dinheiro maior que zero e menor que o total do pedido', true);
       return;
     }
-    valorPixMisto = total - valorDinheiroMisto;
+    valorPixMisto = roundMoeda(total - valorDinheiroMisto);
     // só registra o combinado como referência pro caixa — não confirma
     // nenhum pagamento ainda, a baixa de cada parte é feita à parte
     const combinado = `Combinado: Dinheiro ${fmtMoeda(valorDinheiroMisto)} + Pix ${fmtMoeda(valorPixMisto)} (ambos pendentes até confirmação)`;
@@ -2268,7 +2273,7 @@ async function loadPedidos() {
   if (ids.length) {
     const { data: pagamentos } = await sb.from('pagamentos_pedido').select('pedido_id, valor').in('pedido_id', ids);
     (pagamentos || []).forEach(pg => {
-      pagamentosPorPedido[pg.pedido_id] = (pagamentosPorPedido[pg.pedido_id] || 0) + parseFloat(pg.valor);
+      pagamentosPorPedido[pg.pedido_id] = roundMoeda((pagamentosPorPedido[pg.pedido_id] || 0) + parseFloat(pg.valor));
     });
   }
 
@@ -2430,8 +2435,8 @@ async function abrirPedidoDetalhe(id) {
   const conteudoEl = document.getElementById('pd-pagamento-conteudo');
   if (p.status !== 'cancelado') {
     const { data: pagamentos } = await sb.from('pagamentos_pedido').select('forma, valor').eq('pedido_id', id);
-    const totalPago = (pagamentos || []).reduce((s, x) => s + parseFloat(x.valor), 0);
-    const pendente = Math.max(0, p.total - totalPago);
+    const totalPago = roundMoeda((pagamentos || []).reduce((s, x) => s + parseFloat(x.valor), 0));
+    const pendente = Math.max(0, roundMoeda(p.total - totalPago));
     if (pendente > 0) {
       pagamentoCard.style.display = 'block';
       document.getElementById('pd-pagamento-info').textContent = `Pago até agora: ${fmtMoeda(totalPago)} · Pendente: ${fmtMoeda(pendente)}`;
@@ -2440,8 +2445,8 @@ async function abrirPedidoDetalhe(id) {
         // dinheiro e Pix são confirmados de forma independente: o que for
         // confirmado já entra em pagamentos_pedido; enquanto a outra parte
         // não for confirmada, o pedido continua com pendência (> 0 acima).
-        const dinheiroPago = (pagamentos || []).filter(x => x.forma === 'dinheiro').reduce((s, x) => s + parseFloat(x.valor), 0);
-        const pixPago = (pagamentos || []).filter(x => x.forma === 'pix').reduce((s, x) => s + parseFloat(x.valor), 0);
+        const dinheiroPago = roundMoeda((pagamentos || []).filter(x => x.forma === 'dinheiro').reduce((s, x) => s + parseFloat(x.valor), 0));
+        const pixPago = roundMoeda((pagamentos || []).filter(x => x.forma === 'pix').reduce((s, x) => s + parseFloat(x.valor), 0));
         const dinheiroOk = dinheiroPago >= parseFloat(p.valor_dinheiro_misto);
         const pixOk = pixPago >= parseFloat(p.valor_pix_misto);
         conteudoEl.innerHTML = `
@@ -2952,7 +2957,7 @@ async function calcularResumoPeriodoCaixa(inicio, fim) {
   let pagoPorPedido = {};
   if (idsNaoCancelados.length) {
     const { data: pagamentos } = await sb.from('pagamentos_pedido').select('pedido_id, valor').in('pedido_id', idsNaoCancelados);
-    (pagamentos || []).forEach(pg => { pagoPorPedido[pg.pedido_id] = (pagoPorPedido[pg.pedido_id] || 0) + parseFloat(pg.valor); });
+    (pagamentos || []).forEach(pg => { pagoPorPedido[pg.pedido_id] = roundMoeda((pagoPorPedido[pg.pedido_id] || 0) + parseFloat(pg.valor)); });
   }
 
   const pedidosResumo = {
@@ -2962,7 +2967,7 @@ async function calcularResumoPeriodoCaixa(inicio, fim) {
     entregues: lista.filter(p => p.status_entrega === 'entregue').length,
     pagos: naoCancelados.filter(p => (pagoPorPedido[p.id] || 0) >= p.total).length,
     cancelados: lista.filter(p => p.status === 'cancelado').length,
-    pagamentosRealizados: Object.values(pagoPorPedido).reduce((s, v) => s + v, 0),
+    pagamentosRealizados: roundMoeda(Object.values(pagoPorPedido).reduce((s, v) => s + v, 0)),
   };
 
   // ano_validade vem do lote (cheios) ou direto no movimento (pool de vazios)
@@ -3035,14 +3040,14 @@ function htmlResumoPeriodoCaixa({ pedidosResumo, estoqueResumo }) {
 async function calcularTotaisSessaoAtual() {
   const sessaoId = caixaSessaoAtual.id;
   const { data: pagamentos } = await sb.from('pagamentos_pedido').select('valor').eq('caixa_sessao_id', sessaoId).eq('forma', 'dinheiro');
-  const dinheiroRecebido = (pagamentos || []).reduce((s, p) => s + parseFloat(p.valor), 0);
+  const dinheiroRecebido = roundMoeda((pagamentos || []).reduce((s, p) => s + parseFloat(p.valor), 0));
 
   const { data: movimentos } = await sb.from('caixa_movimentos').select('tipo, valor').eq('caixa_sessao_id', sessaoId);
-  const suprimentos = (movimentos || []).filter(m => m.tipo === 'suprimento').reduce((s, m) => s + parseFloat(m.valor), 0);
-  const sangrias = (movimentos || []).filter(m => m.tipo === 'sangria').reduce((s, m) => s + parseFloat(m.valor), 0);
+  const suprimentos = roundMoeda((movimentos || []).filter(m => m.tipo === 'suprimento').reduce((s, m) => s + parseFloat(m.valor), 0));
+  const sangrias = roundMoeda((movimentos || []).filter(m => m.tipo === 'sangria').reduce((s, m) => s + parseFloat(m.valor), 0));
 
   const trocoInicial = parseFloat(caixaSessaoAtual.troco_inicial);
-  const esperado = trocoInicial + dinheiroRecebido + suprimentos - sangrias;
+  const esperado = roundMoeda(trocoInicial + dinheiroRecebido + suprimentos - sangrias);
 
   document.getElementById('caixa-troco-inicial').textContent = fmtMoeda(trocoInicial);
   document.getElementById('caixa-dinheiro-recebido').textContent = fmtMoeda(dinheiroRecebido);
@@ -3141,7 +3146,7 @@ function atualizarDiferencaFechamento() {
   const contadoStr = document.getElementById('caixa-fechamento-contado').value;
   const diferencaEl = document.getElementById('caixa-fechamento-diferenca');
   if (contadoStr === '') { diferencaEl.innerHTML = ''; return; }
-  const diferenca = parseFloat(contadoStr) - esperado;
+  const diferenca = roundMoeda(parseFloat(contadoStr) - esperado);
   diferencaEl.innerHTML = diferenca >= 0
     ? `<span class="text-green">Sobra de ${fmtMoeda(diferenca)}</span>`
     : `<span class="text-red">Falta de ${fmtMoeda(Math.abs(diferenca))}</span>`;
@@ -3153,7 +3158,7 @@ async function salvarFechamentoCaixa() {
   const observacao_fechamento = document.getElementById('caixa-fechamento-obs').value.trim() || null;
 
   const totais = await calcularTotaisSessaoAtual();
-  const diferenca = valor_contado - totais.esperado;
+  const diferenca = roundMoeda(valor_contado - totais.esperado);
 
   const { error } = await sb.from('caixa_sessoes').update({
     status: 'fechado',
@@ -3217,14 +3222,14 @@ async function abrirRelatorioCaixa(sessaoId) {
   document.getElementById('rc-titulo').textContent = `Caixa de ${fmtDataHora(sessao.aberto_em)}`;
 
   const { data: pagamentos } = await sb.from('pagamentos_pedido').select('valor').eq('caixa_sessao_id', sessaoId).eq('forma', 'dinheiro');
-  const dinheiroRecebido = (pagamentos || []).reduce((s, p) => s + parseFloat(p.valor), 0);
+  const dinheiroRecebido = roundMoeda((pagamentos || []).reduce((s, p) => s + parseFloat(p.valor), 0));
 
   const { data: movimentos } = await sb.from('caixa_movimentos').select('*, usuarios(nome)').eq('caixa_sessao_id', sessaoId).order('data', { ascending: false });
-  const suprimentos = (movimentos || []).filter(m => m.tipo === 'suprimento').reduce((s, m) => s + parseFloat(m.valor), 0);
-  const sangrias = (movimentos || []).filter(m => m.tipo === 'sangria').reduce((s, m) => s + parseFloat(m.valor), 0);
+  const suprimentos = roundMoeda((movimentos || []).filter(m => m.tipo === 'suprimento').reduce((s, m) => s + parseFloat(m.valor), 0));
+  const sangrias = roundMoeda((movimentos || []).filter(m => m.tipo === 'sangria').reduce((s, m) => s + parseFloat(m.valor), 0));
   const esperado = sessao.status === 'fechado' && sessao.valor_esperado != null
     ? parseFloat(sessao.valor_esperado)
-    : parseFloat(sessao.troco_inicial) + dinheiroRecebido + suprimentos - sangrias;
+    : roundMoeda(parseFloat(sessao.troco_inicial) + dinheiroRecebido + suprimentos - sangrias);
 
   document.getElementById('rc-badges').innerHTML = sessao.status === 'aberto'
     ? '<span class="badge badge-yellow">Aberto</span>'
@@ -3352,15 +3357,15 @@ async function loadDashboard() {
     .lt('data', fim.toISOString());
   const pedidosHoje = (pedidosHojeRaw || []).filter(p => p.status !== 'cancelado');
 
-  const vendasHoje = pedidosHoje.reduce((s, p) => s + parseFloat(p.total), 0);
+  const vendasHoje = roundMoeda(pedidosHoje.reduce((s, p) => s + parseFloat(p.total), 0));
 
   let pagamentosEfetuados = 0;
   const idsHoje = pedidosHoje.map(p => p.id);
   if (idsHoje.length) {
     const { data: pagamentos } = await sb.from('pagamentos_pedido').select('valor').in('pedido_id', idsHoje);
-    pagamentosEfetuados = (pagamentos || []).reduce((s, x) => s + parseFloat(x.valor), 0);
+    pagamentosEfetuados = roundMoeda((pagamentos || []).reduce((s, x) => s + parseFloat(x.valor), 0));
   }
-  const pagamentosPendentes = Math.max(0, vendasHoje - pagamentosEfetuados);
+  const pagamentosPendentes = Math.max(0, roundMoeda(vendasHoje - pagamentosEfetuados));
 
   const entregasTotal = pedidosHoje.length;
   const entregasEfetuadas = pedidosHoje.filter(p => p.status_entrega === 'entregue').length;
@@ -3456,12 +3461,12 @@ async function calcularPendentesPorClientePeriodo(inicioISO, fimISO) {
     pagamentos = data || [];
   }
   const pagoPorPedido = {};
-  pagamentos.forEach(pg => { pagoPorPedido[pg.pedido_id] = (pagoPorPedido[pg.pedido_id] || 0) + parseFloat(pg.valor); });
+  pagamentos.forEach(pg => { pagoPorPedido[pg.pedido_id] = roundMoeda((pagoPorPedido[pg.pedido_id] || 0) + parseFloat(pg.valor)); });
   const mapa = {};
   (pedidos || []).forEach(p => {
     const pago = pagoPorPedido[p.id] || 0;
-    const pendente = Math.max(0, parseFloat(p.total) - pago);
-    if (pendente > 0) mapa[p.cliente_id] = (mapa[p.cliente_id] || 0) + pendente;
+    const pendente = Math.max(0, roundMoeda(parseFloat(p.total) - pago));
+    if (pendente > 0) mapa[p.cliente_id] = roundMoeda((mapa[p.cliente_id] || 0) + pendente);
   });
   return mapa;
 }
@@ -3478,14 +3483,14 @@ async function loadDashboardCaixaKPIs() {
 
   const sessaoId = caixaSessaoAtual.id;
   const { data: pagamentos } = await sb.from('pagamentos_pedido').select('valor').eq('caixa_sessao_id', sessaoId).eq('forma', 'dinheiro');
-  const dinheiroRecebido = (pagamentos || []).reduce((s, p) => s + parseFloat(p.valor), 0);
+  const dinheiroRecebido = roundMoeda((pagamentos || []).reduce((s, p) => s + parseFloat(p.valor), 0));
 
   const { data: movimentos } = await sb.from('caixa_movimentos').select('tipo, valor').eq('caixa_sessao_id', sessaoId);
-  const suprimentos = (movimentos || []).filter(m => m.tipo === 'suprimento').reduce((s, m) => s + parseFloat(m.valor), 0);
-  const sangrias = (movimentos || []).filter(m => m.tipo === 'sangria').reduce((s, m) => s + parseFloat(m.valor), 0);
+  const suprimentos = roundMoeda((movimentos || []).filter(m => m.tipo === 'suprimento').reduce((s, m) => s + parseFloat(m.valor), 0));
+  const sangrias = roundMoeda((movimentos || []).filter(m => m.tipo === 'sangria').reduce((s, m) => s + parseFloat(m.valor), 0));
 
   const trocoInicial = parseFloat(caixaSessaoAtual.troco_inicial);
-  const esperado = trocoInicial + dinheiroRecebido + suprimentos - sangrias;
+  const esperado = roundMoeda(trocoInicial + dinheiroRecebido + suprimentos - sangrias);
 
   document.getElementById('dash-caixa-troco-inicial').textContent = fmtMoeda(trocoInicial);
   document.getElementById('dash-caixa-dinheiro-recebido').textContent = fmtMoeda(dinheiroRecebido);
