@@ -1079,12 +1079,26 @@ const fmtMoeda = v => 'R$ ' + parseFloat(v || 0).toFixed(2).replace('.', ',');
 const fmtData  = d => d ? new Date(d).toLocaleDateString('pt-BR') : '—';
 const fmtDataHora = d => d ? new Date(d).toLocaleString('pt-BR') : '—';
 
+// Texto livre digitado por usuários (nome, observação, motivo...) vai pro
+// HTML via innerHTML em várias telas; sem escapar, um nome de cliente como
+// "<img src=x onerror=...>" executaria ao abrir a lista. Sempre passar
+// campos de texto livre por aqui antes de interpolar em innerHTML.
+function escapeHtml(str) {
+  if (str == null) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function formatEndereco(c) {
   if (!c) return '';
   const linha1 = [c.endereco_rua, c.endereco_numero].filter(Boolean).join(', ');
   const linha2 = [c.endereco_bairro, c.endereco_cidade, c.endereco_estado].filter(Boolean).join(', ');
   const partes = [linha1, c.endereco_complemento, linha2, c.endereco_cep].filter(Boolean);
-  return partes.length ? partes.join(' · ') : (c.endereco || '');
+  return escapeHtml(partes.length ? partes.join(' · ') : (c.endereco || ''));
 }
 
 // ============================================================
@@ -1128,7 +1142,7 @@ function renderMarcasList() {
   el.innerHTML = allMarcas.map(m => `
     <div class="list-item">
       <div class="item-info">
-        <div class="item-name">${m.nome} <span class="badge badge-blue">${m.tipo === 'gas' ? 'Gás' : 'Água'}</span>${m.ativo ? '' : ' <span class="badge badge-red">Inativa</span>'}</div>
+        <div class="item-name">${escapeHtml(m.nome)} <span class="badge badge-blue">${m.tipo === 'gas' ? 'Gás' : 'Água'}</span>${m.ativo ? '' : ' <span class="badge badge-red">Inativa</span>'}</div>
         <div class="item-detail">${fmtMoeda(m.preco_venda_atual)} / ${m.tipo === 'gas' ? 'botijão' : 'garrafão'}</div>
       </div>
       ${podeEditar ? `<button class="btn btn-outline btn-sm" onclick="abrirEditarMarca('${m.id}')">Editar</button>` : ''}
@@ -1190,7 +1204,7 @@ function renderGasList() {
   el.innerHTML = allEstoqueGas.map(g => `
     <div class="card">
       <div class="card-header">
-        <div class="card-title">${g.marcas ? g.marcas.nome : '—'}</div>
+        <div class="card-title">${g.marcas ? escapeHtml(g.marcas.nome) : '—'}</div>
       </div>
       <div style="display:flex;gap:16px">
         <div><div class="item-value">${g.qtd_cheios}</div><div class="item-detail">cheios</div></div>
@@ -1202,7 +1216,7 @@ function renderGasList() {
 
 function abrirEntradaGas() {
   const sel = document.getElementById('gas-marca');
-  sel.innerHTML = allMarcas.filter(m => m.ativo && m.tipo === 'gas').map(m => `<option value="${m.id}">${m.nome}</option>`).join('')
+  sel.innerHTML = allMarcas.filter(m => m.ativo && m.tipo === 'gas').map(m => `<option value="${m.id}">${escapeHtml(m.nome)}</option>`).join('')
     || '<option value="">Nenhuma marca de gás cadastrada</option>';
   document.getElementById('gas-quantidade').value = '';
   openModal('modal-entrada-gas');
@@ -1248,7 +1262,7 @@ function renderLotesList() {
     <div class="card${l.qtd_cheios === 0 ? ' card-esgotado' : ''}">
       <div class="card-header">
         <div>
-          <div class="card-title">${l.marcas ? l.marcas.nome : '—'}</div>
+          <div class="card-title">${l.marcas ? escapeHtml(l.marcas.nome) : '—'}</div>
           <div class="card-sub">Validade: ${l.ano_validade}</div>
         </div>
         <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">
@@ -1258,9 +1272,9 @@ function renderLotesList() {
       </div>
       <div style="display:flex;justify-content:space-between;align-items:flex-end">
         <div><div class="item-value">${l.qtd_cheios}</div><div class="item-detail">cheios</div></div>
-        <button class="btn btn-outline btn-sm" onclick="abrirHistoricoLote('${l.id}', '${l.marcas ? l.marcas.nome.replace(/'/g, "\\'") : ''}', ${l.ano_validade})">Ver Histórico</button>
+        <button class="btn btn-outline btn-sm" onclick="abrirHistoricoLote('${l.id}')">Ver Histórico</button>
       </div>
-      ${l.observacao ? `<div class="card-sub" style="margin-top:8px">${l.observacao}</div>` : ''}
+      ${l.observacao ? `<div class="card-sub" style="margin-top:8px">${escapeHtml(l.observacao)}</div>` : ''}
     </div>
   `).join('');
 }
@@ -1289,7 +1303,7 @@ function renderHistoricoMovimentos(data, titulo) {
   document.getElementById('historico-completo-titulo').textContent = titulo;
   const linhas = (data || []).map(m => `
     <div class="list-item">
-      <div class="item-info"><div class="item-name">${TIPO_MOVIMENTO_LABEL[m.tipo] || m.tipo}</div><div class="item-detail">${fmtData(m.data)}${m.observacao ? ' · ' + m.observacao : ''}</div></div>
+      <div class="item-info"><div class="item-name">${escapeHtml(TIPO_MOVIMENTO_LABEL[m.tipo] || m.tipo)}</div><div class="item-detail">${fmtData(m.data)}${m.observacao ? ' · ' + escapeHtml(m.observacao) : ''}</div></div>
       <div class="item-value ${m.quantidade < 0 ? 'text-red' : 'text-green'}">${m.quantidade > 0 ? '+' : ''}${m.quantidade}</div>
     </div>
   `);
@@ -1297,7 +1311,10 @@ function renderHistoricoMovimentos(data, titulo) {
   openModal('modal-historico-completo');
 }
 
-async function abrirHistoricoLote(loteId, marcaNome, anoValidade) {
+async function abrirHistoricoLote(loteId) {
+  const lote = allLotes.find(l => l.id === loteId);
+  const marcaNome = lote?.marcas?.nome || '';
+  const anoValidade = lote?.ano_validade || '';
   const { data } = await sb.from('movimentos_estoque').select('*').eq('lote_id', loteId).order('data', { ascending: false });
   renderHistoricoMovimentos(data, `${marcaNome} · validade ${anoValidade}`);
 }
@@ -1337,13 +1354,13 @@ async function salvarAjusteVazios() {
 function preencherSelectLotes(selectEl, { somenteComCheios = false } = {}) {
   const lotes = somenteComCheios ? allLotes.filter(l => l.qtd_cheios > 0) : allLotes;
   selectEl.innerHTML = lotes.map(l =>
-    `<option value="${l.id}">${l.marcas ? l.marcas.nome : '—'} · val. ${l.ano_validade} (${l.qtd_cheios} cheios)</option>`
+    `<option value="${l.id}">${l.marcas ? escapeHtml(l.marcas.nome) : '—'} · val. ${l.ano_validade} (${l.qtd_cheios} cheios)</option>`
   ).join('') || '<option value="">Nenhum lote disponível</option>';
 }
 
 function abrirNovoLote() {
   const sel = document.getElementById('lote-marca');
-  sel.innerHTML = allMarcas.filter(m => m.ativo && m.tipo === 'agua').map(m => `<option value="${m.id}">${m.nome}</option>`).join('')
+  sel.innerHTML = allMarcas.filter(m => m.ativo && m.tipo === 'agua').map(m => `<option value="${m.id}">${escapeHtml(m.nome)}</option>`).join('')
     || '<option value="">Nenhuma marca de água cadastrada</option>';
   document.getElementById('lote-origem').value = 'novo';
   document.getElementById('lote-ano-validade').value = new Date().getFullYear() + 3;
@@ -1505,12 +1522,12 @@ function renderClientesList(lista) {
   const isCaixa = currentUserRole === 'caixa';
   el.innerHTML = lista.map(c => `
     <div class="list-item">
-      <div class="avatar">${c.nome.slice(0, 2).toUpperCase()}</div>
+      <div class="avatar">${escapeHtml(c.nome.slice(0, 2).toUpperCase())}</div>
       <div class="item-info" style="cursor:pointer" onclick="abrirExtratoCliente('${c.id}')">
-        <div class="item-name">${c.nome}${c.apelido ? ` (${c.apelido})` : ''}</div>
+        <div class="item-name">${escapeHtml(c.nome)}${c.apelido ? ` (${escapeHtml(c.apelido)})` : ''}</div>
         <div class="item-detail">${isCaixa
           ? (formatEndereco(c) || 'sem endereço')
-          : `${c.telefone || 'sem telefone'}${c.saldo_comodato_garrafoes > 0 ? ` · ${c.saldo_comodato_garrafoes} vasilhame(s) em comodato` : ''}`}</div>
+          : `${escapeHtml(c.telefone) || 'sem telefone'}${c.saldo_comodato_garrafoes > 0 ? ` · ${c.saldo_comodato_garrafoes} vasilhame(s) em comodato` : ''}`}</div>
       </div>
       <div style="text-align:right">
         ${isCaixa ? '' : `<div class="${(pendentesPorCliente[c.id] || 0) > 0 ? 'saldo-negative' : 'saldo-positive'}" style="font-size:0.85rem">${fmtMoeda(pendentesPorCliente[c.id] || 0)}</div>`}
@@ -1651,7 +1668,7 @@ async function loadComodatoTransacoes(clienteId) {
   renderComodatoLista(currentComodatoFull.slice(0, 5), 'comodato-lista');
 
   const sel = document.getElementById('comodato-devolucao-marca');
-  sel.innerHTML = allMarcas.filter(m => m.ativo).map(m => `<option value="${m.id}" data-tipo="${m.tipo}">${m.nome} (${m.tipo === 'gas' ? 'Gás' : 'Água'})</option>`).join('');
+  sel.innerHTML = allMarcas.filter(m => m.ativo).map(m => `<option value="${m.id}" data-tipo="${m.tipo}">${escapeHtml(m.nome)} (${m.tipo === 'gas' ? 'Gás' : 'Água'})</option>`).join('');
   document.getElementById('comodato-devolucao-quantidade').value = '';
   document.getElementById('comodato-devolucao-ano').value = '';
   atualizarCampoAnoComodato();
@@ -1666,7 +1683,7 @@ function atualizarCampoAnoComodato() {
 function comodatoRowHTML(d) {
   const podeExcluir = currentUserRole === 'administrador';
   const tipoLabel = d.tipo === 'emprestimo' ? 'Empréstimo' : 'Devolução';
-  const marcaNome = d.marcas ? d.marcas.nome : '—';
+  const marcaNome = escapeHtml(d.marcas ? d.marcas.nome : '—');
   const validadeTexto = d.ano_validade ? ` · val. ${d.ano_validade}` : '';
   return `
     <div class="list-item">
@@ -1796,7 +1813,7 @@ async function loadDescontosCliente(clienteId) {
 
   const sel = document.getElementById('desconto-marca');
   sel.innerHTML = '<option value="">Qualquer marca</option>' +
-    allMarcas.filter(m => m.ativo).map(m => `<option value="${m.id}">${m.nome}</option>`).join('');
+    allMarcas.filter(m => m.ativo).map(m => `<option value="${m.id}">${escapeHtml(m.nome)}</option>`).join('');
   document.getElementById('desconto-valor').value = '';
 
   const { data: descontos } = await sb.from('descontos_cliente')
@@ -1811,7 +1828,7 @@ function renderDescontosLista(descontos) {
   el.innerHTML = descontos.map(d => `
     <div class="list-item">
       <div class="item-info">
-        <div class="item-name">${d.marcas ? d.marcas.nome : 'Qualquer marca'}</div>
+        <div class="item-name">${d.marcas ? escapeHtml(d.marcas.nome) : 'Qualquer marca'}</div>
         <div class="item-detail">${d.tipo === 'porcentagem' ? d.valor + '%' : fmtMoeda(d.valor)} de desconto</div>
       </div>
       ${podeRemover ? `<button class="btn btn-outline btn-sm" onclick="removerDesconto('${d.id}', '${d.cliente_id}')">Remover</button>` : ''}
@@ -1864,8 +1881,8 @@ function filterClientesPedido() {
   ).slice(0, 8);
   el.innerHTML = filtrados.length ? filtrados.map(c => `
     <div class="list-item" onclick="selecionarClientePedido('${c.id}')">
-      <div class="avatar">${c.nome.slice(0, 2).toUpperCase()}</div>
-      <div class="item-info"><div class="item-name">${c.nome}</div><div class="item-detail">${c.telefone || ''}</div></div>
+      <div class="avatar">${escapeHtml(c.nome.slice(0, 2).toUpperCase())}</div>
+      <div class="item-info"><div class="item-name">${escapeHtml(c.nome)}</div><div class="item-detail">${escapeHtml(c.telefone) || ''}</div></div>
     </div>
   `).join('') : '<div class="picker-empty">Nenhum cliente encontrado</div>';
 }
@@ -1876,7 +1893,7 @@ async function selecionarClientePedido(id) {
   document.getElementById('np-cliente-id').value = id;
   const pendenteAtual = pendentesPorCliente[id] || 0;
   document.getElementById('np-cliente-selecionado').innerHTML =
-    `Selecionado: <strong>${c.nome}</strong>${pendenteAtual > 0 ? ` · pendência atual: <span class="text-red">${fmtMoeda(pendenteAtual)}</span>` : ''}`;
+    `Selecionado: <strong>${escapeHtml(c.nome)}</strong>${pendenteAtual > 0 ? ` · pendência atual: <span class="text-red">${fmtMoeda(pendenteAtual)}</span>` : ''}`;
   document.getElementById('np-busca-cliente').value = '';
   document.getElementById('np-cliente-picker').innerHTML = '';
 
@@ -1898,8 +1915,8 @@ async function selecionarClientePedido(id) {
 // PEDIDOS: ITENS DINÂMICOS DO NOVO PEDIDO
 // ============================================================
 function itemPedidoRowHTML(idx) {
-  const aguaOpts = allMarcas.filter(m => m.ativo && m.tipo === 'agua').map(m => `<option value="${m.id}">${m.nome}</option>`).join('');
-  const gasOpts  = allMarcas.filter(m => m.ativo && m.tipo === 'gas').map(m => `<option value="${m.id}">${m.nome}</option>`).join('');
+  const aguaOpts = allMarcas.filter(m => m.ativo && m.tipo === 'agua').map(m => `<option value="${m.id}">${escapeHtml(m.nome)}</option>`).join('');
+  const gasOpts  = allMarcas.filter(m => m.ativo && m.tipo === 'gas').map(m => `<option value="${m.id}">${escapeHtml(m.nome)}</option>`).join('');
   return `
     <div class="card pedido-item-row" data-idx="${idx}" style="margin-bottom:10px">
       <div class="form-group" style="margin-bottom:8px">
@@ -2115,7 +2132,7 @@ async function abrirNovoPedido() {
 
   const sel = document.getElementById('np-entregador');
   sel.innerHTML = '<option value="">Sem entregador definido</option>' +
-    allEntregadores.map(e => `<option value="${e.id}">${e.nome}</option>`).join('');
+    allEntregadores.map(e => `<option value="${e.id}">${escapeHtml(e.nome)}</option>`).join('');
 
   adicionarItemPedido();
   document.getElementById('np-total').textContent = fmtMoeda(0);
@@ -2296,8 +2313,8 @@ function renderPedidosList() {
     <div class="card" style="cursor:pointer" onclick="abrirPedidoDetalhe('${p.id}')">
       <div class="card-header">
         <div>
-          <div class="card-title">#${p.numero} · ${p.clientes ? p.clientes.nome : '—'}</div>
-          <div class="card-sub">${fmtData(p.data)}${p.usuarios ? ' · entregador: ' + p.usuarios.nome : ''}</div>
+          <div class="card-title">#${p.numero} · ${p.clientes ? escapeHtml(p.clientes.nome) : '—'}</div>
+          <div class="card-sub">${fmtData(p.data)}${p.usuarios ? ' · entregador: ' + escapeHtml(p.usuarios.nome) : ''}</div>
         </div>
         <div class="item-value">${fmtMoeda(p.total)}</div>
       </div>
@@ -2321,8 +2338,8 @@ async function abrirPedidoDetalhe(id) {
     <div class="card-sub">${fmtData(p.data)}</div>
     <div style="margin-top:6px">${badgePagamento(p.forma_pagamento)} ${badgeStatusPagamento(p)} ${badgeStatusEntrega(p.status_entrega)}</div>
     <div class="item-value" style="margin-top:8px">${fmtMoeda(p.total)}</div>
-    ${p.usuarios ? `<div class="card-sub" style="margin-top:6px">Entregador: ${p.usuarios.nome}</div>` : ''}
-    ${p.observacao ? `<div class="card-sub" style="margin-top:6px">Obs: ${p.observacao}</div>` : ''}
+    ${p.usuarios ? `<div class="card-sub" style="margin-top:6px">Entregador: ${escapeHtml(p.usuarios.nome)}</div>` : ''}
+    ${p.observacao ? `<div class="card-sub" style="margin-top:6px">Obs: ${escapeHtml(p.observacao)}</div>` : ''}
     ${p.status_entrega === 'pendente' ? `<div class="card-sub" style="margin-top:6px">Estoque e saldos só são atualizados quando o pedido for marcado como entregue.</div>` : ''}
   `;
 
@@ -2346,7 +2363,7 @@ async function abrirPedidoDetalhe(id) {
       <div class="list-item" style="flex-direction:column;align-items:stretch">
         <div style="display:flex;justify-content:space-between">
           <div class="item-info">
-            <div class="item-name">${it.marcas ? it.marcas.nome : '—'} ${it.lotes_garrafao ? '· val. ' + it.lotes_garrafao.ano_validade : ''}</div>
+            <div class="item-name">${it.marcas ? escapeHtml(it.marcas.nome) : '—'} ${it.lotes_garrafao ? '· val. ' + it.lotes_garrafao.ano_validade : ''}</div>
             <div class="item-detail">${it.quantidade}x · ${tipoLabel[it.tipo_vasilhame]}</div>
           </div>
           <div class="item-value">${fmtMoeda((it.preco_unitario + it.preco_vasilhame) * it.quantidade)}</div>
@@ -2561,13 +2578,13 @@ async function loadEntregas() {
       .select('quantidade, marcas(nome), lotes_garrafao(ano_validade)')
       .eq('pedido_id', p.id);
     const itensTexto = (itens || []).map(it =>
-      `${it.quantidade}x ${it.marcas ? it.marcas.nome : ''}${it.lotes_garrafao ? ` (val. ${it.lotes_garrafao.ano_validade})` : ''}`
+      `${it.quantidade}x ${it.marcas ? escapeHtml(it.marcas.nome) : ''}${it.lotes_garrafao ? ` (val. ${it.lotes_garrafao.ano_validade})` : ''}`
     ).join(', ');
     return `
       <div class="card">
         <div class="card-header">
           <div>
-            <div class="card-title">#${p.numero} · ${p.clientes ? p.clientes.nome : '—'}</div>
+            <div class="card-title">#${p.numero} · ${p.clientes ? escapeHtml(p.clientes.nome) : '—'}</div>
           </div>
           ${badgeStatusEntrega(p.status_entrega)}
         </div>
@@ -2661,8 +2678,8 @@ function ceItemCardHTML(it) {
   const idx = ceItemSeq++;
   const anoVendido = it.lotes_garrafao ? it.lotes_garrafao.ano_validade : '';
   return `
-    <div class="card ce-item-card" data-idx="${idx}" data-item-id="${it.id}" data-marca-id="${it.marca_id}" data-marca-nome="${it.marcas ? it.marcas.nome : ''}" data-quantidade="${it.quantidade}" style="margin-bottom:12px">
-      <div class="card-title" style="margin-bottom:4px">${it.marcas ? it.marcas.nome : ''}</div>
+    <div class="card ce-item-card" data-idx="${idx}" data-item-id="${it.id}" data-marca-id="${it.marca_id}" data-marca-nome="${escapeHtml(it.marcas ? it.marcas.nome : '')}" data-quantidade="${it.quantidade}" style="margin-bottom:12px">
+      <div class="card-title" style="margin-bottom:4px">${it.marcas ? escapeHtml(it.marcas.nome) : ''}</div>
       <div class="card-sub" style="margin-bottom:8px">Vendido: ${it.quantidade}x · val. ${anoVendido}</div>
       <div class="ce-splits-container">${ceSplitRowHTML(idx, anoVendido, it.quantidade)}</div>
       <button class="btn btn-outline btn-sm btn-block" style="margin-top:6px" onclick="adicionarSplitCE(${idx})">+ Adicionar Outro Ano</button>
@@ -2981,13 +2998,13 @@ async function renderMovimentosSessao() {
   const { data } = await sb.from('caixa_movimentos').select('*, usuarios(nome)').eq('caixa_sessao_id', caixaSessaoAtual.id).order('data', { ascending: false });
   const listEl = document.getElementById('caixa-movimentos-list');
   listEl.innerHTML = (data || []).map(m => {
-    const nome = m.usuarios?.nome || '—';
+    const nome = escapeHtml(m.usuarios?.nome || '—');
     const sinal = m.tipo === 'sangria' ? '-' : '+';
     return `
       <div class="list-item">
         <div class="item-info">
           <div class="item-name">${m.tipo === 'sangria' ? 'Sangria' : 'Suprimento'}</div>
-          <div class="item-detail">${m.motivo} · ${nome} · ${fmtDataHora(m.data)}</div>
+          <div class="item-detail">${escapeHtml(m.motivo)} · ${nome} · ${fmtDataHora(m.data)}</div>
         </div>
         <div class="item-value ${m.tipo === 'sangria' ? 'text-red' : 'text-green'}">${sinal}${fmtMoeda(m.valor)}</div>
       </div>`;
@@ -3104,7 +3121,7 @@ async function loadHistoricoCaixa() {
     .order('aberto_em', { ascending: false }).limit(30);
   const listEl = document.getElementById('caixa-historico-list');
   listEl.innerHTML = (data || []).map(s => {
-    const nomeAbertura = s.aberto_por_usuario?.nome || '—';
+    const nomeAbertura = escapeHtml(s.aberto_por_usuario?.nome || '—');
     if (s.status === 'aberto') {
       return `
         <div class="list-item" style="cursor:pointer" onclick="abrirRelatorioCaixa('${s.id}')">
@@ -3182,13 +3199,13 @@ async function abrirRelatorioCaixa(sessaoId) {
 
   const listEl = document.getElementById('rc-movimentos-list');
   listEl.innerHTML = (movimentos || []).map(m => {
-    const nome = m.usuarios?.nome || '—';
+    const nome = escapeHtml(m.usuarios?.nome || '—');
     const sinal = m.tipo === 'sangria' ? '-' : '+';
     return `
       <div class="list-item">
         <div class="item-info">
           <div class="item-name">${m.tipo === 'sangria' ? 'Sangria' : 'Suprimento'}</div>
-          <div class="item-detail">${m.motivo} · ${nome} · ${fmtDataHora(m.data)}</div>
+          <div class="item-detail">${escapeHtml(m.motivo)} · ${nome} · ${fmtDataHora(m.data)}</div>
         </div>
         <div class="item-value ${m.tipo === 'sangria' ? 'text-red' : 'text-green'}">${sinal}${fmtMoeda(m.valor)}</div>
       </div>`;
@@ -3319,7 +3336,7 @@ async function loadDashboard() {
   const totalVendidosAgua = nomesAgua.reduce((s, n) => s + porMarcaAgua[n].vendidos, 0);
   document.getElementById('dash-estoque-agua').innerHTML = nomesAgua.length ? `
     <div class="list-item"><div class="item-info"><div class="item-name">Total</div></div><div class="item-value">${totalRecebidosAgua} recebidos / ${totalVendidosAgua} vendidos</div></div>
-    ${nomesAgua.map(nome => `<div class="list-item"><div class="item-info"><div class="item-name">${nome}</div></div><div class="item-detail">${porMarcaAgua[nome].recebidos} recebidos · ${porMarcaAgua[nome].vendidos} vendidos</div></div>`).join('')}
+    ${nomesAgua.map(nome => `<div class="list-item"><div class="item-info"><div class="item-name">${escapeHtml(nome)}</div></div><div class="item-detail">${porMarcaAgua[nome].recebidos} recebidos · ${porMarcaAgua[nome].vendidos} vendidos</div></div>`).join('')}
   ` : '<div class="empty-state">Nenhum movimento de cheios no período</div>';
 
   // Vazios: devoluções registradas no período, por ano de validade.
@@ -3352,7 +3369,7 @@ async function loadDashboard() {
   const totalGas = nomesGas.reduce((s, n) => s + porMarcaGas[n], 0);
   document.getElementById('dash-estoque-gas').innerHTML = nomesGas.length ? `
     <div class="list-item"><div class="item-info"><div class="item-name">Total Vendido</div></div><div class="item-value">${totalGas}</div></div>
-    ${nomesGas.map(nome => `<div class="list-item"><div class="item-info"><div class="item-name">${nome}</div></div><div class="item-detail">${porMarcaGas[nome]} vendidos</div></div>`).join('')}
+    ${nomesGas.map(nome => `<div class="list-item"><div class="item-info"><div class="item-name">${escapeHtml(nome)}</div></div><div class="item-detail">${porMarcaGas[nome]} vendidos</div></div>`).join('')}
   ` : '<div class="empty-state">Nenhuma venda de gás no período</div>';
 
   if (!allClientes.length) await loadClientes();
@@ -3360,7 +3377,7 @@ async function loadDashboard() {
   const devedores = allClientes.filter(c => (pendentesPeriodo[c.id] || 0) > 0);
   document.getElementById('dash-devedores').innerHTML = devedores.length ? devedores.map(c => `
     <div class="list-item">
-      <div class="item-info"><div class="item-name">${c.nome}</div></div>
+      <div class="item-info"><div class="item-name">${escapeHtml(c.nome)}</div></div>
       <div class="item-value text-red">${fmtMoeda(pendentesPeriodo[c.id] || 0)}</div>
     </div>
   `).join('') : '<div class="empty-state">Nenhum cliente devendo no período</div>';
