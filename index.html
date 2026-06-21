@@ -2883,6 +2883,7 @@ async function calcularResumoPeriodoCaixa(inicio, fim) {
     entregues: lista.filter(p => p.status_entrega === 'entregue').length,
     pagos: naoCancelados.filter(p => (pagoPorPedido[p.id] || 0) >= p.total).length,
     cancelados: lista.filter(p => p.status === 'cancelado').length,
+    pagamentosRealizados: Object.values(pagoPorPedido).reduce((s, v) => s + v, 0),
   };
 
   // ano_validade vem do lote (cheios) ou direto no movimento (pool de vazios)
@@ -2922,13 +2923,23 @@ function htmlResumoPeriodoCaixa({ pedidosResumo, estoqueResumo }) {
   return `
     <div class="card">
       <div class="card-title" style="margin-bottom:10px">Pedidos do Período</div>
-      <div class="stats" style="grid-template-columns:repeat(2,1fr)">
-        <div class="stat-card"><div class="stat-val">${pedidosResumo.criados}</div><div class="stat-lbl">Criados</div></div>
-        <div class="stat-card"><div class="stat-val text-yellow">${pedidosResumo.entregaPendente}</div><div class="stat-lbl">Pendente de Entrega</div></div>
-        <div class="stat-card"><div class="stat-val text-yellow">${pedidosResumo.pagamentoPendente}</div><div class="stat-lbl">Pendente Pagamento</div></div>
-        <div class="stat-card"><div class="stat-val text-green">${pedidosResumo.entregues}</div><div class="stat-lbl">Entregues</div></div>
-        <div class="stat-card"><div class="stat-val text-green">${pedidosResumo.pagos}</div><div class="stat-lbl">Pagos</div></div>
-        <div class="stat-card"><div class="stat-val text-red">${pedidosResumo.cancelados}</div><div class="stat-lbl">Cancelados</div></div>
+      <div class="stat-card" style="margin-bottom:12px">
+        <div class="stat-val" style="font-size:1.8rem">${pedidosResumo.criados}</div>
+        <div class="stat-lbl">Pedidos Criados no Período</div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div class="card" style="margin-bottom:0;padding:12px">
+          <div class="card-sub" style="font-weight:700;letter-spacing:.5px;text-transform:uppercase;margin-bottom:8px">Entrega</div>
+          <div style="display:flex;justify-content:space-between;font-size:.85rem;padding:3px 0"><span>Pendente</span><span class="text-yellow">${pedidosResumo.entregaPendente}</span></div>
+          <div style="display:flex;justify-content:space-between;font-size:.85rem;padding:3px 0"><span>Entregues</span><span class="text-green">${pedidosResumo.entregues}</span></div>
+          <div style="display:flex;justify-content:space-between;font-size:.85rem;padding:3px 0"><span>Cancelados</span><span class="text-red">${pedidosResumo.cancelados}</span></div>
+        </div>
+        <div class="card" style="margin-bottom:0;padding:12px">
+          <div class="card-sub" style="font-weight:700;letter-spacing:.5px;text-transform:uppercase;margin-bottom:8px">Pagamento</div>
+          <div style="display:flex;justify-content:space-between;font-size:.85rem;padding:3px 0"><span>Pendente</span><span class="text-yellow">${pedidosResumo.pagamentoPendente}</span></div>
+          <div style="display:flex;justify-content:space-between;font-size:.85rem;padding:3px 0"><span>Pagos</span><span class="text-green">${pedidosResumo.pagos}</span></div>
+          <div style="display:flex;justify-content:space-between;font-size:.85rem;padding:3px 0"><span>Recebido</span><span class="text-green">${fmtMoeda(pedidosResumo.pagamentosRealizados)}</span></div>
+        </div>
       </div>
     </div>
     <div class="card">
