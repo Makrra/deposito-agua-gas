@@ -106,6 +106,7 @@ CREATE TABLE IF NOT EXISTS clientes (
   id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   tipo                     TEXT NOT NULL DEFAULT 'pf' CHECK (tipo IN ('pf','pj')),
   nome                     TEXT NOT NULL,
+  apelido                  TEXT,
   telefone                 TEXT,
   endereco                 TEXT, -- legado, texto livre; preservado pra clientes cadastrados antes da separação em campos
   endereco_rua             TEXT,
@@ -1240,6 +1241,12 @@ ON CONFLICT (chave) DO NOTHING;
 -- ALTER TABLE clientes ADD COLUMN IF NOT EXISTS endereco_cidade TEXT;
 -- ALTER TABLE clientes ADD COLUMN IF NOT EXISTS endereco_estado TEXT;
 -- ALTER TABLE clientes ADD COLUMN IF NOT EXISTS endereco_cep TEXT;
+
+-- ============================================================
+-- MIGRAÇÃO: apelido do cliente, exibido ao caixa (que só vê nome,
+-- apelido e endereço — não vê telefone, saldo nem comodato na listagem).
+-- ============================================================
+-- ALTER TABLE clientes ADD COLUMN IF NOT EXISTS apelido TEXT;
 
 -- Após rodar este script, crie o primeiro usuário em:
 -- Authentication > Users > Add user (email + senha)
