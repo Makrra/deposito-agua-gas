@@ -343,6 +343,10 @@ select.form-control option { background: var(--surface); }
     <button class="tab-btn" id="tab-pedidos-entregue" onclick="filterPedidos('entregue')">Entregues</button>
     <button class="tab-btn" id="tab-pedidos-cancelada" onclick="filterPedidos('cancelada')">Cancelados</button>
   </div>
+  <div id="pedidos-filtro-periodo" class="card" style="display:none;align-items:center;justify-content:space-between;gap:10px;padding:10px 14px">
+    <div class="card-sub" id="pedidos-filtro-periodo-texto" style="margin:0"></div>
+    <button class="btn btn-outline btn-sm" onclick="limparFiltroPeriodoPedidos()">Limpar filtro</button>
+  </div>
   <div id="pedidos-list" class="loading"><div class="spinner"></div>Carregando...</div>
   <button class="fab" onclick="abrirNovoPedido()">+</button>
 </div>
@@ -366,12 +370,6 @@ select.form-control option { background: var(--surface); }
 
   <div id="estoque-view-vazios" style="display:none">
     <div class="card-sub" style="margin-bottom:14px">Vasilhames vazios não pertencem a uma marca — o mesmo garrafão pode ser enchido por qualquer marca depois.</div>
-    <div class="stats" id="vazios-resumo-stats" style="grid-template-columns:repeat(2,1fr)">
-      <div class="stat-card"><div class="stat-val" id="vazios-resumo-total">—</div><div class="stat-lbl">Total de Garrafões</div></div>
-      <div class="stat-card"><div class="stat-val" id="vazios-resumo-cheios">—</div><div class="stat-lbl">Cheios</div></div>
-      <div class="stat-card"><div class="stat-val" id="vazios-resumo-vazios">—</div><div class="stat-lbl">Vazios</div></div>
-      <div class="stat-card"><div class="stat-val text-red" id="vazios-resumo-emprestados">—</div><div class="stat-lbl">Emprestados</div></div>
-    </div>
     <button class="btn btn-primary btn-sm btn-block" style="margin-bottom:14px" onclick="abrirAjusteVazios()">+ Ajuste Manual</button>
     <div id="vazios-list" class="loading"><div class="spinner"></div>Carregando...</div>
   </div>
@@ -459,15 +457,15 @@ select.form-control option { background: var(--surface); }
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
     Dashboard
   </button>
-  <button class="nav-btn" onclick="goPage('pedidos')">
+  <button class="nav-btn" id="nav-btn-pedidos" onclick="irParaPedidos()">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 2h6l1 4H8l1-4z"/><path d="M5 6h14l-1.5 14a2 2 0 0 1-2 2h-7a2 2 0 0 1-2-2L5 6z"/></svg>
     Pedidos
   </button>
-  <button class="nav-btn" onclick="goPage('estoque')">
+  <button class="nav-btn" id="nav-btn-estoque" onclick="goPage('estoque')">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
     Estoque
   </button>
-  <button class="nav-btn" onclick="goPage('clientes')">
+  <button class="nav-btn" id="nav-btn-clientes" onclick="goPage('clientes')">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
     Clientes
   </button>
@@ -652,6 +650,40 @@ select.form-control option { background: var(--surface); }
       <textarea class="form-control" id="caixa-fechamento-obs" rows="2"></textarea>
     </div>
     <button class="btn btn-primary btn-block" onclick="salvarFechamentoCaixa()">Confirmar Fechamento</button>
+  </div>
+</div>
+
+<!-- ===== MODAL: Relatório do Caixa ===== -->
+<div class="modal-overlay" id="modal-relatorio-caixa">
+  <div class="modal">
+    <div class="modal-title" id="rc-titulo">Relatório do Caixa</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px" id="rc-badges"></div>
+
+    <div class="stats" style="grid-template-columns:repeat(2,1fr)">
+      <div class="stat-card"><div class="stat-val" id="rc-troco-inicial">—</div><div class="stat-lbl">Troco Inicial</div></div>
+      <div class="stat-card"><div class="stat-val text-green" id="rc-dinheiro-recebido">—</div><div class="stat-lbl">Dinheiro Recebido</div></div>
+      <div class="stat-card"><div class="stat-val text-green" id="rc-suprimentos">—</div><div class="stat-lbl">Suprimentos</div></div>
+      <div class="stat-card"><div class="stat-val text-red" id="rc-sangrias">—</div><div class="stat-lbl">Sangrias</div></div>
+      <div class="stat-card"><div class="stat-val" id="rc-esperado">—</div><div class="stat-lbl">Valor Esperado</div></div>
+      <div class="stat-card"><div class="stat-val" id="rc-contado">—</div><div class="stat-lbl">Valor Contado</div></div>
+    </div>
+    <div class="stat-card" style="margin-bottom:16px"><div class="stat-val" id="rc-diferenca">—</div><div class="stat-lbl">Diferença (contado − esperado)</div></div>
+
+    <div class="card">
+      <div class="card-title" style="margin-bottom:6px">Abertura e Fechamento</div>
+      <div class="card-sub" id="rc-info-abertura"></div>
+      <div class="card-sub" id="rc-info-fechamento"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title" style="margin-bottom:10px">Movimentos da Sessão</div>
+      <div id="rc-movimentos-list"></div>
+    </div>
+
+    <div class="card-title" style="margin:18px 0 10px">Ver mais sobre o período</div>
+    <button class="btn btn-outline btn-block" style="margin-bottom:8px" onclick="irParaPedidosDoCaixa()">Pedidos do Período</button>
+    <button class="btn btn-outline btn-block" style="margin-bottom:8px" onclick="irParaEntregasDoCaixa()">Entregas do Período</button>
+    <button class="btn btn-outline btn-block" onclick="closeModal('modal-relatorio-caixa'); goPage('estoque')">Ver Estoque Atual</button>
   </div>
 </div>
 
@@ -987,6 +1019,8 @@ let caixaSessaoAtual = null; // sessão com status='aberto', ou null se não hou
 // ============================================================
 function goPage(name) {
   if (currentUserRole === 'caixa' && name === 'dash') name = 'pedidos'; // caixa não tem acesso ao dashboard
+  // Caixa sem sessão aberta não navega pra nenhuma outra página — só a tela de abrir caixa.
+  if (currentUserRole === 'caixa' && !caixaSessaoAtual && name !== 'caixa') name = 'caixa';
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.getElementById('page-' + name).classList.add('active');
 
@@ -1072,7 +1106,6 @@ async function loadEstoque() {
   const { data: vazios } = await sb.from('estoque_vazios').select('*').order('ano_validade');
   allEstoqueVazios = vazios || [];
   renderVaziosList();
-  await renderResumoVazios();
 
   const { data: gas } = await sb.from('estoque_gas').select('*, marcas(nome)').order('criado_em');
   allEstoqueGas = gas || [];
@@ -1239,19 +1272,6 @@ function renderVaziosList() {
       </div>
     </div>
   `).join('');
-}
-
-async function renderResumoVazios() {
-  const totalCheios = allLotes.reduce((s, l) => s + l.qtd_cheios, 0);
-  const totalVazios = allEstoqueVazios.reduce((s, v) => s + v.quantidade, 0);
-
-  const { data: emprestimos } = await sb.from('clientes').select('saldo_comodato_garrafoes');
-  const totalEmprestados = (emprestimos || []).reduce((s, c) => s + c.saldo_comodato_garrafoes, 0);
-
-  document.getElementById('vazios-resumo-cheios').textContent = totalCheios;
-  document.getElementById('vazios-resumo-vazios').textContent = totalVazios;
-  document.getElementById('vazios-resumo-emprestados').textContent = totalEmprestados;
-  document.getElementById('vazios-resumo-total').textContent = totalCheios + totalVazios + totalEmprestados;
 }
 
 const TIPO_MOVIMENTO_LABEL = { entrada_fabrica: 'Entrada', saida_venda: 'Saída (venda)', ajuste: 'Ajuste', avaria: 'Avaria', retorno_vazio: 'Retorno de Vazio', reaproveitamento: 'Reaproveitamento' };
@@ -2197,7 +2217,30 @@ function filterPedidos(tipo) {
   renderPedidosList();
 }
 
+// Filtro por período (data do pedido), usado pelo relatório do caixa pra
+// recortar Pedidos/Entregas só da janela de uma sessão específica.
+let pedidosFiltroPeriodo = null; // { inicio, fim } em ISO string, ou null
+
+function aplicarFiltroPeriodoPedidos(inicio, fim, label) {
+  pedidosFiltroPeriodo = { inicio, fim };
+  document.getElementById('pedidos-filtro-periodo-texto').textContent = label;
+  document.getElementById('pedidos-filtro-periodo').style.display = 'flex';
+  renderPedidosList();
+}
+
+function limparFiltroPeriodoPedidos() {
+  pedidosFiltroPeriodo = null;
+  document.getElementById('pedidos-filtro-periodo').style.display = 'none';
+  renderPedidosList();
+}
+
+function irParaPedidos() {
+  limparFiltroPeriodoPedidos();
+  goPage('pedidos');
+}
+
 async function irParaPedidosPagamentoPendente() {
+  limparFiltroPeriodoPedidos();
   goPage('pedidos');
   await loadPedidos();
   filterPedidos('pagamento_pendente');
@@ -2231,6 +2274,11 @@ function renderPedidosList() {
     lista = allPedidos.filter(p => p.status !== 'cancelado' && (pagamentosPorPedido[p.id] || 0) < p.total);
   } else {
     lista = allPedidos.filter(p => p.status_entrega === currentPedidoFilter);
+  }
+  if (pedidosFiltroPeriodo) {
+    const ini = new Date(pedidosFiltroPeriodo.inicio).getTime();
+    const fim = new Date(pedidosFiltroPeriodo.fim).getTime();
+    lista = lista.filter(p => { const t = new Date(p.data).getTime(); return t >= ini && t <= fim; });
   }
   if (!lista.length) { el.innerHTML = '<div class="empty-state">Nenhum pedido encontrado</div>'; return; }
   el.innerHTML = lista.map(p => `
@@ -2741,8 +2789,53 @@ async function carregarCaixaSessaoAtual() {
   return caixaSessaoAtual;
 }
 
+// Não há servidor/cron próprio (app estático + Supabase) pra fechar o caixa
+// no instante exato da meia-noite. Em vez disso, qualquer carregamento do
+// app (login, troca de página, ou o timer periódico abaixo) detecta uma
+// sessão aberta num dia anterior e fecha ela sozinha, registrando o
+// fechamento como tendo ocorrido às 00h do dia seguinte à abertura.
+async function verificarFechamentoAutomaticoCaixa() {
+  if (!caixaSessaoAtual) return false;
+  const abertoEm = new Date(caixaSessaoAtual.aberto_em);
+  const agora = new Date();
+  const abertoDia = new Date(abertoEm.getFullYear(), abertoEm.getMonth(), abertoEm.getDate());
+  const hojeDia = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate());
+  if (hojeDia <= abertoDia) return false; // ainda no mesmo dia em que abriu
+
+  const meiaNoiteSeguinte = new Date(abertoEm.getFullYear(), abertoEm.getMonth(), abertoEm.getDate() + 1, 0, 0, 0, 0);
+  const totais = await calcularTotaisSessaoAtual();
+
+  const { error } = await sb.from('caixa_sessoes').update({
+    status: 'fechado',
+    valor_contado: null,
+    valor_esperado: totais.esperado,
+    diferenca: null,
+    forma_fechamento: 'automatico',
+    fechado_em: meiaNoiteSeguinte.toISOString(),
+    fechado_por: null,
+  }).eq('id', caixaSessaoAtual.id).eq('status', 'aberto');
+  if (error) { console.error('Erro ao fechar caixa automaticamente:', error); return false; }
+
+  toast(`O caixa aberto em ${fmtDataHora(caixaSessaoAtual.aberto_em)} foi fechado automaticamente (virada do dia).`);
+  caixaSessaoAtual = null;
+  return true;
+}
+
+let checagemCaixaIntervalId = null;
+function iniciarChecagemPeriodicaCaixa() {
+  if (checagemCaixaIntervalId || currentUserRole === 'entregador') return;
+  checagemCaixaIntervalId = setInterval(async () => {
+    const fechou = await verificarFechamentoAutomaticoCaixa();
+    if (!fechou) return;
+    aplicarVisibilidadeNavCaixa();
+    if (currentUserRole === 'caixa') goPage('caixa');
+    else if (document.getElementById('page-caixa').classList.contains('active')) await loadCaixa();
+  }, 5 * 60 * 1000);
+}
+
 async function loadCaixa() {
   await carregarCaixaSessaoAtual();
+  if (await verificarFechamentoAutomaticoCaixa()) aplicarVisibilidadeNavCaixa();
   document.getElementById('caixa-view-fechado').style.display = caixaSessaoAtual ? 'none' : 'block';
   document.getElementById('caixa-view-aberto').style.display  = caixaSessaoAtual ? 'block' : 'none';
 
@@ -2816,6 +2909,7 @@ async function salvarAberturaCaixa() {
   closeModal('modal-abrir-caixa');
   toast('Caixa aberto!');
   await carregarCaixaSessaoAtual();
+  aplicarVisibilidadeNavCaixa();
   if (currentUserRole === 'caixa') {
     goPage('pedidos'); // caixa vai direto pra tela de vendas
   } else {
@@ -2884,6 +2978,7 @@ async function salvarFechamentoCaixa() {
     valor_contado,
     valor_esperado: totais.esperado,
     diferenca,
+    forma_fechamento: 'manual',
     observacao_fechamento,
     fechado_em: new Date().toISOString(),
     fechado_por: currentUserId,
@@ -2893,6 +2988,7 @@ async function salvarFechamentoCaixa() {
   closeModal('modal-fechar-caixa');
   toast('Caixa fechado!');
   caixaSessaoAtual = null;
+  aplicarVisibilidadeNavCaixa();
   await loadCaixa();
 }
 
@@ -2905,21 +3001,116 @@ async function loadHistoricoCaixa() {
     const nomeAbertura = s.aberto_por_usuario?.nome || '—';
     if (s.status === 'aberto') {
       return `
-        <div class="list-item">
+        <div class="list-item" style="cursor:pointer" onclick="abrirRelatorioCaixa('${s.id}')">
           <div class="item-info"><div class="item-name">${fmtDataHora(s.aberto_em)}</div><div class="item-detail">${nomeAbertura} · troco ${fmtMoeda(s.troco_inicial)}</div></div>
           <span class="badge badge-yellow">Aberto</span>
         </div>`;
     }
+    const badgeForma = s.forma_fechamento === 'automatico' ? '<span class="badge badge-yellow">Automático</span>' : '<span class="badge badge-blue">Manual</span>';
+    const temDiferenca = s.diferenca !== null;
     const diferenca = parseFloat(s.diferenca || 0);
+    return `
+      <div class="list-item" style="cursor:pointer" onclick="abrirRelatorioCaixa('${s.id}')">
+        <div class="item-info">
+          <div class="item-name">${fmtDataHora(s.aberto_em)} ${badgeForma}</div>
+          <div class="item-detail">${nomeAbertura} · esperado ${fmtMoeda(s.valor_esperado)} · contado ${s.valor_contado != null ? fmtMoeda(s.valor_contado) : '—'}</div>
+        </div>
+        <div class="item-value ${temDiferenca ? (diferenca >= 0 ? 'text-green' : 'text-red') : ''}">${temDiferenca ? (diferenca >= 0 ? '+' : '') + fmtMoeda(diferenca) : '—'}</div>
+      </div>`;
+  }).join('') || '<div class="empty-state">Nenhuma sessão registrada</div>';
+}
+
+// ============================================================
+// RELATÓRIO DA SESSÃO DE CAIXA (aberta ou fechada)
+// ============================================================
+let relatorioCaixaSessao = null;
+
+async function abrirRelatorioCaixa(sessaoId) {
+  const { data: sessao, error } = await sb.from('caixa_sessoes')
+    .select('*, aberto_por_usuario:usuarios!caixa_sessoes_aberto_por_fkey(nome), fechado_por_usuario:usuarios!caixa_sessoes_fechado_por_fkey(nome)')
+    .eq('id', sessaoId).single();
+  if (error || !sessao) { toast('Erro ao carregar sessão de caixa: ' + (error?.message || ''), true); return; }
+  relatorioCaixaSessao = sessao;
+
+  document.getElementById('rc-titulo').textContent = `Caixa de ${fmtDataHora(sessao.aberto_em)}`;
+
+  const { data: pagamentos } = await sb.from('pagamentos_pedido').select('valor').eq('caixa_sessao_id', sessaoId).eq('forma', 'dinheiro');
+  const dinheiroRecebido = (pagamentos || []).reduce((s, p) => s + parseFloat(p.valor), 0);
+
+  const { data: movimentos } = await sb.from('caixa_movimentos').select('*, usuarios(nome)').eq('caixa_sessao_id', sessaoId).order('data', { ascending: false });
+  const suprimentos = (movimentos || []).filter(m => m.tipo === 'suprimento').reduce((s, m) => s + parseFloat(m.valor), 0);
+  const sangrias = (movimentos || []).filter(m => m.tipo === 'sangria').reduce((s, m) => s + parseFloat(m.valor), 0);
+  const esperado = sessao.status === 'fechado' && sessao.valor_esperado != null
+    ? parseFloat(sessao.valor_esperado)
+    : parseFloat(sessao.troco_inicial) + dinheiroRecebido + suprimentos - sangrias;
+
+  document.getElementById('rc-badges').innerHTML = sessao.status === 'aberto'
+    ? '<span class="badge badge-yellow">Aberto</span>'
+    : `<span class="badge badge-blue">Fechado</span>${sessao.forma_fechamento === 'automatico' ? '<span class="badge badge-yellow">Fechamento Automático</span>' : '<span class="badge badge-green">Fechamento Manual</span>'}`;
+
+  document.getElementById('rc-troco-inicial').textContent = fmtMoeda(sessao.troco_inicial);
+  document.getElementById('rc-dinheiro-recebido').textContent = fmtMoeda(dinheiroRecebido);
+  document.getElementById('rc-suprimentos').textContent = fmtMoeda(suprimentos);
+  document.getElementById('rc-sangrias').textContent = fmtMoeda(sangrias);
+  document.getElementById('rc-esperado').textContent = fmtMoeda(esperado);
+  document.getElementById('rc-contado').textContent = sessao.valor_contado != null ? fmtMoeda(sessao.valor_contado) : '—';
+
+  const diferencaEl = document.getElementById('rc-diferenca');
+  if (sessao.diferenca != null) {
+    const diferenca = parseFloat(sessao.diferenca);
+    diferencaEl.textContent = (diferenca >= 0 ? '+' : '') + fmtMoeda(diferenca);
+    diferencaEl.className = 'stat-val ' + (diferenca >= 0 ? 'text-green' : 'text-red');
+  } else {
+    diferencaEl.textContent = '—';
+    diferencaEl.className = 'stat-val';
+  }
+
+  const nomeAbertura = sessao.aberto_por_usuario?.nome || '—';
+  document.getElementById('rc-info-abertura').textContent = `Aberto por ${nomeAbertura} em ${fmtDataHora(sessao.aberto_em)}`;
+  if (sessao.status === 'fechado') {
+    const nomeFechamento = sessao.fechado_por_usuario?.nome || (sessao.forma_fechamento === 'automatico' ? 'Sistema (fechamento automático)' : '—');
+    document.getElementById('rc-info-fechamento').textContent = `Fechado por ${nomeFechamento} em ${fmtDataHora(sessao.fechado_em)}`;
+  } else {
+    document.getElementById('rc-info-fechamento').textContent = 'Caixa ainda aberto';
+  }
+
+  const listEl = document.getElementById('rc-movimentos-list');
+  listEl.innerHTML = (movimentos || []).map(m => {
+    const nome = m.usuarios?.nome || '—';
+    const sinal = m.tipo === 'sangria' ? '-' : '+';
     return `
       <div class="list-item">
         <div class="item-info">
-          <div class="item-name">${fmtDataHora(s.aberto_em)}</div>
-          <div class="item-detail">${nomeAbertura} · esperado ${fmtMoeda(s.valor_esperado)} · contado ${fmtMoeda(s.valor_contado)}</div>
+          <div class="item-name">${m.tipo === 'sangria' ? 'Sangria' : 'Suprimento'}</div>
+          <div class="item-detail">${m.motivo} · ${nome} · ${fmtDataHora(m.data)}</div>
         </div>
-        <div class="item-value ${diferenca >= 0 ? 'text-green' : 'text-red'}">${diferenca >= 0 ? '+' : ''}${fmtMoeda(diferenca)}</div>
+        <div class="item-value ${m.tipo === 'sangria' ? 'text-red' : 'text-green'}">${sinal}${fmtMoeda(m.valor)}</div>
       </div>`;
-  }).join('') || '<div class="empty-state">Nenhuma sessão registrada</div>';
+  }).join('') || '<div class="empty-state">Nenhum movimento nesta sessão</div>';
+
+  openModal('modal-relatorio-caixa');
+}
+
+async function irParaPedidosDoCaixa() {
+  if (!relatorioCaixaSessao) return;
+  const { aberto_em, fechado_em } = relatorioCaixaSessao;
+  const fim = fechado_em || new Date().toISOString();
+  closeModal('modal-relatorio-caixa');
+  goPage('pedidos');
+  await loadPedidos();
+  aplicarFiltroPeriodoPedidos(aberto_em, fim, `Pedidos do caixa de ${fmtDataHora(aberto_em)}`);
+  filterPedidos('todos');
+}
+
+async function irParaEntregasDoCaixa() {
+  if (!relatorioCaixaSessao) return;
+  const { aberto_em, fechado_em } = relatorioCaixaSessao;
+  const fim = fechado_em || new Date().toISOString();
+  closeModal('modal-relatorio-caixa');
+  goPage('pedidos');
+  await loadPedidos();
+  aplicarFiltroPeriodoPedidos(aberto_em, fim, `Entregas do caixa de ${fmtDataHora(aberto_em)}`);
+  filterPedidos('entregue');
 }
 
 // ============================================================
@@ -3098,6 +3289,16 @@ async function loadCurrentUserRole() {
   return data;
 }
 
+// Caixa sem sessão aberta não tem acesso a nenhuma outra opção — só a tela
+// de abrir caixa (que inclui o histórico/relatório das sessões já fechadas).
+function aplicarVisibilidadeNavCaixa() {
+  if (currentUserRole !== 'caixa') return;
+  const podeNavegar = !!caixaSessaoAtual;
+  ['nav-btn-pedidos', 'nav-btn-estoque', 'nav-btn-clientes'].forEach(id => {
+    document.getElementById(id).style.display = podeNavegar ? 'flex' : 'none';
+  });
+}
+
 function applyRoleUI(role) {
   const isEntregador = role === 'entregador';
   document.getElementById('main-nav').style.display = isEntregador ? 'none' : 'flex';
@@ -3106,6 +3307,7 @@ function applyRoleUI(role) {
 
   // Caixa não tem acesso ao Dashboard — só pedidos, estoque, clientes e caixa.
   document.getElementById('nav-btn-dash').style.display = role === 'caixa' ? 'none' : 'flex';
+  aplicarVisibilidadeNavCaixa();
 
   if (isEntregador) {
     goPage('entregas');
@@ -3131,7 +3333,9 @@ async function init() {
     currentUserRole = usuario.role;
   }
   await carregarCaixaSessaoAtual();
+  await verificarFechamentoAutomaticoCaixa();
   applyRoleUI(currentUserRole);
+  iniciarChecagemPeriodicaCaixa();
 }
 
 (async function checkSession() {

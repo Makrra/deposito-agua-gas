@@ -222,6 +222,7 @@ CREATE TABLE IF NOT EXISTS caixa_sessoes (
   diferenca             NUMERIC(10,2), -- valor_contado - valor_esperado
   observacao_abertura   TEXT,
   observacao_fechamento TEXT,
+  forma_fechamento      TEXT CHECK (forma_fechamento IN ('manual','automatico')), -- preenchido só no fechamento
   aberto_em             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   aberto_por            UUID REFERENCES usuarios(id),
   fechado_em            TIMESTAMPTZ,
@@ -1247,6 +1248,13 @@ ON CONFLICT (chave) DO NOTHING;
 -- apelido e endereço — não vê telefone, saldo nem comodato na listagem).
 -- ============================================================
 -- ALTER TABLE clientes ADD COLUMN IF NOT EXISTS apelido TEXT;
+
+-- ============================================================
+-- MIGRAÇÃO: registra se a sessão de caixa foi fechada manualmente ou
+-- automaticamente (virada do dia sem fechamento manual — detectado no
+-- próximo carregamento do app, sem servidor/cron próprio).
+-- ============================================================
+-- ALTER TABLE caixa_sessoes ADD COLUMN IF NOT EXISTS forma_fechamento TEXT CHECK (forma_fechamento IN ('manual','automatico'));
 
 -- Após rodar este script, crie o primeiro usuário em:
 -- Authentication > Users > Add user (email + senha)
