@@ -314,22 +314,22 @@ select.form-control option { background: var(--surface); }
   </div>
 
   <div class="card">
-    <div class="card-title" style="margin-bottom:10px">Cheios de Água por Marca</div>
+    <div class="card-title" style="margin-bottom:10px">Movimento de Cheios por Marca (Período)</div>
     <div id="dash-estoque-agua" class="loading"><div class="spinner"></div>Carregando...</div>
   </div>
 
   <div class="card">
-    <div class="card-title" style="margin-bottom:10px">Vazios em Estoque (por Validade)</div>
+    <div class="card-title" style="margin-bottom:10px">Vazios Devolvidos por Validade (Período)</div>
     <div id="dash-estoque-vazios" class="loading"><div class="spinner"></div>Carregando...</div>
   </div>
 
   <div class="card">
-    <div class="card-title" style="margin-bottom:10px">Estoque de Gás por Marca</div>
+    <div class="card-title" style="margin-bottom:10px">Gás Vendido por Marca (Período)</div>
     <div id="dash-estoque-gas" class="loading"><div class="spinner"></div>Carregando...</div>
   </div>
 
   <div class="card">
-    <div class="card-title" style="margin-bottom:10px">Quem Está Devendo</div>
+    <div class="card-title" style="margin-bottom:10px">Quem Está Devendo (Período)</div>
     <div id="dash-devedores" class="loading"><div class="spinner"></div>Carregando...</div>
   </div>
 </div>
@@ -340,6 +340,7 @@ select.form-control option { background: var(--surface); }
     <button class="tab-btn active" id="tab-pedidos-todos" onclick="filterPedidos('todos')">Todos</button>
     <button class="tab-btn" id="tab-pedidos-pendente" onclick="filterPedidos('pendente')">Entrega Pendente</button>
     <button class="tab-btn" id="tab-pedidos-pagamento_pendente" onclick="filterPedidos('pagamento_pendente')">Pagamento Pendente</button>
+    <button class="tab-btn" id="tab-pedidos-pagos" onclick="filterPedidos('pagos')">Pagos</button>
     <button class="tab-btn" id="tab-pedidos-entregue" onclick="filterPedidos('entregue')">Entregues</button>
     <button class="tab-btn" id="tab-pedidos-cancelada" onclick="filterPedidos('cancelada')">Cancelados</button>
   </div>
@@ -2219,7 +2220,7 @@ async function loadPedidos() {
 
 function filterPedidos(tipo) {
   currentPedidoFilter = tipo;
-  ['todos', 'pendente', 'pagamento_pendente', 'entregue', 'cancelada'].forEach(t =>
+  ['todos', 'pendente', 'pagamento_pendente', 'pagos', 'entregue', 'cancelada'].forEach(t =>
     document.getElementById('tab-pedidos-' + t).classList.toggle('active', t === tipo)
   );
   renderPedidosList();
@@ -2280,6 +2281,8 @@ function renderPedidosList() {
     lista = allPedidos;
   } else if (currentPedidoFilter === 'pagamento_pendente') {
     lista = allPedidos.filter(p => p.status !== 'cancelado' && (pagamentosPorPedido[p.id] || 0) < p.total);
+  } else if (currentPedidoFilter === 'pagos') {
+    lista = allPedidos.filter(p => p.status !== 'cancelado' && (pagamentosPorPedido[p.id] || 0) >= p.total);
   } else {
     lista = allPedidos.filter(p => p.status_entrega === currentPedidoFilter);
   }
@@ -3295,39 +3298,96 @@ async function loadDashboard() {
   document.getElementById('dash-entregas-efetuadas').textContent = entregasEfetuadas;
   document.getElementById('dash-entregas-pendentes').textContent = entregasPendentes;
 
-  if (!allMarcas.length || !allLotes.length) await loadEstoque();
+  const inicioISO = inicio.toISOString();
+  const fimISO = fim.toISOString();
 
-  const resumoAgua = {};
-  allLotes.forEach(l => {
-    const nome = l.marcas ? l.marcas.nome : '—';
-    resumoAgua[nome] = (resumoAgua[nome] || 0) + l.qtd_cheios;
+  // Cheios: movimento de recebidos/vendidos por marca dentro do período
+  // (não é "quanto eu tenho agora", é "quanto entrou/saiu nesse período").
+  const { data: movAgua } = await sb.from('movimentos_estoque')
+    .select('tipo, quantidade, lotes_garrafao(marcas(nome))')
+    .in('tipo', ['entrada_fabrica', 'saida_venda'])
+    .gte('data', inicioISO).lt('data', fimISO);
+  const porMarcaAgua = {};
+  (movAgua || []).forEach(m => {
+    const nome = m.lotes_garrafao?.marcas?.nome || '—';
+    if (!porMarcaAgua[nome]) porMarcaAgua[nome] = { recebidos: 0, vendidos: 0 };
+    if (m.tipo === 'entrada_fabrica') porMarcaAgua[nome].recebidos += m.quantidade;
+    else porMarcaAgua[nome].vendidos += Math.abs(m.quantidade);
   });
-  const nomesAgua = Object.keys(resumoAgua);
-  const totalCheios = Object.values(resumoAgua).reduce((s, n) => s + n, 0);
+  const nomesAgua = Object.keys(porMarcaAgua);
+  const totalRecebidosAgua = nomesAgua.reduce((s, n) => s + porMarcaAgua[n].recebidos, 0);
+  const totalVendidosAgua = nomesAgua.reduce((s, n) => s + porMarcaAgua[n].vendidos, 0);
   document.getElementById('dash-estoque-agua').innerHTML = nomesAgua.length ? `
-    <div class="list-item"><div class="item-info"><div class="item-name">Total</div></div><div class="item-value">${totalCheios}</div></div>
-    ${nomesAgua.map(nome => `<div class="list-item"><div class="item-info"><div class="item-name">${nome}</div></div><div class="item-detail">${resumoAgua[nome]} cheios</div></div>`).join('')}
-  ` : '<div class="empty-state">Sem lotes cadastrados</div>';
+    <div class="list-item"><div class="item-info"><div class="item-name">Total</div></div><div class="item-value">${totalRecebidosAgua} recebidos / ${totalVendidosAgua} vendidos</div></div>
+    ${nomesAgua.map(nome => `<div class="list-item"><div class="item-info"><div class="item-name">${nome}</div></div><div class="item-detail">${porMarcaAgua[nome].recebidos} recebidos · ${porMarcaAgua[nome].vendidos} vendidos</div></div>`).join('')}
+  ` : '<div class="empty-state">Nenhum movimento de cheios no período</div>';
 
-  const totalVazios = allEstoqueVazios.reduce((s, v) => s + v.quantidade, 0);
-  document.getElementById('dash-estoque-vazios').innerHTML = allEstoqueVazios.length ? `
+  // Vazios: devoluções registradas no período, por ano de validade.
+  const { data: movVazios } = await sb.from('movimentos_estoque')
+    .select('quantidade, ano_validade')
+    .eq('tipo', 'retorno_vazio')
+    .gte('data', inicioISO).lt('data', fimISO);
+  const porAnoVazio = {};
+  (movVazios || []).forEach(m => { porAnoVazio[m.ano_validade] = (porAnoVazio[m.ano_validade] || 0) + m.quantidade; });
+  const anosVazio = Object.keys(porAnoVazio).map(Number).sort((a, b) => a - b);
+  const totalVazios = anosVazio.reduce((s, a) => s + porAnoVazio[a], 0);
+  document.getElementById('dash-estoque-vazios').innerHTML = anosVazio.length ? `
     <div class="list-item"><div class="item-info"><div class="item-name">Total</div></div><div class="item-value">${totalVazios}</div></div>
-    ${[...allEstoqueVazios].sort((a, b) => a.ano_validade - b.ano_validade).map(v => `<div class="list-item"><div class="item-info"><div class="item-name">Validade ${v.ano_validade}</div></div><div class="item-detail">${v.quantidade} vazios</div></div>`).join('')}
-  ` : '<div class="empty-state">Sem vazios em estoque</div>';
+    ${anosVazio.map(ano => `<div class="list-item"><div class="item-info"><div class="item-name">Validade ${ano}</div></div><div class="item-detail">${porAnoVazio[ano]} devolvidos</div></div>`).join('')}
+  ` : '<div class="empty-state">Nenhum vazio devolvido no período</div>';
 
-  document.getElementById('dash-estoque-gas').innerHTML = allEstoqueGas.length ? allEstoqueGas.map(g => `
-    <div class="list-item"><div class="item-info"><div class="item-name">${g.marcas ? g.marcas.nome : '—'}</div></div><div class="item-detail">${g.qtd_cheios} cheios / ${g.qtd_vazios} vazios</div></div>
-  `).join('') : '<div class="empty-state">Sem estoque de gás cadastrado</div>';
+  // Gás não tem histórico de entrada por data — só dá pra saber o vendido
+  // no período (via itens de pedido entregues, que não têm lote_id).
+  const { data: itensGas } = await sb.from('itens_pedido')
+    .select('quantidade, marcas(nome), pedidos!inner(status_entrega, data_entrega)')
+    .is('lote_id', null)
+    .eq('pedidos.status_entrega', 'entregue')
+    .gte('pedidos.data_entrega', inicioISO).lt('pedidos.data_entrega', fimISO);
+  const porMarcaGas = {};
+  (itensGas || []).forEach(it => {
+    const nome = it.marcas ? it.marcas.nome : '—';
+    porMarcaGas[nome] = (porMarcaGas[nome] || 0) + it.quantidade;
+  });
+  const nomesGas = Object.keys(porMarcaGas);
+  const totalGas = nomesGas.reduce((s, n) => s + porMarcaGas[n], 0);
+  document.getElementById('dash-estoque-gas').innerHTML = nomesGas.length ? `
+    <div class="list-item"><div class="item-info"><div class="item-name">Total Vendido</div></div><div class="item-value">${totalGas}</div></div>
+    ${nomesGas.map(nome => `<div class="list-item"><div class="item-info"><div class="item-name">${nome}</div></div><div class="item-detail">${porMarcaGas[nome]} vendidos</div></div>`).join('')}
+  ` : '<div class="empty-state">Nenhuma venda de gás no período</div>';
 
   if (!allClientes.length) await loadClientes();
-  pendentesPorCliente = await calcularPendentesPorCliente();
-  const devedores = allClientes.filter(c => (pendentesPorCliente[c.id] || 0) > 0 || c.saldo_comodato_garrafoes > 0);
+  const pendentesPeriodo = await calcularPendentesPorClientePeriodo(inicioISO, fimISO);
+  const devedores = allClientes.filter(c => (pendentesPeriodo[c.id] || 0) > 0);
   document.getElementById('dash-devedores').innerHTML = devedores.length ? devedores.map(c => `
     <div class="list-item">
-      <div class="item-info"><div class="item-name">${c.nome}</div><div class="item-detail">${c.saldo_comodato_garrafoes > 0 ? c.saldo_comodato_garrafoes + ' vasilhame(s) em comodato' : ''}</div></div>
-      <div class="item-value text-red">${fmtMoeda(pendentesPorCliente[c.id] || 0)}</div>
+      <div class="item-info"><div class="item-name">${c.nome}</div></div>
+      <div class="item-value text-red">${fmtMoeda(pendentesPeriodo[c.id] || 0)}</div>
     </div>
-  `).join('') : '<div class="empty-state">Nenhum cliente devendo</div>';
+  `).join('') : '<div class="empty-state">Nenhum cliente devendo no período</div>';
+}
+
+// Igual a calcularPendentesPorCliente(), mas só considera pedidos criados
+// dentro da janela do dashboard — usado só pelo card "Quem Está Devendo
+// (Período)"; o saldo total (todo o histórico) continua em
+// calcularPendentesPorCliente(), usado pela página de Clientes.
+async function calcularPendentesPorClientePeriodo(inicioISO, fimISO) {
+  const { data: pedidos } = await sb.from('pedidos').select('id, cliente_id, total')
+    .neq('status', 'cancelado').gte('data', inicioISO).lt('data', fimISO);
+  const ids = (pedidos || []).map(p => p.id);
+  let pagamentos = [];
+  if (ids.length) {
+    const { data } = await sb.from('pagamentos_pedido').select('pedido_id, valor').in('pedido_id', ids);
+    pagamentos = data || [];
+  }
+  const pagoPorPedido = {};
+  pagamentos.forEach(pg => { pagoPorPedido[pg.pedido_id] = (pagoPorPedido[pg.pedido_id] || 0) + parseFloat(pg.valor); });
+  const mapa = {};
+  (pedidos || []).forEach(p => {
+    const pago = pagoPorPedido[p.id] || 0;
+    const pendente = Math.max(0, parseFloat(p.total) - pago);
+    if (pendente > 0) mapa[p.cliente_id] = (mapa[p.cliente_id] || 0) + pendente;
+  });
+  return mapa;
 }
 
 async function loadDashboardCaixaKPIs() {
