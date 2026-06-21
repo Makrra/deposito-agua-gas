@@ -2865,28 +2865,57 @@ async function loadCaixa() {
 // usado tanto no card "ao vivo" do caixa aberto quanto no relatório de uma
 // sessão já fechada.
 async function calcularResumoPeriodoCaixa(inicio, fim) {
-  const { data: pedidos } = await sb.from('pedidos').select('status, status_entrega').gte('data', inicio).lte('data', fim);
+  const { data: pedidos } = await sb.from('pedidos').select('id, total, status, status_entrega').gte('data', inicio).lte('data', fim);
   const lista = pedidos || [];
+  const naoCancelados = lista.filter(p => p.status !== 'cancelado');
+  const idsNaoCancelados = naoCancelados.map(p => p.id);
+
+  let pagoPorPedido = {};
+  if (idsNaoCancelados.length) {
+    const { data: pagamentos } = await sb.from('pagamentos_pedido').select('pedido_id, valor').in('pedido_id', idsNaoCancelados);
+    (pagamentos || []).forEach(pg => { pagoPorPedido[pg.pedido_id] = (pagoPorPedido[pg.pedido_id] || 0) + parseFloat(pg.valor); });
+  }
+
   const pedidosResumo = {
     criados: lista.length,
-    abertos: lista.filter(p => p.status === 'aberto').length,
-    finalizados: lista.filter(p => p.status === 'concluido').length,
-    cancelados: lista.filter(p => p.status === 'cancelado').length,
-    entregues: lista.filter(p => p.status_entrega === 'entregue').length,
     entregaPendente: lista.filter(p => p.status_entrega === 'pendente').length,
+    pagamentoPendente: naoCancelados.filter(p => (pagoPorPedido[p.id] || 0) < p.total).length,
+    entregues: lista.filter(p => p.status_entrega === 'entregue').length,
+    pagos: naoCancelados.filter(p => (pagoPorPedido[p.id] || 0) >= p.total).length,
+    cancelados: lista.filter(p => p.status === 'cancelado').length,
   };
 
-  const { data: movimentos } = await sb.from('movimentos_estoque').select('tipo, quantidade').gte('data', inicio).lte('data', fim);
+  // ano_validade vem do lote (cheios) ou direto no movimento (pool de vazios)
+  const { data: movimentos } = await sb.from('movimentos_estoque')
+    .select('tipo, quantidade, ano_validade, lotes_garrafao(ano_validade)')
+    .gte('data', inicio).lte('data', fim);
   const movs = movimentos || [];
-  const soma = tipo => movs.filter(m => m.tipo === tipo).reduce((s, m) => s + Math.abs(m.quantidade), 0);
+  const agruparPorAno = tipo => {
+    const porAno = {};
+    movs.filter(m => m.tipo === tipo).forEach(m => {
+      const ano = m.ano_validade ?? m.lotes_garrafao?.ano_validade;
+      if (ano == null) return;
+      porAno[ano] = (porAno[ano] || 0) + Math.abs(m.quantidade);
+    });
+    return porAno;
+  };
   const estoqueResumo = {
-    recebidos: soma('entrada_fabrica'),
-    vendidos: soma('saida_venda'),
-    devolvidos: soma('retorno_vazio'),
-    avarias: soma('avaria'),
+    recebidosPorAno: agruparPorAno('entrada_fabrica'),
+    vendidosPorAno: agruparPorAno('saida_venda'),
+    avariasPorAno: agruparPorAno('avaria'),
   };
 
   return { pedidosResumo, estoqueResumo };
+}
+
+function linhasGarrafaoPorAno(porAno) {
+  const anos = Object.keys(porAno).map(Number).sort((a, b) => a - b);
+  if (!anos.length) return '<div class="empty-state">Nenhum no período</div>';
+  const total = anos.reduce((s, a) => s + porAno[a], 0);
+  return `
+    <div class="list-item"><div class="item-info"><div class="item-name">Total</div></div><div class="item-value">${total}</div></div>
+    ${anos.map(ano => `<div class="list-item"><div class="item-info"><div class="item-name">Validade ${ano}</div></div><div class="item-value">${porAno[ano]}</div></div>`).join('')}
+  `;
 }
 
 function htmlResumoPeriodoCaixa({ pedidosResumo, estoqueResumo }) {
@@ -2895,21 +2924,21 @@ function htmlResumoPeriodoCaixa({ pedidosResumo, estoqueResumo }) {
       <div class="card-title" style="margin-bottom:10px">Pedidos do Período</div>
       <div class="stats" style="grid-template-columns:repeat(2,1fr)">
         <div class="stat-card"><div class="stat-val">${pedidosResumo.criados}</div><div class="stat-lbl">Criados</div></div>
-        <div class="stat-card"><div class="stat-val">${pedidosResumo.abertos}</div><div class="stat-lbl">Abertos</div></div>
-        <div class="stat-card"><div class="stat-val text-green">${pedidosResumo.finalizados}</div><div class="stat-lbl">Finalizados</div></div>
+        <div class="stat-card"><div class="stat-val text-yellow">${pedidosResumo.entregaPendente}</div><div class="stat-lbl">Pendente de Entrega</div></div>
+        <div class="stat-card"><div class="stat-val text-yellow">${pedidosResumo.pagamentoPendente}</div><div class="stat-lbl">Pendente Pagamento</div></div>
         <div class="stat-card"><div class="stat-val text-green">${pedidosResumo.entregues}</div><div class="stat-lbl">Entregues</div></div>
-        <div class="stat-card"><div class="stat-val text-yellow">${pedidosResumo.entregaPendente}</div><div class="stat-lbl">Entrega Pendente</div></div>
+        <div class="stat-card"><div class="stat-val text-green">${pedidosResumo.pagos}</div><div class="stat-lbl">Pagos</div></div>
         <div class="stat-card"><div class="stat-val text-red">${pedidosResumo.cancelados}</div><div class="stat-lbl">Cancelados</div></div>
       </div>
     </div>
     <div class="card">
       <div class="card-title" style="margin-bottom:10px">Garrafões no Período</div>
-      <div class="stats" style="grid-template-columns:repeat(2,1fr)">
-        <div class="stat-card"><div class="stat-val text-green">${estoqueResumo.recebidos}</div><div class="stat-lbl">Recebidos</div></div>
-        <div class="stat-card"><div class="stat-val text-red">${estoqueResumo.vendidos}</div><div class="stat-lbl">Vendidos</div></div>
-        <div class="stat-card"><div class="stat-val">${estoqueResumo.devolvidos}</div><div class="stat-lbl">Vazios Devolvidos</div></div>
-        <div class="stat-card"><div class="stat-val text-red">${estoqueResumo.avarias}</div><div class="stat-lbl">Avarias</div></div>
-      </div>
+      <div class="card-sub" style="margin-bottom:6px;font-weight:600">Vendidos por Validade</div>
+      ${linhasGarrafaoPorAno(estoqueResumo.vendidosPorAno)}
+      <div class="card-sub" style="margin:14px 0 6px;font-weight:600">Recebidos por Validade</div>
+      ${linhasGarrafaoPorAno(estoqueResumo.recebidosPorAno)}
+      <div class="card-sub" style="margin:14px 0 6px;font-weight:600">Avarias por Validade</div>
+      ${linhasGarrafaoPorAno(estoqueResumo.avariasPorAno)}
     </div>`;
 }
 
