@@ -450,6 +450,14 @@ select.form-control option { background: var(--surface); }
   <div id="entregas-list" class="loading"><div class="spinner"></div>Carregando...</div>
 </div>
 
+<!-- ======= PAGE: LOGS (desenvolvedor) ======= -->
+<div class="page" id="page-logs">
+  <div style="display:flex;gap:8px;margin-bottom:14px">
+    <button class="btn btn-outline btn-sm" style="flex:1" onclick="loadLogs()">Atualizar</button>
+  </div>
+  <div id="logs-list" class="loading"><div class="spinner"></div>Carregando...</div>
+</div>
+
 <!-- ======= NAV (administrador/caixa) ======= -->
 <nav class="nav" id="main-nav">
   <button class="nav-btn active" onclick="goPage('caixa')">
@@ -479,6 +487,14 @@ select.form-control option { background: var(--surface); }
   <button class="nav-btn active" onclick="goPage('entregas')">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
     Entregas
+  </button>
+</nav>
+
+<!-- ======= NAV (desenvolvedor) ======= -->
+<nav class="nav" id="dev-nav" style="display:none">
+  <button class="nav-btn active" onclick="goPage('logs')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
+    Logs
   </button>
 </nav>
 
@@ -997,7 +1013,7 @@ async function loadReservasPendentes() {
   const { data, error } = await sb.from('itens_pedido')
     .select('lote_id, marca_id, quantidade, pedidos!inner(status_entrega)')
     .eq('pedidos.status_entrega', 'pendente');
-  if (error) { console.error('loadReservasPendentes error:', error); toast('Erro ao carregar reservas de estoque: ' + error.message, true); }
+  if (error) toastErro('carregar reservas de estoque', error);
   reservasLotePendentes = {};
   reservasGasPendentes = {};
   (data || []).forEach(it => {
@@ -1033,9 +1049,9 @@ function goPage(name) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.getElementById('page-' + name).classList.add('active');
 
-  const navId = currentUserRole === 'entregador' ? 'entregador-nav' : 'main-nav';
+  const navId = currentUserRole === 'entregador' ? 'entregador-nav' : currentUserRole === 'desenvolvedor' ? 'dev-nav' : 'main-nav';
   document.querySelectorAll('#' + navId + ' .nav-btn').forEach(b => b.classList.remove('active'));
-  const pages = currentUserRole === 'entregador' ? ['entregas'] : PAGES_ADMIN_CAIXA;
+  const pages = currentUserRole === 'entregador' ? ['entregas'] : currentUserRole === 'desenvolvedor' ? ['logs'] : PAGES_ADMIN_CAIXA;
   const idx = pages.indexOf(name);
   if (idx >= 0) document.querySelectorAll('#' + navId + ' .nav-btn')[idx].classList.add('active');
 
@@ -1045,6 +1061,7 @@ function goPage(name) {
   if (name === 'pedidos')   loadPedidos();
   if (name === 'entregas')  loadEntregas();
   if (name === 'caixa')     loadCaixa();
+  if (name === 'logs')      loadLogs();
 }
 
 // ============================================================
@@ -1070,6 +1087,29 @@ function toast(msg, error = false) {
   t.textContent = msg;
   t.className = 'toast show' + (error ? ' error' : '');
   setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+// Sem isso, um erro de banco só aparece como toast e se perde quando a
+// tela some — não dá pra investigar depois. Registra em erros_app (lido
+// só pelo perfil "desenvolvedor") além de mostrar o toast de sempre.
+async function logErroApp(acao, error) {
+  try {
+    await sb.from('erros_app').insert({
+      acao,
+      mensagem: error?.message || String(error) || null,
+      pagina: document.querySelector('.page.active')?.id || null,
+      usuario_id: currentUserId,
+      role: currentUserRole,
+    });
+  } catch (e) {
+    console.error('Falha ao registrar log de erro:', e);
+  }
+}
+
+function toastErro(acao, error) {
+  console.error(acao, error);
+  toast('Erro ao ' + acao + ': ' + (error?.message || ''), true);
+  logErroApp(acao, error);
 }
 
 // ============================================================
@@ -1183,7 +1223,7 @@ async function salvarMarca() {
     ? await sb.from('marcas').update(payload).eq('id', id).select().single()
     : await sb.from('marcas').insert(payload).select().single();
 
-  if (error) { toast('Erro ao salvar marca: ' + error.message, true); return; }
+  if (error) { toastErro('salvar marca', error); return; }
 
   if (tipo === 'gas' && marca) {
     const { data: existente } = await sb.from('estoque_gas').select('id').eq('marca_id', marca.id).maybeSingle();
@@ -1342,7 +1382,7 @@ async function salvarAjusteVazios() {
   } else {
     ({ error } = await sb.from('estoque_vazios').insert({ ano_validade: ano, quantidade }));
   }
-  if (error) { toast('Erro ao ajustar vazios: ' + error.message, true); return; }
+  if (error) { toastErro('ajustar vazios', error); return; }
 
   await sb.from('movimentos_estoque').insert({ ano_validade: ano, tipo: 'ajuste', quantidade, observacao: 'Ajuste manual de estoque de vazios', criado_por: currentUserId });
 
@@ -1409,11 +1449,11 @@ async function salvarLote() {
   let loteId;
   if (existente) {
     const { error } = await sb.from('lotes_garrafao').update({ qtd_cheios: existente.qtd_cheios + qtd_recebida }).eq('id', existente.id);
-    if (error) { toast('Erro ao atualizar lote: ' + error.message, true); return; }
+    if (error) { toastErro('atualizar lote', error); return; }
     loteId = existente.id;
   } else {
     const { data: lote, error } = await sb.from('lotes_garrafao').insert({ marca_id, ano_validade, qtd_cheios: qtd_recebida }).select().single();
-    if (error) { toast('Erro ao criar lote: ' + error.message, true); return; }
+    if (error) { toastErro('criar lote', error); return; }
     loteId = lote.id;
   }
 
@@ -1472,7 +1512,7 @@ async function salvarAvaria() {
     const novaQtd = Math.max(0, (lote ? lote.qtd_cheios : 0) - quantidade);
 
     const { error: errUpd } = await sb.from('lotes_garrafao').update({ qtd_cheios: novaQtd }).eq('id', lote_id);
-    if (errUpd) { toast('Erro ao atualizar estoque: ' + errUpd.message, true); return; }
+    if (errUpd) { toastErro('atualizar estoque', errUpd); return; }
 
     await sb.from('avarias').insert({ lote_id, tipo, quantidade, motivo, criado_por: currentUserId });
     await sb.from('movimentos_estoque').insert({ lote_id, tipo: 'avaria', quantidade: -quantidade, observacao: motivo, criado_por: currentUserId });
@@ -1484,7 +1524,7 @@ async function salvarAvaria() {
 
     if (vazio) {
       const { error: errUpd } = await sb.from('estoque_vazios').update({ quantidade: novaQtd }).eq('id', vazio.id);
-      if (errUpd) { toast('Erro ao atualizar estoque: ' + errUpd.message, true); return; }
+      if (errUpd) { toastErro('atualizar estoque', errUpd); return; }
     }
 
     await sb.from('avarias').insert({ ano_validade, tipo, quantidade, motivo, criado_por: currentUserId });
@@ -1597,7 +1637,7 @@ async function excluirCliente() {
   if (!segundaConfirmacao) return;
 
   const { error } = await sb.from('clientes').delete().eq('id', id);
-  if (error) { toast('Erro ao excluir cliente: ' + error.message, true); return; }
+  if (error) { toastErro('excluir cliente', error); return; }
 
   closeModal('modal-cliente');
   toast('Cliente excluído.');
@@ -1628,7 +1668,7 @@ async function salvarCliente() {
     ? await sb.from('clientes').update(payload).eq('id', id)
     : await sb.from('clientes').insert(payload);
 
-  if (error) { toast('Erro ao salvar cliente: ' + error.message, true); return; }
+  if (error) { toastErro('salvar cliente', error); return; }
   closeModal('modal-cliente');
   toast('Cliente salvo!');
   loadClientes();
@@ -1736,7 +1776,7 @@ async function registrarDevolucaoComodato() {
   const { error: errMov } = await sb.from('movimentos_comodato').insert({
     cliente_id: clienteId, marca_id: marcaId, ano_validade: anoValidade, tipo: 'devolucao', quantidade, criado_por: currentUserId,
   });
-  if (errMov) { toast('Erro ao registrar devolução: ' + errMov.message, true); return; }
+  if (errMov) { toastErro('registrar devolução', errMov); return; }
 
   const cliente = allClientes.find(c => c.id === clienteId);
   if (cliente) await sb.from('clientes').update({ saldo_comodato_garrafoes: Math.max(0, cliente.saldo_comodato_garrafoes - quantidade) }).eq('id', clienteId);
@@ -1749,7 +1789,7 @@ async function registrarDevolucaoComodato() {
 
 async function removerMovimentoComodato(id, clienteId, tipo, anoValidade, marcaId, quantidade) {
   const { error } = await sb.from('movimentos_comodato').delete().eq('id', id);
-  if (error) { toast('Erro ao excluir transação: ' + error.message, true); return; }
+  if (error) { toastErro('excluir transação', error); return; }
 
   const c = allClientes.find(x => x.id === clienteId);
   const delta = tipo === 'emprestimo' ? -quantidade : quantidade;
@@ -1844,7 +1884,7 @@ async function adicionarDesconto() {
   if (valor <= 0) { toast('Informe um valor de desconto válido', true); return; }
 
   const { error } = await sb.from('descontos_cliente').insert({ cliente_id, marca_id, tipo, valor });
-  if (error) { toast('Erro ao salvar desconto: ' + error.message, true); return; }
+  if (error) { toastErro('salvar desconto', error); return; }
 
   toast('Desconto adicionado!');
   loadDescontosCliente(cliente_id);
@@ -1852,7 +1892,7 @@ async function adicionarDesconto() {
 
 async function removerDesconto(id, clienteId) {
   const { error } = await sb.from('descontos_cliente').delete().eq('id', id);
-  if (error) { toast('Erro ao remover desconto: ' + error.message, true); return; }
+  if (error) { toastErro('remover desconto', error); return; }
   toast('Desconto removido!');
   loadDescontosCliente(clienteId);
 }
@@ -2194,7 +2234,7 @@ async function salvarPedido() {
     valor_dinheiro_misto: forma_pagamento === 'misto' ? valorDinheiroMisto : null,
     valor_pix_misto: forma_pagamento === 'misto' ? valorPixMisto : null,
   }).select().single();
-  if (error) { toast('Erro ao criar pedido: ' + error.message, true); return; }
+  if (error) { toastErro('criar pedido', error); return; }
 
   for (const it of itens) {
     const { error: errItem } = await sb.from('itens_pedido').insert({
@@ -2202,7 +2242,7 @@ async function salvarPedido() {
       quantidade: it.quantidade, preco_base: it.preco_base, preco_unitario: it.preco_unitario,
       tipo_vasilhame: it.tipo_vasilhame, preco_vasilhame: it.preco_vasilhame,
     });
-    if (errItem) { console.error('itens_pedido insert error:', errItem); toast('Erro ao salvar item do pedido: ' + errItem.message, true); }
+    if (errItem) toastErro('salvar item do pedido', errItem);
   }
 
   closeModal('modal-novo-pedido');
@@ -2220,7 +2260,7 @@ async function loadPedidos() {
   const { data, error } = await sb.from('pedidos')
     .select('*, clientes(nome), usuarios!pedidos_entregador_id_fkey(nome)')
     .order('data', { ascending: false });
-  if (error) { console.error('loadPedidos error:', error); toast('Erro ao carregar pedidos: ' + error.message, true); return; }
+  if (error) { toastErro('carregar pedidos', error); return; }
   allPedidos = data || [];
 
   pagamentosPorPedido = {};
@@ -2458,7 +2498,7 @@ async function confirmarPagamentoPedido() {
     cliente_id: p.cliente_id, pedido_id: id, valor, forma, criado_por: currentUserId,
     caixa_sessao_id: caixaSessaoAtual ? caixaSessaoAtual.id : null,
   });
-  if (error) { toast('Erro ao confirmar pagamento: ' + error.message, true); return; }
+  if (error) { toastErro('confirmar pagamento', error); return; }
 
   toast('Pagamento confirmado!');
   await loadPedidos();
@@ -2482,7 +2522,7 @@ async function confirmarPagamentoMistoParte(tipo) {
     cliente_id: p.cliente_id, pedido_id: id, valor, forma: tipo, criado_por: currentUserId,
     caixa_sessao_id: caixaSessaoAtual ? caixaSessaoAtual.id : null,
   });
-  if (error) { toast('Erro ao confirmar pagamento: ' + error.message, true); return; }
+  if (error) { toastErro('confirmar pagamento', error); return; }
 
   toast(`${tipo === 'dinheiro' ? 'Dinheiro' : 'Pix'} confirmado!`);
   await loadPedidos();
@@ -2604,6 +2644,25 @@ async function marcarEntregaConcluida(id) {
     toast('Entrega confirmada!');
     loadEntregas();
   });
+}
+
+// ============================================================
+// LOGS (desenvolvedor)
+// ============================================================
+async function loadLogs() {
+  const el = document.getElementById('logs-list');
+  const { data, error } = await sb.from('erros_app').select('*').order('criado_em', { ascending: false }).limit(200);
+  if (error) { el.innerHTML = '<div class="empty-state">Erro ao carregar logs: ' + escapeHtml(error.message) + '</div>'; return; }
+  if (!data.length) { el.innerHTML = '<div class="empty-state">Nenhum erro registrado</div>'; return; }
+  el.innerHTML = data.map(l => `
+    <div class="list-item">
+      <div class="item-info">
+        <div class="item-name">${escapeHtml(l.acao)}</div>
+        <div class="item-detail">${escapeHtml(l.mensagem || '—')}</div>
+        <div class="item-detail">${escapeHtml(l.pagina || '—')} · ${escapeHtml(l.role || '—')} · ${fmtDataHora(l.criado_em)}</div>
+      </div>
+    </div>
+  `).join('');
 }
 
 // ============================================================
@@ -2773,7 +2832,7 @@ async function confirmarAnoVazioEEntregar() {
 
   for (const s of todosOsSplits) {
     const { error } = await sb.from('vazios_devolvidos_pedido').insert(s);
-    if (error) { toast('Erro ao salvar divisão de vasilhame: ' + error.message, true); return; }
+    if (error) { toastErro('salvar divisão de vasilhame', error); return; }
   }
 
   // recebimento informado é só um registro pro caixa conferir depois —
@@ -2792,7 +2851,7 @@ async function confirmarAnoVazioEEntregar() {
         entregador_id: pedidoAtual ? pedidoAtual.entregador_id : currentUserId,
         forma: r.forma, valor: r.valor, criado_por: currentUserId,
       });
-      if (error) { toast('Erro ao registrar recebimento: ' + error.message, true); return; }
+      if (error) { toastErro('registrar recebimento', error); return; }
     }
   }
 
@@ -2802,7 +2861,7 @@ async function confirmarAnoVazioEEntregar() {
 
 async function efetivarEntrega(pedidoId, onConcluido) {
   const { error } = await sb.from('pedidos').update({ status_entrega: 'entregue', data_entrega: new Date().toISOString() }).eq('id', pedidoId);
-  if (error) { toast('Erro ao marcar entregue: ' + error.message, true); return; }
+  if (error) { toastErro('marcar entregue', error); return; }
   if (onConcluido) await onConcluido();
 }
 
@@ -2851,7 +2910,7 @@ async function verificarFechamentoAutomaticoCaixa() {
 
 let checagemCaixaIntervalId = null;
 function iniciarChecagemPeriodicaCaixa() {
-  if (checagemCaixaIntervalId || currentUserRole === 'entregador') return;
+  if (checagemCaixaIntervalId || currentUserRole === 'entregador' || currentUserRole === 'desenvolvedor') return;
   checagemCaixaIntervalId = setInterval(async () => {
     const fechou = await verificarFechamentoAutomaticoCaixa();
     if (!fechou) return;
@@ -3025,7 +3084,7 @@ async function salvarAberturaCaixa() {
   const { error } = await sb.from('caixa_sessoes').insert({ troco_inicial, observacao_abertura, aberto_por: currentUserId });
   if (error) {
     if (error.code === '23505') toast('Já existe um caixa aberto. Feche-o antes de abrir um novo.', true);
-    else toast('Erro ao abrir caixa: ' + error.message, true);
+    else toastErro('abrir caixa', error);
     return;
   }
 
@@ -3057,7 +3116,7 @@ async function salvarCaixaMovimento() {
   if (!motivo) { toast('Informe o motivo', true); return; }
 
   const { error } = await sb.from('caixa_movimentos').insert({ caixa_sessao_id: caixaSessaoAtual.id, tipo, valor, motivo, criado_por: currentUserId });
-  if (error) { toast('Erro ao registrar movimento: ' + error.message, true); return; }
+  if (error) { toastErro('registrar movimento', error); return; }
 
   closeModal('modal-caixa-movimento');
   toast(tipo === 'sangria' ? 'Sangria registrada!' : 'Suprimento registrado!');
@@ -3106,7 +3165,7 @@ async function salvarFechamentoCaixa() {
     fechado_em: new Date().toISOString(),
     fechado_por: currentUserId,
   }).eq('id', caixaSessaoAtual.id);
-  if (error) { toast('Erro ao fechar caixa: ' + error.message, true); return; }
+  if (error) { toastErro('fechar caixa', error); return; }
 
   closeModal('modal-fechar-caixa');
   toast('Caixa fechado!');
@@ -3152,7 +3211,7 @@ async function abrirRelatorioCaixa(sessaoId) {
   const { data: sessao, error } = await sb.from('caixa_sessoes')
     .select('*, aberto_por_usuario:usuarios!caixa_sessoes_aberto_por_fkey(nome), fechado_por_usuario:usuarios!caixa_sessoes_fechado_por_fkey(nome)')
     .eq('id', sessaoId).single();
-  if (error || !sessao) { toast('Erro ao carregar sessão de caixa: ' + (error?.message || ''), true); return; }
+  if (error || !sessao) { toastErro('carregar sessão de caixa', error || { message: 'sessão não encontrada' }); return; }
   relatorioCaixaSessao = sessao;
 
   document.getElementById('rc-titulo').textContent = `Caixa de ${fmtDataHora(sessao.aberto_em)}`;
@@ -3492,8 +3551,10 @@ function aplicarVisibilidadeNavCaixa() {
 
 function applyRoleUI(role) {
   const isEntregador = role === 'entregador';
-  document.getElementById('main-nav').style.display = isEntregador ? 'none' : 'flex';
+  const isDev = role === 'desenvolvedor';
+  document.getElementById('main-nav').style.display = (isEntregador || isDev) ? 'none' : 'flex';
   document.getElementById('entregador-nav').style.display = isEntregador ? 'flex' : 'none';
+  document.getElementById('dev-nav').style.display = isDev ? 'flex' : 'none';
   document.getElementById('header-role-badge').textContent = role;
 
   // Caixa não tem acesso ao Dashboard — só pedidos, estoque, clientes e caixa.
@@ -3502,6 +3563,8 @@ function applyRoleUI(role) {
 
   if (isEntregador) {
     goPage('entregas');
+  } else if (isDev) {
+    goPage('logs');
   } else if (role === 'caixa') {
     // Caixa cai direto na tela de abertura se o caixa estiver fechado,
     // ou na tela de vendas (pedidos) se já estiver aberto.

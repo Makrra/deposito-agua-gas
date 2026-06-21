@@ -11,7 +11,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE TABLE IF NOT EXISTS usuarios (
   id        UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   nome      TEXT NOT NULL,
-  role      TEXT NOT NULL DEFAULT 'caixa' CHECK (role IN ('administrador','caixa','entregador')),
+  role      TEXT NOT NULL DEFAULT 'caixa' CHECK (role IN ('administrador','caixa','entregador','desenvolvedor')),
   telefone  TEXT,
   ativo     BOOLEAN NOT NULL DEFAULT true,
   criado_em TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -339,6 +339,23 @@ CREATE TABLE IF NOT EXISTS vazios_devolvidos_pedido (
 CREATE INDEX IF NOT EXISTS idx_vazios_devolvidos_item ON vazios_devolvidos_pedido(item_pedido_id);
 
 -- ------------------------------------------------------------
+-- ERROS_APP (log central de erros vistos pelo usuário — hoje um erro de
+-- Supabase só aparece como toast na tela e se perde; isso guarda um
+-- registro pro perfil "desenvolvedor" investigar depois)
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS erros_app (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  acao       TEXT NOT NULL,  -- o que o usuário estava tentando fazer
+  mensagem   TEXT,           -- error.message do Supabase/JS
+  pagina     TEXT,           -- id da página ativa no momento do erro
+  usuario_id UUID REFERENCES usuarios(id),
+  role       TEXT,
+  criado_em  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_erros_app_criado_em ON erros_app(criado_em DESC);
+
+-- ------------------------------------------------------------
 -- 13. VIEWS
 -- ------------------------------------------------------------
 CREATE OR REPLACE VIEW vw_caixa_dia WITH (security_invoker = true) AS
@@ -492,6 +509,7 @@ ALTER TABLE pagamentos_pedido   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE recebimentos_entrega ENABLE ROW LEVEL SECURITY;
 ALTER TABLE movimentos_comodato ENABLE ROW LEVEL SECURITY;
 ALTER TABLE descontos_cliente   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE erros_app           ENABLE ROW LEVEL SECURITY;
 
 -- usuarios: qualquer autenticado lê a própria linha (p/ saber seu role);
 -- administrador e caixa leem todas as linhas (caixa precisa listar
@@ -771,6 +789,16 @@ CREATE POLICY "vazios_devolvidos_entregador_insert" ON vazios_devolvidos_pedido 
 
 ALTER TABLE vazios_devolvidos_pedido ENABLE ROW LEVEL SECURITY;
 
+-- erros_app: qualquer autenticado pode registrar um erro que viu (não dá
+-- pra saber de antemão qual role vai tropeçar em qual bug); só o perfil
+-- "desenvolvedor" lê os logs.
+DROP POLICY IF EXISTS "erros_app_insert_auth" ON erros_app;
+CREATE POLICY "erros_app_insert_auth" ON erros_app FOR INSERT
+  WITH CHECK (auth.role() = 'authenticated');
+DROP POLICY IF EXISTS "erros_app_select_dev" ON erros_app;
+CREATE POLICY "erros_app_select_dev" ON erros_app FOR SELECT
+  USING (public.current_role() = 'desenvolvedor');
+
 -- ============================================================
 -- SEED INICIAL
 -- ============================================================
@@ -779,7 +807,7 @@ VALUES ('preco_vasilhame_avulso', '15.00')
 ON CONFLICT (chave) DO NOTHING;
 
 INSERT INTO configuracoes (chave, valor)
-VALUES ('empresa_nome', 'Depósito de Água')
+VALUES ('empresa_nome', 'Depósito do Mago')
 ON CONFLICT (chave) DO NOTHING;
 
 -- ============================================================
@@ -1255,6 +1283,39 @@ ON CONFLICT (chave) DO NOTHING;
 -- próximo carregamento do app, sem servidor/cron próprio).
 -- ============================================================
 -- ALTER TABLE caixa_sessoes ADD COLUMN IF NOT EXISTS forma_fechamento TEXT CHECK (forma_fechamento IN ('manual','automatico'));
+
+-- ============================================================
+-- MIGRAÇÃO: perfil "desenvolvedor" (acesso à tela de Logs) e tabela
+-- erros_app (log central de erros vistos pelo usuário, hoje perdidos
+-- depois do toast desaparecer).
+-- ============================================================
+-- ALTER TABLE usuarios DROP CONSTRAINT IF EXISTS usuarios_role_check;
+-- ALTER TABLE usuarios ADD CONSTRAINT usuarios_role_check CHECK (role IN ('administrador','caixa','entregador','desenvolvedor'));
+--
+-- CREATE TABLE IF NOT EXISTS erros_app (
+--   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+--   acao       TEXT NOT NULL,
+--   mensagem   TEXT,
+--   pagina     TEXT,
+--   usuario_id UUID REFERENCES usuarios(id),
+--   role       TEXT,
+--   criado_em  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+-- );
+-- CREATE INDEX IF NOT EXISTS idx_erros_app_criado_em ON erros_app(criado_em DESC);
+-- ALTER TABLE erros_app ENABLE ROW LEVEL SECURITY;
+--
+-- DROP POLICY IF EXISTS "erros_app_insert_auth" ON erros_app;
+-- CREATE POLICY "erros_app_insert_auth" ON erros_app FOR INSERT
+--   WITH CHECK (auth.role() = 'authenticated');
+-- DROP POLICY IF EXISTS "erros_app_select_dev" ON erros_app;
+-- CREATE POLICY "erros_app_select_dev" ON erros_app FOR SELECT
+--   USING (public.current_role() = 'desenvolvedor');
+--
+-- Pra criar um usuário desenvolvedor: crie o login em Authentication >
+-- Users > Add user (igual a qualquer outro usuário), depois rode
+-- (substituindo o UUID pelo id do usuário criado):
+--
+-- INSERT INTO usuarios (id, nome, role) VALUES ('<uuid-do-usuario>', 'Seu Nome', 'desenvolvedor');
 
 -- Após rodar este script, crie o primeiro usuário em:
 -- Authentication > Users > Add user (email + senha)
