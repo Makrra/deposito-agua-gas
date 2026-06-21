@@ -108,6 +108,7 @@ CREATE TABLE IF NOT EXISTS clientes (
   nome                     TEXT NOT NULL,
   apelido                  TEXT,
   telefone                 TEXT,
+  cpf                      TEXT,
   endereco                 TEXT, -- legado, texto livre; preservado pra clientes cadastrados antes da separação em campos
   endereco_rua             TEXT,
   endereco_numero          TEXT,
@@ -1316,6 +1317,11 @@ ON CONFLICT (chave) DO NOTHING;
 -- (substituindo o UUID pelo id do usuário criado):
 --
 -- INSERT INTO usuarios (id, nome, role) VALUES ('<uuid-do-usuario>', 'Seu Nome', 'desenvolvedor');
+
+-- ============================================================
+-- MIGRAÇÃO: CPF no cadastro do cliente.
+-- ============================================================
+-- ALTER TABLE clientes ADD COLUMN IF NOT EXISTS cpf TEXT;
 
 -- Após rodar este script, crie o primeiro usuário em:
 -- Authentication > Users > Add user (email + senha)
