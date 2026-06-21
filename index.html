@@ -433,6 +433,8 @@ select.form-control option { background: var(--surface); }
       <div id="caixa-movimentos-list" class="loading"><div class="spinner"></div>Carregando...</div>
     </div>
 
+    <div id="caixa-resumo-periodo"></div>
+
     <button class="btn btn-outline btn-block" style="margin-top:14px;color:var(--red);border-color:var(--red)" onclick="abrirModalFecharCaixa()">Fechar Caixa</button>
   </div>
 
@@ -680,10 +682,16 @@ select.form-control option { background: var(--surface); }
       <div id="rc-movimentos-list"></div>
     </div>
 
-    <div class="card-title" style="margin:18px 0 10px">Ver mais sobre o período</div>
-    <button class="btn btn-outline btn-block" style="margin-bottom:8px" onclick="irParaPedidosDoCaixa()">Pedidos do Período</button>
-    <button class="btn btn-outline btn-block" style="margin-bottom:8px" onclick="irParaEntregasDoCaixa()">Entregas do Período</button>
-    <button class="btn btn-outline btn-block" onclick="closeModal('modal-relatorio-caixa'); goPage('estoque')">Ver Estoque Atual</button>
+    <!-- Caixa ainda aberto: atalhos pra página live, filtrada pelo período -->
+    <div id="rc-acoes-periodo">
+      <div class="card-title" style="margin:18px 0 10px">Ver mais sobre o período</div>
+      <button class="btn btn-outline btn-block" style="margin-bottom:8px" onclick="irParaPedidosDoCaixa()">Pedidos do Período</button>
+      <button class="btn btn-outline btn-block" style="margin-bottom:8px" onclick="irParaEntregasDoCaixa()">Entregas do Período</button>
+      <button class="btn btn-outline btn-block" onclick="closeModal('modal-relatorio-caixa'); goPage('estoque')">Ver Estoque Atual</button>
+    </div>
+
+    <!-- Caixa fechado: período é fixo, mostra como parte do próprio relatório -->
+    <div id="rc-resumo-periodo" style="display:none"></div>
   </div>
 </div>
 
@@ -2845,9 +2853,64 @@ async function loadCaixa() {
       `Aberto por ${nomeAbertura} em ${fmtDataHora(caixaSessaoAtual.aberto_em)}`;
     await calcularTotaisSessaoAtual();
     await renderMovimentosSessao();
+    const resumo = await calcularResumoPeriodoCaixa(caixaSessaoAtual.aberto_em, new Date().toISOString());
+    document.getElementById('caixa-resumo-periodo').innerHTML = htmlResumoPeriodoCaixa(resumo);
   }
 
   await loadHistoricoCaixa();
+}
+
+// Pedidos criados/abertos/finalizados/entregues e movimento de garrafões
+// (vendidos/recebidos/devolvidos/avariados) dentro de uma janela de tempo —
+// usado tanto no card "ao vivo" do caixa aberto quanto no relatório de uma
+// sessão já fechada.
+async function calcularResumoPeriodoCaixa(inicio, fim) {
+  const { data: pedidos } = await sb.from('pedidos').select('status, status_entrega').gte('data', inicio).lte('data', fim);
+  const lista = pedidos || [];
+  const pedidosResumo = {
+    criados: lista.length,
+    abertos: lista.filter(p => p.status === 'aberto').length,
+    finalizados: lista.filter(p => p.status === 'concluido').length,
+    cancelados: lista.filter(p => p.status === 'cancelado').length,
+    entregues: lista.filter(p => p.status_entrega === 'entregue').length,
+    entregaPendente: lista.filter(p => p.status_entrega === 'pendente').length,
+  };
+
+  const { data: movimentos } = await sb.from('movimentos_estoque').select('tipo, quantidade').gte('data', inicio).lte('data', fim);
+  const movs = movimentos || [];
+  const soma = tipo => movs.filter(m => m.tipo === tipo).reduce((s, m) => s + Math.abs(m.quantidade), 0);
+  const estoqueResumo = {
+    recebidos: soma('entrada_fabrica'),
+    vendidos: soma('saida_venda'),
+    devolvidos: soma('retorno_vazio'),
+    avarias: soma('avaria'),
+  };
+
+  return { pedidosResumo, estoqueResumo };
+}
+
+function htmlResumoPeriodoCaixa({ pedidosResumo, estoqueResumo }) {
+  return `
+    <div class="card">
+      <div class="card-title" style="margin-bottom:10px">Pedidos do Período</div>
+      <div class="stats" style="grid-template-columns:repeat(2,1fr)">
+        <div class="stat-card"><div class="stat-val">${pedidosResumo.criados}</div><div class="stat-lbl">Criados</div></div>
+        <div class="stat-card"><div class="stat-val">${pedidosResumo.abertos}</div><div class="stat-lbl">Abertos</div></div>
+        <div class="stat-card"><div class="stat-val text-green">${pedidosResumo.finalizados}</div><div class="stat-lbl">Finalizados</div></div>
+        <div class="stat-card"><div class="stat-val text-green">${pedidosResumo.entregues}</div><div class="stat-lbl">Entregues</div></div>
+        <div class="stat-card"><div class="stat-val text-yellow">${pedidosResumo.entregaPendente}</div><div class="stat-lbl">Entrega Pendente</div></div>
+        <div class="stat-card"><div class="stat-val text-red">${pedidosResumo.cancelados}</div><div class="stat-lbl">Cancelados</div></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title" style="margin-bottom:10px">Garrafões no Período</div>
+      <div class="stats" style="grid-template-columns:repeat(2,1fr)">
+        <div class="stat-card"><div class="stat-val text-green">${estoqueResumo.recebidos}</div><div class="stat-lbl">Recebidos</div></div>
+        <div class="stat-card"><div class="stat-val text-red">${estoqueResumo.vendidos}</div><div class="stat-lbl">Vendidos</div></div>
+        <div class="stat-card"><div class="stat-val">${estoqueResumo.devolvidos}</div><div class="stat-lbl">Vazios Devolvidos</div></div>
+        <div class="stat-card"><div class="stat-val text-red">${estoqueResumo.avarias}</div><div class="stat-lbl">Avarias</div></div>
+      </div>
+    </div>`;
 }
 
 async function calcularTotaisSessaoAtual() {
@@ -3087,6 +3150,17 @@ async function abrirRelatorioCaixa(sessaoId) {
         <div class="item-value ${m.tipo === 'sangria' ? 'text-red' : 'text-green'}">${sinal}${fmtMoeda(m.valor)}</div>
       </div>`;
   }).join('') || '<div class="empty-state">Nenhum movimento nesta sessão</div>';
+
+  // Sessão aberta: atalhos pra página live (dado muda em tempo real).
+  // Sessão fechada: período é fixo, mostra o resumo dentro do próprio relatório.
+  const fechada = sessao.status === 'fechado';
+  document.getElementById('rc-acoes-periodo').style.display = fechada ? 'none' : 'block';
+  const resumoEl = document.getElementById('rc-resumo-periodo');
+  resumoEl.style.display = fechada ? 'block' : 'none';
+  if (fechada) {
+    const resumo = await calcularResumoPeriodoCaixa(sessao.aberto_em, sessao.fechado_em);
+    resumoEl.innerHTML = htmlResumoPeriodoCaixa(resumo);
+  }
 
   openModal('modal-relatorio-caixa');
 }
