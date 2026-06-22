@@ -532,32 +532,34 @@ ALTER TABLE descontos_cliente   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE erros_app           ENABLE ROW LEVEL SECURITY;
 
 -- usuarios: qualquer autenticado lê a própria linha (p/ saber seu role);
--- administrador e caixa leem todas as linhas (caixa precisa listar
--- entregadores pra atribuir pedidos); só administrador gerencia (write).
+-- administrador, caixa e desenvolvedor leem todas as linhas (caixa precisa
+-- listar entregadores pra atribuir pedidos); só administrador/desenvolvedor
+-- gerenciam (write). Desenvolvedor tem o mesmo nível de acesso que
+-- administrador em tudo, mais a tela de Logs (ver fim deste bloco).
 DROP POLICY IF EXISTS "usuarios_select_self_or_admin" ON usuarios;
 CREATE POLICY "usuarios_select_self_or_admin" ON usuarios FOR SELECT
-  USING (id = auth.uid() OR public.current_role() IN ('administrador','caixa'));
+  USING (id = auth.uid() OR public.current_role() IN ('administrador','caixa','desenvolvedor'));
 
 DROP POLICY IF EXISTS "usuarios_insert_admin" ON usuarios;
 CREATE POLICY "usuarios_insert_admin" ON usuarios FOR INSERT
-  WITH CHECK (public.current_role() = 'administrador');
+  WITH CHECK (public.current_role() IN ('administrador','desenvolvedor'));
 
 DROP POLICY IF EXISTS "usuarios_update_admin" ON usuarios;
 CREATE POLICY "usuarios_update_admin" ON usuarios FOR UPDATE
-  USING (public.current_role() = 'administrador') WITH CHECK (public.current_role() = 'administrador');
+  USING (public.current_role() IN ('administrador','desenvolvedor')) WITH CHECK (public.current_role() IN ('administrador','desenvolvedor'));
 
 -- configuracoes: leitura para qualquer logado (administrador/caixa usam o
--- preco_vasilhame_avulso); escrita só administrador.
+-- preco_vasilhame_avulso); escrita administrador/desenvolvedor.
 DROP POLICY IF EXISTS "configuracoes_select_auth" ON configuracoes;
 CREATE POLICY "configuracoes_select_auth" ON configuracoes FOR SELECT
   USING (auth.role() = 'authenticated');
 
 DROP POLICY IF EXISTS "configuracoes_write_admin" ON configuracoes;
 CREATE POLICY "configuracoes_write_admin" ON configuracoes FOR ALL
-  USING (public.current_role() = 'administrador') WITH CHECK (public.current_role() = 'administrador');
+  USING (public.current_role() IN ('administrador','desenvolvedor')) WITH CHECK (public.current_role() IN ('administrador','desenvolvedor'));
 
 -- marcas: leitura para qualquer autenticado (entregador também precisa ver
--- nome da marca nos itens da entrega); escrita só administrador.
+-- nome da marca nos itens da entrega); escrita administrador/desenvolvedor.
 DROP POLICY IF EXISTS "marcas_select_admin_caixa" ON marcas;
 DROP POLICY IF EXISTS "marcas_select_auth" ON marcas;
 CREATE POLICY "marcas_select_auth" ON marcas FOR SELECT
@@ -565,86 +567,86 @@ CREATE POLICY "marcas_select_auth" ON marcas FOR SELECT
 
 DROP POLICY IF EXISTS "marcas_write_admin" ON marcas;
 CREATE POLICY "marcas_write_admin" ON marcas FOR INSERT
-  WITH CHECK (public.current_role() = 'administrador');
+  WITH CHECK (public.current_role() IN ('administrador','desenvolvedor'));
 DROP POLICY IF EXISTS "marcas_update_admin" ON marcas;
 CREATE POLICY "marcas_update_admin" ON marcas FOR UPDATE
-  USING (public.current_role() = 'administrador') WITH CHECK (public.current_role() = 'administrador');
+  USING (public.current_role() IN ('administrador','desenvolvedor')) WITH CHECK (public.current_role() IN ('administrador','desenvolvedor'));
 DROP POLICY IF EXISTS "marcas_delete_admin" ON marcas;
 CREATE POLICY "marcas_delete_admin" ON marcas FOR DELETE
-  USING (public.current_role() = 'administrador');
+  USING (public.current_role() IN ('administrador','desenvolvedor'));
 
 -- lotes_garrafao: leitura pra qualquer autenticado (entregador precisa ver
--- a validade na confirmação de entrega); escrita só administrador/caixa.
+-- a validade na confirmação de entrega); escrita administrador/caixa/desenvolvedor.
 DROP POLICY IF EXISTS "lotes_admin_caixa_all" ON lotes_garrafao;
 DROP POLICY IF EXISTS "lotes_select_auth" ON lotes_garrafao;
 CREATE POLICY "lotes_select_auth" ON lotes_garrafao FOR SELECT
   USING (auth.role() = 'authenticated');
 DROP POLICY IF EXISTS "lotes_insert_admin_caixa" ON lotes_garrafao;
 CREATE POLICY "lotes_insert_admin_caixa" ON lotes_garrafao FOR INSERT
-  WITH CHECK (public.current_role() IN ('administrador','caixa'));
+  WITH CHECK (public.current_role() IN ('administrador','caixa','desenvolvedor'));
 DROP POLICY IF EXISTS "lotes_update_admin_caixa" ON lotes_garrafao;
 CREATE POLICY "lotes_update_admin_caixa" ON lotes_garrafao FOR UPDATE
-  USING (public.current_role() IN ('administrador','caixa')) WITH CHECK (public.current_role() IN ('administrador','caixa'));
--- Exclusão de lote (cheios) é só do administrador — diferente de
--- insert/update, que caixa também pode fazer no dia a dia.
+  USING (public.current_role() IN ('administrador','caixa','desenvolvedor')) WITH CHECK (public.current_role() IN ('administrador','caixa','desenvolvedor'));
+-- Exclusão de lote (cheios) é só de administrador/desenvolvedor —
+-- diferente de insert/update, que caixa também pode fazer no dia a dia.
 DROP POLICY IF EXISTS "lotes_delete_admin_caixa" ON lotes_garrafao;
 DROP POLICY IF EXISTS "lotes_delete_admin" ON lotes_garrafao;
 CREATE POLICY "lotes_delete_admin" ON lotes_garrafao FOR DELETE
-  USING (public.current_role() = 'administrador');
+  USING (public.current_role() IN ('administrador','desenvolvedor'));
 
 -- estoque_vazios: leitura pra qualquer autenticado (entregador vê o aviso
--- de pool novo na confirmação de entrega); escrita só administrador/caixa
--- (o trigger de entrega usa SECURITY DEFINER e não passa por aqui).
+-- de pool novo na confirmação de entrega); escrita administrador/caixa/
+-- desenvolvedor (o trigger de entrega usa SECURITY DEFINER e não passa por aqui).
 DROP POLICY IF EXISTS "estoque_vazios_select_auth" ON estoque_vazios;
 CREATE POLICY "estoque_vazios_select_auth" ON estoque_vazios FOR SELECT
   USING (auth.role() = 'authenticated');
 DROP POLICY IF EXISTS "estoque_vazios_write_admin_caixa" ON estoque_vazios;
 CREATE POLICY "estoque_vazios_write_admin_caixa" ON estoque_vazios FOR ALL
-  USING (public.current_role() IN ('administrador','caixa'))
-  WITH CHECK (public.current_role() IN ('administrador','caixa'));
+  USING (public.current_role() IN ('administrador','caixa','desenvolvedor'))
+  WITH CHECK (public.current_role() IN ('administrador','caixa','desenvolvedor'));
 
--- estoque_gas, movimentos_estoque, avarias: administrador e caixa operam tudo.
+-- estoque_gas, movimentos_estoque, avarias: administrador, caixa e desenvolvedor operam tudo.
 
 DROP POLICY IF EXISTS "estoque_gas_admin_caixa_all" ON estoque_gas;
 CREATE POLICY "estoque_gas_admin_caixa_all" ON estoque_gas FOR ALL
-  USING (public.current_role() IN ('administrador','caixa'))
-  WITH CHECK (public.current_role() IN ('administrador','caixa'));
+  USING (public.current_role() IN ('administrador','caixa','desenvolvedor'))
+  WITH CHECK (public.current_role() IN ('administrador','caixa','desenvolvedor'));
 
 DROP POLICY IF EXISTS "movimentos_admin_caixa_all" ON movimentos_estoque;
 CREATE POLICY "movimentos_admin_caixa_all" ON movimentos_estoque FOR ALL
-  USING (public.current_role() IN ('administrador','caixa'))
-  WITH CHECK (public.current_role() IN ('administrador','caixa'));
+  USING (public.current_role() IN ('administrador','caixa','desenvolvedor'))
+  WITH CHECK (public.current_role() IN ('administrador','caixa','desenvolvedor'));
 
 DROP POLICY IF EXISTS "avarias_admin_caixa_all" ON avarias;
 CREATE POLICY "avarias_admin_caixa_all" ON avarias FOR ALL
-  USING (public.current_role() IN ('administrador','caixa'))
-  WITH CHECK (public.current_role() IN ('administrador','caixa'));
+  USING (public.current_role() IN ('administrador','caixa','desenvolvedor'))
+  WITH CHECK (public.current_role() IN ('administrador','caixa','desenvolvedor'));
 
 DROP POLICY IF EXISTS "pagamentos_fiado_admin_caixa_all" ON pagamentos_pedido;
 DROP POLICY IF EXISTS "pagamentos_pedido_admin_caixa_all" ON pagamentos_pedido;
 CREATE POLICY "pagamentos_pedido_admin_caixa_all" ON pagamentos_pedido FOR ALL
-  USING (public.current_role() IN ('administrador','caixa'))
-  WITH CHECK (public.current_role() IN ('administrador','caixa'));
+  USING (public.current_role() IN ('administrador','caixa','desenvolvedor'))
+  WITH CHECK (public.current_role() IN ('administrador','caixa','desenvolvedor'));
 
--- caixa_sessoes, caixa_movimentos: administrador e caixa operam tudo
--- (abrir/fechar caixa, registrar sangria/suprimento).
+-- caixa_sessoes, caixa_movimentos: administrador, caixa e desenvolvedor operam
+-- tudo (abrir/fechar caixa, registrar sangria/suprimento).
 DROP POLICY IF EXISTS "caixa_sessoes_admin_caixa_all" ON caixa_sessoes;
 CREATE POLICY "caixa_sessoes_admin_caixa_all" ON caixa_sessoes FOR ALL
-  USING (public.current_role() IN ('administrador','caixa'))
-  WITH CHECK (public.current_role() IN ('administrador','caixa'));
+  USING (public.current_role() IN ('administrador','caixa','desenvolvedor'))
+  WITH CHECK (public.current_role() IN ('administrador','caixa','desenvolvedor'));
 
 DROP POLICY IF EXISTS "caixa_movimentos_admin_caixa_all" ON caixa_movimentos;
 CREATE POLICY "caixa_movimentos_admin_caixa_all" ON caixa_movimentos FOR ALL
-  USING (public.current_role() IN ('administrador','caixa'))
-  WITH CHECK (public.current_role() IN ('administrador','caixa'));
+  USING (public.current_role() IN ('administrador','caixa','desenvolvedor'))
+  WITH CHECK (public.current_role() IN ('administrador','caixa','desenvolvedor'));
 
--- recebimentos_entrega: administrador/caixa têm acesso total (para
--- conferir o que o entregador declarou); entregador só lê/insere
+-- recebimentos_entrega: administrador/caixa/desenvolvedor têm acesso total
+-- (para conferir o que o entregador declarou); entregador só lê/insere
 -- declarações dos próprios pedidos de hoje.
 DROP POLICY IF EXISTS "recebimentos_entrega_admin_caixa_all" ON recebimentos_entrega;
 CREATE POLICY "recebimentos_entrega_admin_caixa_all" ON recebimentos_entrega FOR ALL
-  USING (public.current_role() IN ('administrador','caixa'))
-  WITH CHECK (public.current_role() IN ('administrador','caixa'));
+  USING (public.current_role() IN ('administrador','caixa','desenvolvedor'))
+  WITH CHECK (public.current_role() IN ('administrador','caixa','desenvolvedor'));
 
 DROP POLICY IF EXISTS "recebimentos_entrega_entregador_select" ON recebimentos_entrega;
 CREATE POLICY "recebimentos_entrega_entregador_select" ON recebimentos_entrega FOR SELECT
@@ -666,60 +668,63 @@ CREATE POLICY "recebimentos_entrega_entregador_insert" ON recebimentos_entrega F
     )
   );
 
--- movimentos_comodato: administrador e caixa podem ver/criar/editar (tanto
--- empréstimo quanto devolução), mas só administrador pode excluir uma
--- transação (correção de erro). O empréstimo criado pela entrega do
--- pedido é inserido pelo trigger (SECURITY DEFINER), não passa por RLS.
+-- movimentos_comodato: administrador/caixa/desenvolvedor podem ver/criar/
+-- editar (tanto empréstimo quanto devolução), mas só administrador/
+-- desenvolvedor podem excluir uma transação (correção de erro). O
+-- empréstimo criado pela entrega do pedido é inserido pelo trigger
+-- (SECURITY DEFINER), não passa por RLS.
 DROP POLICY IF EXISTS "devolucoes_admin_caixa_all" ON movimentos_comodato;
 DROP POLICY IF EXISTS "devolucoes_select_admin_caixa" ON movimentos_comodato;
 DROP POLICY IF EXISTS "movimentos_comodato_select_admin_caixa" ON movimentos_comodato;
 CREATE POLICY "movimentos_comodato_select_admin_caixa" ON movimentos_comodato FOR SELECT
-  USING (public.current_role() IN ('administrador','caixa'));
+  USING (public.current_role() IN ('administrador','caixa','desenvolvedor'));
 DROP POLICY IF EXISTS "devolucoes_insert_admin_caixa" ON movimentos_comodato;
 DROP POLICY IF EXISTS "movimentos_comodato_insert_admin_caixa" ON movimentos_comodato;
 CREATE POLICY "movimentos_comodato_insert_admin_caixa" ON movimentos_comodato FOR INSERT
-  WITH CHECK (public.current_role() IN ('administrador','caixa'));
+  WITH CHECK (public.current_role() IN ('administrador','caixa','desenvolvedor'));
 DROP POLICY IF EXISTS "devolucoes_update_admin_caixa" ON movimentos_comodato;
 DROP POLICY IF EXISTS "movimentos_comodato_update_admin_caixa" ON movimentos_comodato;
 CREATE POLICY "movimentos_comodato_update_admin_caixa" ON movimentos_comodato FOR UPDATE
-  USING (public.current_role() IN ('administrador','caixa')) WITH CHECK (public.current_role() IN ('administrador','caixa'));
+  USING (public.current_role() IN ('administrador','caixa','desenvolvedor')) WITH CHECK (public.current_role() IN ('administrador','caixa','desenvolvedor'));
 DROP POLICY IF EXISTS "devolucoes_delete_admin" ON movimentos_comodato;
 DROP POLICY IF EXISTS "movimentos_comodato_delete_admin" ON movimentos_comodato;
 CREATE POLICY "movimentos_comodato_delete_admin" ON movimentos_comodato FOR DELETE
-  USING (public.current_role() = 'administrador');
+  USING (public.current_role() IN ('administrador','desenvolvedor'));
 
--- descontos_cliente: administrador e caixa podem ver (precisam saber o
--- desconto pra aplicar num pedido), mas só administrador cria/edita/remove
--- (é uma decisão de preço, igual à restrição de preço de marca).
+-- descontos_cliente: administrador/caixa/desenvolvedor podem ver (precisam
+-- saber o desconto pra aplicar num pedido), mas só administrador/
+-- desenvolvedor criam/editam/removem (é uma decisão de preço, igual à
+-- restrição de preço de marca).
 DROP POLICY IF EXISTS "descontos_select_admin_caixa" ON descontos_cliente;
 CREATE POLICY "descontos_select_admin_caixa" ON descontos_cliente FOR SELECT
-  USING (public.current_role() IN ('administrador','caixa'));
+  USING (public.current_role() IN ('administrador','caixa','desenvolvedor'));
 
 DROP POLICY IF EXISTS "descontos_insert_admin" ON descontos_cliente;
 CREATE POLICY "descontos_insert_admin" ON descontos_cliente FOR INSERT
-  WITH CHECK (public.current_role() = 'administrador');
+  WITH CHECK (public.current_role() IN ('administrador','desenvolvedor'));
 DROP POLICY IF EXISTS "descontos_update_admin" ON descontos_cliente;
 CREATE POLICY "descontos_update_admin" ON descontos_cliente FOR UPDATE
-  USING (public.current_role() = 'administrador') WITH CHECK (public.current_role() = 'administrador');
+  USING (public.current_role() IN ('administrador','desenvolvedor')) WITH CHECK (public.current_role() IN ('administrador','desenvolvedor'));
 DROP POLICY IF EXISTS "descontos_delete_admin" ON descontos_cliente;
 CREATE POLICY "descontos_delete_admin" ON descontos_cliente FOR DELETE
-  USING (public.current_role() = 'administrador');
+  USING (public.current_role() IN ('administrador','desenvolvedor'));
 
--- clientes: administrador/caixa podem ver/criar/editar; só administrador pode excluir um
--- cliente; entregador só vê clientes de entregas do dia atribuídas a ele.
+-- clientes: administrador/caixa/desenvolvedor podem ver/criar/editar; só
+-- administrador/desenvolvedor podem excluir um cliente; entregador só vê
+-- clientes de entregas do dia atribuídas a ele.
 DROP POLICY IF EXISTS "clientes_admin_caixa_all" ON clientes;
 DROP POLICY IF EXISTS "clientes_select_admin_caixa" ON clientes;
 CREATE POLICY "clientes_select_admin_caixa" ON clientes FOR SELECT
-  USING (public.current_role() IN ('administrador','caixa'));
+  USING (public.current_role() IN ('administrador','caixa','desenvolvedor'));
 DROP POLICY IF EXISTS "clientes_insert_admin_caixa" ON clientes;
 CREATE POLICY "clientes_insert_admin_caixa" ON clientes FOR INSERT
-  WITH CHECK (public.current_role() IN ('administrador','caixa'));
+  WITH CHECK (public.current_role() IN ('administrador','caixa','desenvolvedor'));
 DROP POLICY IF EXISTS "clientes_update_admin_caixa" ON clientes;
 CREATE POLICY "clientes_update_admin_caixa" ON clientes FOR UPDATE
-  USING (public.current_role() IN ('administrador','caixa')) WITH CHECK (public.current_role() IN ('administrador','caixa'));
+  USING (public.current_role() IN ('administrador','caixa','desenvolvedor')) WITH CHECK (public.current_role() IN ('administrador','caixa','desenvolvedor'));
 DROP POLICY IF EXISTS "clientes_delete_admin" ON clientes;
 CREATE POLICY "clientes_delete_admin" ON clientes FOR DELETE
-  USING (public.current_role() = 'administrador');
+  USING (public.current_role() IN ('administrador','desenvolvedor'));
 
 DROP POLICY IF EXISTS "clientes_entregador_select" ON clientes;
 CREATE POLICY "clientes_entregador_select" ON clientes FOR SELECT
@@ -733,12 +738,12 @@ CREATE POLICY "clientes_entregador_select" ON clientes FOR SELECT
     )
   );
 
--- pedidos: administrador/caixa têm acesso total. entregador só vê e só
--- atualiza (via trigger de guarda) os pedidos do dia atribuídos a ele.
+-- pedidos: administrador/caixa/desenvolvedor têm acesso total. entregador
+-- só vê e só atualiza (via trigger de guarda) os pedidos do dia atribuídos a ele.
 DROP POLICY IF EXISTS "pedidos_admin_caixa_all" ON pedidos;
 CREATE POLICY "pedidos_admin_caixa_all" ON pedidos FOR ALL
-  USING (public.current_role() IN ('administrador','caixa'))
-  WITH CHECK (public.current_role() IN ('administrador','caixa'));
+  USING (public.current_role() IN ('administrador','caixa','desenvolvedor'))
+  WITH CHECK (public.current_role() IN ('administrador','caixa','desenvolvedor'));
 
 DROP POLICY IF EXISTS "pedidos_entregador_select" ON pedidos;
 CREATE POLICY "pedidos_entregador_select" ON pedidos FOR SELECT
@@ -761,12 +766,12 @@ CREATE POLICY "pedidos_entregador_update" ON pedidos FOR UPDATE
     AND data::date = CURRENT_DATE
   );
 
--- itens_pedido: administrador/caixa têm acesso total; entregador só lê os
--- itens dos pedidos visíveis a ele (para saber o que entregar).
+-- itens_pedido: administrador/caixa/desenvolvedor têm acesso total;
+-- entregador só lê os itens dos pedidos visíveis a ele (para saber o que entregar).
 DROP POLICY IF EXISTS "itens_pedido_admin_caixa_all" ON itens_pedido;
 CREATE POLICY "itens_pedido_admin_caixa_all" ON itens_pedido FOR ALL
-  USING (public.current_role() IN ('administrador','caixa'))
-  WITH CHECK (public.current_role() IN ('administrador','caixa'));
+  USING (public.current_role() IN ('administrador','caixa','desenvolvedor'))
+  WITH CHECK (public.current_role() IN ('administrador','caixa','desenvolvedor'));
 
 DROP POLICY IF EXISTS "itens_pedido_entregador_select" ON itens_pedido;
 CREATE POLICY "itens_pedido_entregador_select" ON itens_pedido FOR SELECT
@@ -780,13 +785,13 @@ CREATE POLICY "itens_pedido_entregador_select" ON itens_pedido FOR SELECT
     )
   );
 
--- vazios_devolvidos_pedido: administrador/caixa têm acesso total;
--- entregador só insere/lê linhas dos itens dos pedidos de hoje
+-- vazios_devolvidos_pedido: administrador/caixa/desenvolvedor têm acesso
+-- total; entregador só insere/lê linhas dos itens dos pedidos de hoje
 -- atribuídos a ele (informa o ano do vasilhame devolvido na entrega).
 DROP POLICY IF EXISTS "vazios_devolvidos_admin_caixa_all" ON vazios_devolvidos_pedido;
 CREATE POLICY "vazios_devolvidos_admin_caixa_all" ON vazios_devolvidos_pedido FOR ALL
-  USING (public.current_role() IN ('administrador','caixa'))
-  WITH CHECK (public.current_role() IN ('administrador','caixa'));
+  USING (public.current_role() IN ('administrador','caixa','desenvolvedor'))
+  WITH CHECK (public.current_role() IN ('administrador','caixa','desenvolvedor'));
 
 DROP POLICY IF EXISTS "vazios_devolvidos_entregador_select" ON vazios_devolvidos_pedido;
 CREATE POLICY "vazios_devolvidos_entregador_select" ON vazios_devolvidos_pedido FOR SELECT
@@ -814,7 +819,8 @@ ALTER TABLE vazios_devolvidos_pedido ENABLE ROW LEVEL SECURITY;
 
 -- erros_app: qualquer autenticado pode registrar um erro que viu (não dá
 -- pra saber de antemão qual role vai tropeçar em qual bug); só o perfil
--- "desenvolvedor" lê os logs.
+-- "desenvolvedor" lê os logs (acesso exclusivo — nem administrador vê,
+-- já que desenvolvedor é o único nível acima de administrador).
 DROP POLICY IF EXISTS "erros_app_insert_auth" ON erros_app;
 CREATE POLICY "erros_app_insert_auth" ON erros_app FOR INSERT
   WITH CHECK (auth.role() = 'authenticated');
@@ -1385,7 +1391,18 @@ ON CONFLICT (chave) DO NOTHING;
 -- DROP POLICY IF EXISTS "lotes_delete_admin_caixa" ON lotes_garrafao;
 -- DROP POLICY IF EXISTS "lotes_delete_admin" ON lotes_garrafao;
 -- CREATE POLICY "lotes_delete_admin" ON lotes_garrafao FOR DELETE
---   USING (public.current_role() = 'administrador');
+--   USING (public.current_role() IN ('administrador','desenvolvedor'));
+
+-- ============================================================
+-- MIGRAÇÃO: "desenvolvedor" passa a ter o mesmo nível de acesso que
+-- administrador em TUDO (além da tela de Logs, que continua exclusiva
+-- dele). Isso reescreve praticamente toda a seção "RLS POLICIES" deste
+-- arquivo — em vez de duplicar aqui, copie o bloco inteiro de
+-- "-- RLS POLICIES" até (mas sem incluir) "-- erros_app:" mais acima
+-- neste arquivo, e rode no SQL Editor. Todo DROP POLICY ali já é
+-- "IF EXISTS", então é seguro rodar de novo mesmo que parte já tenha
+-- sido aplicada.
+-- ============================================================
 
 -- Após rodar este script, crie o primeiro usuário em:
 -- Authentication > Users > Add user (email + senha)

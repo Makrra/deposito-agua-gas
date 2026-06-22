@@ -270,6 +270,9 @@ select.form-control option { background: var(--surface); }
   </div>
   <div style="display:flex;align-items:center;gap:8px">
     <span class="role-badge" id="header-role-badge"></span>
+    <button class="logout-btn" onclick="atualizarPaginaAtual()" title="Atualizar">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" style="display:block"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/><path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14"/></svg>
+    </button>
     <button class="logout-btn" onclick="doLogout()">Sair</button>
   </div>
 </div>
@@ -485,6 +488,10 @@ select.form-control option { background: var(--surface); }
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
     Clientes
   </button>
+  <button class="nav-btn" id="nav-btn-logs" style="display:none" onclick="goPage('logs')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
+    Logs
+  </button>
 </nav>
 
 <!-- ======= NAV (entregador) ======= -->
@@ -492,14 +499,6 @@ select.form-control option { background: var(--surface); }
   <button class="nav-btn active" onclick="goPage('entregas')">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
     Entregas
-  </button>
-</nav>
-
-<!-- ======= NAV (desenvolvedor) ======= -->
-<nav class="nav" id="dev-nav" style="display:none">
-  <button class="nav-btn active" onclick="goPage('logs')">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
-    Logs
   </button>
 </nav>
 
@@ -991,9 +990,16 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 // ============================================================
 // STATE
 // ============================================================
-let currentUserRole = null; // 'administrador' | 'caixa' | 'entregador'
+let currentUserRole = null; // 'administrador' | 'caixa' | 'entregador' | 'desenvolvedor'
 let currentUserId = null;
-const PAGES_ADMIN_CAIXA = ['dash', 'caixa', 'pedidos', 'estoque', 'clientes'];
+const PAGES_ADMIN_CAIXA = ['dash', 'caixa', 'pedidos', 'estoque', 'clientes', 'logs'];
+
+// Desenvolvedor tem o mesmo nível de acesso que administrador em tudo,
+// mais a tela de Logs — qualquer checagem de "só administrador" na UI
+// deve usar isso em vez de comparar direto com 'administrador'.
+function isAdminLevel() {
+  return currentUserRole === 'administrador' || currentUserRole === 'desenvolvedor';
+}
 
 let allMarcas = [];
 let allLotes = [];
@@ -1077,9 +1083,9 @@ function goPage(name) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.getElementById('page-' + name).classList.add('active');
 
-  const navId = currentUserRole === 'entregador' ? 'entregador-nav' : currentUserRole === 'desenvolvedor' ? 'dev-nav' : 'main-nav';
+  const navId = currentUserRole === 'entregador' ? 'entregador-nav' : 'main-nav';
   document.querySelectorAll('#' + navId + ' .nav-btn').forEach(b => b.classList.remove('active'));
-  const pages = currentUserRole === 'entregador' ? ['entregas'] : currentUserRole === 'desenvolvedor' ? ['logs'] : PAGES_ADMIN_CAIXA;
+  const pages = currentUserRole === 'entregador' ? ['entregas'] : PAGES_ADMIN_CAIXA;
   const idx = pages.indexOf(name);
   if (idx >= 0) document.querySelectorAll('#' + navId + ' .nav-btn')[idx].classList.add('active');
 
@@ -1090,6 +1096,23 @@ function goPage(name) {
   if (name === 'entregas')  loadEntregas();
   if (name === 'caixa')     loadCaixa();
   if (name === 'logs')      loadLogs();
+}
+
+// Botão de atualizar no cabeçalho — recarrega os dados da tela atual sem
+// navegar pra lugar nenhum (evita perder a aba/filtro que o usuário já
+// tinha escolhido só pra ver uma entrada nova chegar).
+function atualizarPaginaAtual() {
+  const activePage = document.querySelector('.page.active');
+  if (!activePage) return;
+  const name = activePage.id.replace('page-', '');
+  if (name === 'estoque')   loadEstoque();
+  if (name === 'clientes')  loadClientes();
+  if (name === 'dash')      loadDashboard();
+  if (name === 'pedidos')   loadPedidos();
+  if (name === 'entregas')  loadEntregas();
+  if (name === 'caixa')     loadCaixa();
+  if (name === 'logs')      loadLogs();
+  toast('Atualizado!');
 }
 
 // ============================================================
@@ -1198,7 +1221,7 @@ function estoqueSetView(view) {
 }
 
 async function loadEstoque() {
-  document.getElementById('btn-nova-marca').style.display = currentUserRole === 'administrador' ? 'block' : 'none';
+  document.getElementById('btn-nova-marca').style.display = isAdminLevel() ? 'block' : 'none';
 
   const { data: marcas } = await sb.from('marcas').select('*').order('nome');
   allMarcas = marcas || [];
@@ -1220,7 +1243,7 @@ async function loadEstoque() {
 function renderMarcasList() {
   const el = document.getElementById('marcas-list');
   if (!allMarcas.length) { el.innerHTML = '<div class="empty-state">Nenhuma marca cadastrada</div>'; return; }
-  const podeEditar = currentUserRole === 'administrador';
+  const podeEditar = isAdminLevel();
   el.innerHTML = allMarcas.map(m => `
     <div class="list-item">
       <div class="item-info">
@@ -1238,7 +1261,7 @@ function atualizarCampoTamanhoMarca() {
 }
 
 function abrirNovaMarca() {
-  if (currentUserRole !== 'administrador') { toast('Só o administrador pode cadastrar marcas', true); return; }
+  if (!isAdminLevel()) { toast('Só o administrador pode cadastrar marcas', true); return; }
   document.getElementById('marca-modal-title').textContent = 'Nova Marca';
   document.getElementById('marca-id').value = '';
   document.getElementById('marca-tipo').value = 'agua';
@@ -1358,7 +1381,7 @@ function filterLotesPorTamanho(tamanho) {
 function renderLotesList() {
   const el = document.getElementById('lotes-list');
   if (!allLotes.length) { el.innerHTML = '<div class="empty-state">Nenhum lote cadastrado</div>'; return; }
-  const podeExcluir = currentUserRole === 'administrador';
+  const podeExcluir = isAdminLevel();
   const filtrados = currentLoteFiltroTamanho === 'todos'
     ? allLotes
     : allLotes.filter(l => l.marcas && l.marcas.tamanho_litros === currentLoteFiltroTamanho);
@@ -1741,7 +1764,7 @@ function abrirEditarCliente(id) {
   legadoEl.style.display = c.endereco ? 'block' : 'none';
   legadoEl.textContent = c.endereco ? `Endereço cadastrado antes da separação em campos (referência): ${c.endereco}` : '';
   document.getElementById('cliente-observacao').value = c.observacao || '';
-  document.getElementById('btn-excluir-cliente').style.display = currentUserRole === 'administrador' ? 'block' : 'none';
+  document.getElementById('btn-excluir-cliente').style.display = isAdminLevel() ? 'block' : 'none';
   openModal('modal-cliente');
 }
 
@@ -1846,7 +1869,7 @@ function atualizarCampoAnoComodato() {
 }
 
 function comodatoRowHTML(d) {
-  const podeExcluir = currentUserRole === 'administrador';
+  const podeExcluir = isAdminLevel();
   const tipoLabel = d.tipo === 'emprestimo' ? 'Empréstimo' : 'Devolução';
   const marcaNome = d.marcas ? nomeMarcaComTamanho(d.marcas) : '—';
   const validadeTexto = d.ano_validade ? ` · val. ${d.ano_validade}` : '';
@@ -1975,7 +1998,7 @@ function abrirHistoricoCompleto(tipo) {
 // DESCONTOS POR CLIENTE/MARCA
 // ============================================================
 async function loadDescontosCliente(clienteId) {
-  document.getElementById('desconto-form').style.display = currentUserRole === 'administrador' ? 'block' : 'none';
+  document.getElementById('desconto-form').style.display = isAdminLevel() ? 'block' : 'none';
 
   const sel = document.getElementById('desconto-marca');
   sel.innerHTML = '<option value="">Qualquer marca</option>' +
@@ -1989,7 +2012,7 @@ async function loadDescontosCliente(clienteId) {
 
 function renderDescontosLista(descontos) {
   const el = document.getElementById('descontos-lista');
-  const podeRemover = currentUserRole === 'administrador';
+  const podeRemover = isAdminLevel();
   if (!descontos.length) { el.innerHTML = '<div class="empty-state">Sem descontos cadastrados</div>'; return; }
   el.innerHTML = descontos.map(d => `
     <div class="list-item">
@@ -2384,7 +2407,7 @@ async function salvarPedido() {
 async function loadPedidos() {
   await loadEntregadoresList();
   const { data, error } = await sb.from('pedidos')
-    .select('*, clientes(nome), usuarios!pedidos_entregador_id_fkey(nome)')
+    .select('*, clientes(nome), usuarios!pedidos_entregador_id_fkey(nome), criador:usuarios!pedidos_criado_por_fkey(nome, role)')
     .order('data', { ascending: false });
   if (error) { toastErro('carregar pedidos', error); return; }
   allPedidos = data || [];
@@ -2504,6 +2527,7 @@ async function abrirPedidoDetalhe(id) {
     <div class="card-sub">${fmtData(p.data)}</div>
     <div style="margin-top:6px">${badgePagamento(p.forma_pagamento)} ${badgeStatusPagamento(p)} ${badgeStatusEntrega(p.status_entrega)}</div>
     <div class="item-value" style="margin-top:8px">${fmtMoeda(p.total)}</div>
+    ${p.criador ? `<div class="card-sub" style="margin-top:6px">Aberto por: ${escapeHtml(p.criador.nome)} (${escapeHtml(p.criador.role)})</div>` : ''}
     ${p.usuarios ? `<div class="card-sub" style="margin-top:6px">Entregador: ${escapeHtml(p.usuarios.nome)}</div>` : ''}
     ${p.observacao ? `<div class="card-sub" style="margin-top:6px">Obs: ${escapeHtml(p.observacao)}</div>` : ''}
     ${p.status_entrega === 'pendente' ? `<div class="card-sub" style="margin-top:6px">Estoque e saldos só são atualizados quando o pedido for marcado como entregue.</div>` : ''}
@@ -3038,7 +3062,7 @@ async function verificarFechamentoAutomaticoCaixa() {
 
 let checagemCaixaIntervalId = null;
 function iniciarChecagemPeriodicaCaixa() {
-  if (checagemCaixaIntervalId || currentUserRole === 'entregador' || currentUserRole === 'desenvolvedor') return;
+  if (checagemCaixaIntervalId || currentUserRole === 'entregador') return;
   checagemCaixaIntervalId = setInterval(async () => {
     const fechou = await verificarFechamentoAutomaticoCaixa();
     if (!fechou) return;
@@ -3691,20 +3715,19 @@ function aplicarVisibilidadeNavCaixa() {
 
 function applyRoleUI(role) {
   const isEntregador = role === 'entregador';
-  const isDev = role === 'desenvolvedor';
-  document.getElementById('main-nav').style.display = (isEntregador || isDev) ? 'none' : 'flex';
+  document.getElementById('main-nav').style.display = isEntregador ? 'none' : 'flex';
   document.getElementById('entregador-nav').style.display = isEntregador ? 'flex' : 'none';
-  document.getElementById('dev-nav').style.display = isDev ? 'flex' : 'none';
   document.getElementById('header-role-badge').textContent = role;
 
   // Caixa não tem acesso ao Dashboard — só pedidos, estoque, clientes e caixa.
   document.getElementById('nav-btn-dash').style.display = role === 'caixa' ? 'none' : 'flex';
+  // Logs é exclusivo do desenvolvedor — que, fora isso, tem o mesmo nível
+  // de acesso que administrador em tudo (ver isAdminLevel()).
+  document.getElementById('nav-btn-logs').style.display = role === 'desenvolvedor' ? 'flex' : 'none';
   aplicarVisibilidadeNavCaixa();
 
   if (isEntregador) {
     goPage('entregas');
-  } else if (isDev) {
-    goPage('logs');
   } else if (role === 'caixa') {
     // Caixa cai direto na tela de abertura se o caixa estiver fechado,
     // ou na tela de vendas (pedidos) se já estiver aberto.
