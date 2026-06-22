@@ -585,9 +585,12 @@ CREATE POLICY "lotes_insert_admin_caixa" ON lotes_garrafao FOR INSERT
 DROP POLICY IF EXISTS "lotes_update_admin_caixa" ON lotes_garrafao;
 CREATE POLICY "lotes_update_admin_caixa" ON lotes_garrafao FOR UPDATE
   USING (public.current_role() IN ('administrador','caixa')) WITH CHECK (public.current_role() IN ('administrador','caixa'));
+-- Exclusão de lote (cheios) é só do administrador — diferente de
+-- insert/update, que caixa também pode fazer no dia a dia.
 DROP POLICY IF EXISTS "lotes_delete_admin_caixa" ON lotes_garrafao;
-CREATE POLICY "lotes_delete_admin_caixa" ON lotes_garrafao FOR DELETE
-  USING (public.current_role() IN ('administrador','caixa'));
+DROP POLICY IF EXISTS "lotes_delete_admin" ON lotes_garrafao;
+CREATE POLICY "lotes_delete_admin" ON lotes_garrafao FOR DELETE
+  USING (public.current_role() = 'administrador');
 
 -- estoque_vazios: leitura pra qualquer autenticado (entregador vê o aviso
 -- de pool novo na confirmação de entrega); escrita só administrador/caixa
@@ -1374,6 +1377,15 @@ ON CONFLICT (chave) DO NOTHING;
 -- -- public.processar_entrega_pedido()" completo, mais acima neste arquivo
 -- -- (seção de TRIGGERS DE GUARDA DE COLUNA), e rode no SQL Editor — ela já
 -- -- está atualizada pra resolver e propagar tamanho_litros.
+
+-- ============================================================
+-- MIGRAÇÃO: exclusão de lote de garrafão (cheios) passa a ser só do
+-- administrador, com filtro por tamanho na tela do Estoque.
+-- ============================================================
+-- DROP POLICY IF EXISTS "lotes_delete_admin_caixa" ON lotes_garrafao;
+-- DROP POLICY IF EXISTS "lotes_delete_admin" ON lotes_garrafao;
+-- CREATE POLICY "lotes_delete_admin" ON lotes_garrafao FOR DELETE
+--   USING (public.current_role() = 'administrador');
 
 -- Após rodar este script, crie o primeiro usuário em:
 -- Authentication > Users > Add user (email + senha)
