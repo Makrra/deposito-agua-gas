@@ -1398,13 +1398,30 @@ async function excluirLote(id) {
   const tamanhoSufixo = lote.marcas && lote.marcas.tamanho_litros ? ` (${lote.marcas.tamanho_litros}L)` : '';
   const nomeLote = `${lote.marcas ? lote.marcas.nome : '—'}${tamanhoSufixo} · validade ${lote.ano_validade}`;
 
+  // Se o lote já foi vendido em algum pedido de verdade, não deixa excluir
+  // — apagar o item de um pedido já feito corromperia o histórico de venda
+  // do cliente. Movimentos internos (entrada, ajuste, avaria) podem ser
+  // apagados junto sem problema, são só registro de controle.
+  const { data: itensVinculados, error: errCheck } = await sb.from('itens_pedido').select('id').eq('lote_id', id);
+  if (errCheck) { toastErro('verificar uso do lote', errCheck); return; }
+  if (itensVinculados && itensVinculados.length > 0) {
+    toast(`Esse lote já foi vendido em ${itensVinculados.length} pedido(s) — não pode ser excluído (corromperia o histórico de venda). Cancele o(s) pedido(s) antes, se for o caso.`, true);
+    return;
+  }
+
   const primeiraConfirmacao = confirm(
-    `Excluir o lote "${nomeLote}" (${lote.qtd_cheios} cheios)?\n\nIsso só funciona se esse lote nunca teve movimento (entrada, venda, avaria) — senão o banco vai bloquear a exclusão.`
+    `Excluir o lote "${nomeLote}" (${lote.qtd_cheios} cheios)?\n\nIsso também apaga o histórico de movimentos (entradas, ajustes, avarias) desse lote.`
   );
   if (!primeiraConfirmacao) return;
 
   const segundaConfirmacao = confirm(`Tem certeza ABSOLUTA? Essa ação não pode ser desfeita.\n\nLote: ${nomeLote}`);
   if (!segundaConfirmacao) return;
+
+  const { error: errMov } = await sb.from('movimentos_estoque').delete().eq('lote_id', id);
+  if (errMov) { toastErro('excluir histórico do lote', errMov); return; }
+
+  const { error: errAvarias } = await sb.from('avarias').delete().eq('lote_id', id);
+  if (errAvarias) { toastErro('excluir avarias do lote', errAvarias); return; }
 
   const { error } = await sb.from('lotes_garrafao').delete().eq('id', id);
   if (error) { toastErro('excluir lote', error); return; }
