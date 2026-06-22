@@ -37,16 +37,27 @@ CREATE TABLE IF NOT EXISTS configuracoes (
 );
 
 -- ------------------------------------------------------------
--- 3. MARCAS (marca de água ou de gás, preço de venda atual)
+-- 3. MARCAS (marca de água ou de gás, preço de venda atual; para água,
+-- cada combinação marca+tamanho é uma linha distinta — ex: "Indaiá" 20L
+-- e "Indaiá" 10L são duas marcas separadas, cada uma com seu preço)
 -- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS marcas (
   id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  nome              TEXT NOT NULL UNIQUE,
+  nome              TEXT NOT NULL,
   tipo              TEXT NOT NULL DEFAULT 'agua' CHECK (tipo IN ('agua','gas')),
+  tamanho_litros    INTEGER CHECK (tamanho_litros > 0), -- obrigatório p/ água, NULL p/ gás (sem litragem)
   preco_venda_atual NUMERIC(10,2) NOT NULL DEFAULT 0,
   ativo             BOOLEAN NOT NULL DEFAULT true,
-  criado_em         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  criado_em         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT chk_marca_tamanho_obrigatorio_agua CHECK (tipo = 'gas' OR tamanho_litros IS NOT NULL)
 );
+
+-- nome+tamanho único só faz sentido pra água (cada litragem é um produto
+-- distinto); gás continua único só por nome (sem litragem).
+CREATE UNIQUE INDEX IF NOT EXISTS uq_marcas_nome_tamanho_agua
+  ON marcas (nome, tamanho_litros) WHERE tipo = 'agua';
+CREATE UNIQUE INDEX IF NOT EXISTS uq_marcas_nome_gas
+  ON marcas (nome) WHERE tipo = 'gas';
 
 -- ------------------------------------------------------------
 -- 4. LOTES_GARRAFAO (cheios apenas — um registro por marca + ano de
@@ -71,15 +82,17 @@ CREATE INDEX IF NOT EXISTS idx_lotes_ano_validade ON lotes_garrafao(ano_validade
 CREATE INDEX IF NOT EXISTS idx_lotes_status       ON lotes_garrafao(status);
 
 -- ------------------------------------------------------------
--- 4b. ESTOQUE_VAZIOS (pool global de vasilhames vazios por ano de
--- validade, sem marca — o vasilhame físico pode voltar a ser enchido
--- por qualquer marca)
+-- 4b. ESTOQUE_VAZIOS (pool global de vasilhames vazios por tamanho +
+-- ano de validade, sem marca — o vasilhame físico pode voltar a ser
+-- enchido por qualquer marca daquele mesmo tamanho)
 -- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS estoque_vazios (
-  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  ano_validade INTEGER NOT NULL UNIQUE CHECK (ano_validade BETWEEN 2000 AND 2100),
-  quantidade   INTEGER NOT NULL DEFAULT 0 CHECK (quantidade >= 0),
-  criado_em    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tamanho_litros INTEGER NOT NULL CHECK (tamanho_litros > 0),
+  ano_validade   INTEGER NOT NULL CHECK (ano_validade BETWEEN 2000 AND 2100),
+  quantidade     INTEGER NOT NULL DEFAULT 0 CHECK (quantidade >= 0),
+  criado_em      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT uq_estoque_vazios_tamanho_ano UNIQUE (tamanho_litros, ano_validade)
 );
 
 -- ------------------------------------------------------------
@@ -180,6 +193,7 @@ CREATE TABLE IF NOT EXISTS movimentos_estoque (
   id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   lote_id              UUID REFERENCES lotes_garrafao(id) ON DELETE RESTRICT,
   ano_validade         INTEGER, -- usado quando o movimento é do pool de vazios (lote_id fica NULL)
+  tamanho_litros       INTEGER, -- denormalizado: NULL p/ gás, populado em todo movimento de água (evita join até marcas nos relatórios)
   tipo                 TEXT NOT NULL CHECK (tipo IN ('entrada_fabrica','saida_venda','retorno_vazio','avaria','ajuste','reaproveitamento')),
   quantidade           INTEGER NOT NULL,
   referencia_pedido_id UUID REFERENCES pedidos(id),
@@ -196,14 +210,15 @@ CREATE INDEX IF NOT EXISTS idx_mov_estoque_data ON movimentos_estoque(data);
 -- igual ao pool de vazios)
 -- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS avarias (
-  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  lote_id      UUID REFERENCES lotes_garrafao(id) ON DELETE RESTRICT, -- só pra tipo='cheio'
-  ano_validade INTEGER, -- só pra tipo='vazio'
-  tipo         TEXT NOT NULL DEFAULT 'cheio' CHECK (tipo IN ('cheio','vazio')),
-  quantidade   INTEGER NOT NULL CHECK (quantidade > 0),
-  motivo       TEXT,
-  data         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  criado_por   UUID REFERENCES usuarios(id)
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  lote_id        UUID REFERENCES lotes_garrafao(id) ON DELETE RESTRICT, -- só pra tipo='cheio'
+  ano_validade   INTEGER, -- só pra tipo='vazio'
+  tamanho_litros INTEGER, -- só pra tipo='vazio' (cheio deriva o tamanho via lote_id->marca)
+  tipo           TEXT NOT NULL DEFAULT 'cheio' CHECK (tipo IN ('cheio','vazio')),
+  quantidade     INTEGER NOT NULL CHECK (quantidade > 0),
+  motivo         TEXT,
+  data           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  criado_por     UUID REFERENCES usuarios(id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_avarias_lote ON avarias(lote_id);
@@ -423,28 +438,32 @@ DECLARE
   v_total_devolvido INTEGER;
   v_diferenca INTEGER;
   v_ano_origem INTEGER;
+  v_tamanho_litros INTEGER;
 BEGIN
   FOR item IN SELECT * FROM itens_pedido WHERE pedido_id = NEW.id LOOP
+
+    -- tamanho (litros) da marca do item — NULL pra gás
+    SELECT tamanho_litros INTO v_tamanho_litros FROM marcas WHERE id = item.marca_id;
 
     IF item.lote_id IS NOT NULL THEN
       -- ÁGUA: baixa cheios do lote de origem (marca+ano)
       UPDATE lotes_garrafao SET qtd_cheios = GREATEST(0, qtd_cheios - item.quantidade) WHERE id = item.lote_id;
-      INSERT INTO movimentos_estoque (lote_id, tipo, quantidade, referencia_pedido_id)
-        VALUES (item.lote_id, 'saida_venda', -item.quantidade, NEW.id);
+      INSERT INTO movimentos_estoque (lote_id, tamanho_litros, tipo, quantidade, referencia_pedido_id)
+        VALUES (item.lote_id, v_tamanho_litros, 'saida_venda', -item.quantidade, NEW.id);
 
       IF item.tipo_vasilhame = 'troca' THEN
         SELECT EXISTS (SELECT 1 FROM vazios_devolvidos_pedido WHERE item_pedido_id = item.id) INTO v_tem_splits;
 
         IF v_tem_splits THEN
           -- vasilhame devolvido dividido por ano (pode ser diferente do ano vendido);
-          -- vai pro pool de vazios, sem marca
+          -- vai pro pool de vazios do mesmo tamanho da marca vendida, sem marca
           v_total_devolvido := 0;
           FOR split IN SELECT * FROM vazios_devolvidos_pedido WHERE item_pedido_id = item.id LOOP
             v_total_devolvido := v_total_devolvido + split.quantidade;
-            INSERT INTO estoque_vazios (ano_validade, quantidade) VALUES (split.ano_validade, split.quantidade)
-              ON CONFLICT (ano_validade) DO UPDATE SET quantidade = estoque_vazios.quantidade + EXCLUDED.quantidade;
-            INSERT INTO movimentos_estoque (ano_validade, tipo, quantidade, referencia_pedido_id)
-              VALUES (split.ano_validade, 'retorno_vazio', split.quantidade, NEW.id);
+            INSERT INTO estoque_vazios (tamanho_litros, ano_validade, quantidade) VALUES (v_tamanho_litros, split.ano_validade, split.quantidade)
+              ON CONFLICT (tamanho_litros, ano_validade) DO UPDATE SET quantidade = estoque_vazios.quantidade + EXCLUDED.quantidade;
+            INSERT INTO movimentos_estoque (ano_validade, tamanho_litros, tipo, quantidade, referencia_pedido_id)
+              VALUES (split.ano_validade, v_tamanho_litros, 'retorno_vazio', split.quantidade, NEW.id);
           END LOOP;
 
           -- o que faltou devolver fica como comodato (empréstimo) com o cliente
@@ -457,14 +476,14 @@ BEGIN
         ELSE
           -- sem confirmação de ano: assume devolução total no mesmo ano vendido
           SELECT ano_validade INTO v_ano_origem FROM lotes_garrafao WHERE id = item.lote_id;
-          INSERT INTO estoque_vazios (ano_validade, quantidade) VALUES (v_ano_origem, item.quantidade)
-            ON CONFLICT (ano_validade) DO UPDATE SET quantidade = estoque_vazios.quantidade + EXCLUDED.quantidade;
-          INSERT INTO movimentos_estoque (ano_validade, tipo, quantidade, referencia_pedido_id)
-            VALUES (v_ano_origem, 'retorno_vazio', item.quantidade, NEW.id);
+          INSERT INTO estoque_vazios (tamanho_litros, ano_validade, quantidade) VALUES (v_tamanho_litros, v_ano_origem, item.quantidade)
+            ON CONFLICT (tamanho_litros, ano_validade) DO UPDATE SET quantidade = estoque_vazios.quantidade + EXCLUDED.quantidade;
+          INSERT INTO movimentos_estoque (ano_validade, tamanho_litros, tipo, quantidade, referencia_pedido_id)
+            VALUES (v_ano_origem, v_tamanho_litros, 'retorno_vazio', item.quantidade, NEW.id);
         END IF;
       END IF;
     ELSE
-      -- GÁS: contador simples por marca, sem validade (vazio segue por marca)
+      -- GÁS: contador simples por marca, sem validade nem tamanho (vazio segue por marca)
       UPDATE estoque_gas SET qtd_cheios = GREATEST(0, qtd_cheios - item.quantidade) WHERE marca_id = item.marca_id;
       IF item.tipo_vasilhame = 'troca' THEN
         UPDATE estoque_gas SET qtd_vazios = qtd_vazios + item.quantidade WHERE marca_id = item.marca_id;
@@ -1322,6 +1341,39 @@ ON CONFLICT (chave) DO NOTHING;
 -- MIGRAÇÃO: CPF no cadastro do cliente.
 -- ============================================================
 -- ALTER TABLE clientes ADD COLUMN IF NOT EXISTS cpf TEXT;
+
+-- ============================================================
+-- MIGRAÇÃO: tamanho do garrafão de água (litros) como propriedade da
+-- marca. Cada combinação marca+tamanho passa a ser uma linha distinta de
+-- "marcas" (ex: "Indaiá" 20L e "Indaiá" 10L). Gás fica fora de escopo
+-- (tamanho_litros fica NULL). Rodar só com "marcas" vazia (sem dado de
+-- água legado) — não migra nome remendado tipo "Indaiá 20L" automático,
+-- é recadastro manual depois.
+-- ============================================================
+-- ALTER TABLE marcas DROP CONSTRAINT IF EXISTS marcas_nome_key;
+-- ALTER TABLE marcas ADD COLUMN IF NOT EXISTS tamanho_litros INTEGER CHECK (tamanho_litros > 0);
+-- ALTER TABLE marcas ADD CONSTRAINT chk_marca_tamanho_obrigatorio_agua CHECK (tipo = 'gas' OR tamanho_litros IS NOT NULL);
+-- CREATE UNIQUE INDEX IF NOT EXISTS uq_marcas_nome_tamanho_agua ON marcas (nome, tamanho_litros) WHERE tipo = 'agua';
+-- CREATE UNIQUE INDEX IF NOT EXISTS uq_marcas_nome_gas ON marcas (nome) WHERE tipo = 'gas';
+--
+-- -- estoque_vazios passa a ser segmentado por tamanho+ano (não só ano) —
+-- -- vazio de 20L e de 10L do mesmo ano não são intercambiáveis. Rodar só
+-- -- com a tabela vazia (TRUNCATE TABLE estoque_vazios antes, se houver dado).
+-- ALTER TABLE estoque_vazios DROP CONSTRAINT IF EXISTS estoque_vazios_ano_validade_key;
+-- ALTER TABLE estoque_vazios ADD COLUMN IF NOT EXISTS tamanho_litros INTEGER CHECK (tamanho_litros > 0);
+-- ALTER TABLE estoque_vazios ALTER COLUMN tamanho_litros SET NOT NULL;
+-- ALTER TABLE estoque_vazios ADD CONSTRAINT uq_estoque_vazios_tamanho_ano UNIQUE (tamanho_litros, ano_validade);
+--
+-- -- denormaliza tamanho_litros em movimentos_estoque e avarias (evita
+-- -- join até lotes_garrafao->marcas pra saber o tamanho nos relatórios)
+-- ALTER TABLE movimentos_estoque ADD COLUMN IF NOT EXISTS tamanho_litros INTEGER;
+-- ALTER TABLE avarias ADD COLUMN IF NOT EXISTS tamanho_litros INTEGER;
+--
+-- -- depois das colunas acima, recrie a função da trigger (CREATE OR REPLACE
+-- -- é seguro rodar de novo): copie o bloco "CREATE OR REPLACE FUNCTION
+-- -- public.processar_entrega_pedido()" completo, mais acima neste arquivo
+-- -- (seção de TRIGGERS DE GUARDA DE COLUNA), e rode no SQL Editor — ela já
+-- -- está atualizada pra resolver e propagar tamanho_litros.
 
 -- Após rodar este script, crie o primeiro usuário em:
 -- Authentication > Users > Add user (email + senha)

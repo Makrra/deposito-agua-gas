@@ -319,7 +319,7 @@ select.form-control option { background: var(--surface); }
   </div>
 
   <div class="card">
-    <div class="card-title" style="margin-bottom:10px">Vazios Devolvidos por Validade (Período)</div>
+    <div class="card-title" style="margin-bottom:10px">Vazios Devolvidos por Tamanho e Validade (Período)</div>
     <div id="dash-estoque-vazios" class="loading"><div class="spinner"></div>Carregando...</div>
   </div>
 
@@ -505,7 +505,7 @@ select.form-control option { background: var(--surface); }
     <input type="hidden" id="marca-id">
     <div class="form-group">
       <label class="form-label">Tipo</label>
-      <select class="form-control" id="marca-tipo">
+      <select class="form-control" id="marca-tipo" onchange="atualizarCampoTamanhoMarca()">
         <option value="agua">Água</option>
         <option value="gas">Gás</option>
       </select>
@@ -513,6 +513,13 @@ select.form-control option { background: var(--surface); }
     <div class="form-group">
       <label class="form-label">Nome da marca</label>
       <input class="form-control" id="marca-nome" placeholder="Ex: Indaiá">
+    </div>
+    <div class="form-group" id="marca-tamanho-wrap">
+      <label class="form-label">Tamanho (litros)</label>
+      <select class="form-control" id="marca-tamanho">
+        <option value="20">20L</option>
+        <option value="10">10L</option>
+      </select>
     </div>
     <div class="form-group">
       <label class="form-label">Preço de venda (R$)</label>
@@ -536,7 +543,7 @@ select.form-control option { background: var(--surface); }
     </div>
     <div class="form-group">
       <label class="form-label">Marca</label>
-      <select class="form-control" id="lote-marca"></select>
+      <select class="form-control" id="lote-marca" onchange="atualizarOrigemLote()"></select>
     </div>
     <div class="form-group" id="lote-ano-wrap">
       <label class="form-label">Ano de Validade</label>
@@ -562,6 +569,13 @@ select.form-control option { background: var(--surface); }
 <div class="modal-overlay" id="modal-ajuste-vazios">
   <div class="modal">
     <div class="modal-title">Ajuste Manual de Vazios</div>
+    <div class="form-group">
+      <label class="form-label">Tamanho (litros)</label>
+      <select class="form-control" id="vazios-tamanho">
+        <option value="20">20L</option>
+        <option value="10">10L</option>
+      </select>
+    </div>
     <div class="form-group">
       <label class="form-label">Ano de Validade</label>
       <input class="form-control" id="vazios-ano" type="number" inputmode="numeric" min="2000" max="2100" maxlength="4" placeholder="2027">
@@ -606,7 +620,12 @@ select.form-control option { background: var(--surface); }
       <select class="form-control" id="avaria-lote"></select>
     </div>
     <div class="form-group" id="avaria-ano-wrap" style="display:none">
-      <label class="form-label">Ano de Validade do Vazio</label>
+      <label class="form-label">Tamanho (litros)</label>
+      <select class="form-control" id="avaria-tamanho">
+        <option value="20">20L</option>
+        <option value="10">10L</option>
+      </select>
+      <label class="form-label" style="margin-top:8px">Ano de Validade do Vazio</label>
       <input class="form-control" id="avaria-ano" type="number" inputmode="numeric" min="2000" max="2100" maxlength="4" placeholder="2027">
     </div>
     <div class="form-group">
@@ -1150,6 +1169,15 @@ function formatEndereco(c) {
   return escapeHtml(partes.length ? partes.join(' · ') : (c.endereco || ''));
 }
 
+// Cada combinação marca+tamanho é uma linha distinta de "marcas" (ex:
+// "Indaiá" 20L e "Indaiá" 10L) — exibe o tamanho junto do nome pra
+// diferenciar visualmente. Gás não tem tamanho, mostra só o nome.
+function nomeMarcaComTamanho(marca) {
+  if (!marca) return '';
+  const nome = escapeHtml(marca.nome);
+  return marca.tipo === 'agua' && marca.tamanho_litros ? `${nome} (${marca.tamanho_litros}L)` : nome;
+}
+
 // ============================================================
 // ESTOQUE: MARCAS
 // ============================================================
@@ -1171,7 +1199,7 @@ async function loadEstoque() {
   allMarcas = marcas || [];
   renderMarcasList();
 
-  const { data: lotes } = await sb.from('lotes_garrafao').select('*, marcas(nome)').order('ano_validade');
+  const { data: lotes } = await sb.from('lotes_garrafao').select('*, marcas(nome, tipo, tamanho_litros)').order('ano_validade');
   allLotes = lotes || [];
   renderLotesList();
 
@@ -1191,12 +1219,17 @@ function renderMarcasList() {
   el.innerHTML = allMarcas.map(m => `
     <div class="list-item">
       <div class="item-info">
-        <div class="item-name">${escapeHtml(m.nome)} <span class="badge badge-blue">${m.tipo === 'gas' ? 'Gás' : 'Água'}</span>${m.ativo ? '' : ' <span class="badge badge-red">Inativa</span>'}</div>
+        <div class="item-name">${nomeMarcaComTamanho(m)} <span class="badge badge-blue">${m.tipo === 'gas' ? 'Gás' : 'Água'}</span>${m.ativo ? '' : ' <span class="badge badge-red">Inativa</span>'}</div>
         <div class="item-detail">${fmtMoeda(m.preco_venda_atual)} / ${m.tipo === 'gas' ? 'botijão' : 'garrafão'}</div>
       </div>
       ${podeEditar ? `<button class="btn btn-outline btn-sm" onclick="abrirEditarMarca('${m.id}')">Editar</button>` : ''}
     </div>
   `).join('');
+}
+
+function atualizarCampoTamanhoMarca() {
+  const tipo = document.getElementById('marca-tipo').value;
+  document.getElementById('marca-tamanho-wrap').style.display = tipo === 'agua' ? 'block' : 'none';
 }
 
 function abrirNovaMarca() {
@@ -1205,7 +1238,9 @@ function abrirNovaMarca() {
   document.getElementById('marca-id').value = '';
   document.getElementById('marca-tipo').value = 'agua';
   document.getElementById('marca-nome').value = '';
+  document.getElementById('marca-tamanho').value = '20';
   document.getElementById('marca-preco').value = '';
+  atualizarCampoTamanhoMarca();
   openModal('modal-marca');
 }
 
@@ -1216,7 +1251,9 @@ function abrirEditarMarca(id) {
   document.getElementById('marca-id').value = m.id;
   document.getElementById('marca-tipo').value = m.tipo;
   document.getElementById('marca-nome').value = m.nome;
+  document.getElementById('marca-tamanho').value = m.tamanho_litros || '20';
   document.getElementById('marca-preco').value = m.preco_venda_atual;
+  atualizarCampoTamanhoMarca();
   openModal('modal-marca');
 }
 
@@ -1224,15 +1261,20 @@ async function salvarMarca() {
   const id = document.getElementById('marca-id').value;
   const tipo = document.getElementById('marca-tipo').value;
   const nome = document.getElementById('marca-nome').value.trim();
+  const tamanho_litros = tipo === 'agua' ? parseInt(document.getElementById('marca-tamanho').value, 10) : null;
   const preco = parseFloat(document.getElementById('marca-preco').value || 0);
   if (!nome) { toast('Informe o nome da marca', true); return; }
 
-  const payload = { nome, tipo, preco_venda_atual: preco };
+  const payload = { nome, tipo, tamanho_litros, preco_venda_atual: preco };
   const { data: marca, error } = id
     ? await sb.from('marcas').update(payload).eq('id', id).select().single()
     : await sb.from('marcas').insert(payload).select().single();
 
-  if (error) { toastErro('salvar marca', error); return; }
+  if (error) {
+    if (error.code === '23505') toast(tipo === 'agua' ? 'Já existe uma marca com esse nome e tamanho' : 'Já existe uma marca de gás com esse nome', true);
+    else toastErro('salvar marca', error);
+    return;
+  }
 
   if (tipo === 'gas' && marca) {
     const { data: existente } = await sb.from('estoque_gas').select('id').eq('marca_id', marca.id).maybeSingle();
@@ -1311,7 +1353,7 @@ function renderLotesList() {
     <div class="card${l.qtd_cheios === 0 ? ' card-esgotado' : ''}">
       <div class="card-header">
         <div>
-          <div class="card-title">${l.marcas ? escapeHtml(l.marcas.nome) : '—'}</div>
+          <div class="card-title">${l.marcas ? nomeMarcaComTamanho(l.marcas) : '—'}</div>
           <div class="card-sub">Validade: ${l.ano_validade}</div>
         </div>
         <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">
@@ -1331,16 +1373,16 @@ function renderLotesList() {
 function renderVaziosList() {
   const el = document.getElementById('vazios-list');
   if (!allEstoqueVazios.length) { el.innerHTML = '<div class="empty-state">Nenhum vazio em estoque ainda</div>'; return; }
-  const ordenados = [...allEstoqueVazios].sort((a, b) => a.ano_validade - b.ano_validade);
+  const ordenados = [...allEstoqueVazios].sort((a, b) => a.tamanho_litros - b.tamanho_litros || a.ano_validade - b.ano_validade);
   el.innerHTML = ordenados.map(v => `
     <div class="card">
       <div class="card-header">
-        <div class="card-title">Validade ${v.ano_validade}</div>
+        <div class="card-title">${v.tamanho_litros}L · Validade ${v.ano_validade}</div>
         ${badgeValidadeAno(v.ano_validade)}
       </div>
       <div style="display:flex;justify-content:space-between;align-items:flex-end">
         <div><div class="item-value">${v.quantidade}</div><div class="item-detail">vazios em estoque</div></div>
-        <button class="btn btn-outline btn-sm" onclick="abrirHistoricoVazios(${v.ano_validade})">Ver Histórico</button>
+        <button class="btn btn-outline btn-sm" onclick="abrirHistoricoVazios(${v.tamanho_litros}, ${v.ano_validade})">Ver Histórico</button>
       </div>
     </div>
   `).join('');
@@ -1363,37 +1405,40 @@ function renderHistoricoMovimentos(data, titulo) {
 async function abrirHistoricoLote(loteId) {
   const lote = allLotes.find(l => l.id === loteId);
   const marcaNome = lote?.marcas?.nome || '';
+  const tamanho = lote?.marcas?.tamanho_litros ? ` (${lote.marcas.tamanho_litros}L)` : '';
   const anoValidade = lote?.ano_validade || '';
   const { data } = await sb.from('movimentos_estoque').select('*').eq('lote_id', loteId).order('data', { ascending: false });
-  renderHistoricoMovimentos(data, `${marcaNome} · validade ${anoValidade}`);
+  renderHistoricoMovimentos(data, `${marcaNome}${tamanho} · validade ${anoValidade}`);
 }
 
-async function abrirHistoricoVazios(anoValidade) {
-  const { data } = await sb.from('movimentos_estoque').select('*').eq('ano_validade', anoValidade).is('lote_id', null).order('data', { ascending: false });
-  renderHistoricoMovimentos(data, `Vazios · validade ${anoValidade}`);
+async function abrirHistoricoVazios(tamanhoLitros, anoValidade) {
+  const { data } = await sb.from('movimentos_estoque').select('*').eq('tamanho_litros', tamanhoLitros).eq('ano_validade', anoValidade).is('lote_id', null).order('data', { ascending: false });
+  renderHistoricoMovimentos(data, `Vazios · ${tamanhoLitros}L · validade ${anoValidade}`);
 }
 
 async function abrirAjusteVazios() {
+  document.getElementById('vazios-tamanho').value = '20';
   document.getElementById('vazios-ano').value = '';
   document.getElementById('vazios-quantidade').value = '';
   openModal('modal-ajuste-vazios');
 }
 
 async function salvarAjusteVazios() {
+  const tamanho_litros = parseInt(document.getElementById('vazios-tamanho').value, 10);
   const ano = parseInt(document.getElementById('vazios-ano').value || 0, 10);
   const quantidade = parseInt(document.getElementById('vazios-quantidade').value || 0, 10);
   if (String(ano).length !== 4 || quantidade <= 0) { toast('Informe um ano de validade e uma quantidade válidos', true); return; }
 
-  const existente = allEstoqueVazios.find(v => v.ano_validade === ano);
+  const existente = allEstoqueVazios.find(v => v.ano_validade === ano && v.tamanho_litros === tamanho_litros);
   let error;
   if (existente) {
     ({ error } = await sb.from('estoque_vazios').update({ quantidade: existente.quantidade + quantidade }).eq('id', existente.id));
   } else {
-    ({ error } = await sb.from('estoque_vazios').insert({ ano_validade: ano, quantidade }));
+    ({ error } = await sb.from('estoque_vazios').insert({ tamanho_litros, ano_validade: ano, quantidade }));
   }
   if (error) { toastErro('ajustar vazios', error); return; }
 
-  await sb.from('movimentos_estoque').insert({ ano_validade: ano, tipo: 'ajuste', quantidade, observacao: 'Ajuste manual de estoque de vazios', criado_por: currentUserId });
+  await sb.from('movimentos_estoque').insert({ ano_validade: ano, tamanho_litros, tipo: 'ajuste', quantidade, observacao: 'Ajuste manual de estoque de vazios', criado_por: currentUserId });
 
   closeModal('modal-ajuste-vazios');
   toast('Vazios ajustados!');
@@ -1403,13 +1448,13 @@ async function salvarAjusteVazios() {
 function preencherSelectLotes(selectEl, { somenteComCheios = false } = {}) {
   const lotes = somenteComCheios ? allLotes.filter(l => l.qtd_cheios > 0) : allLotes;
   selectEl.innerHTML = lotes.map(l =>
-    `<option value="${l.id}">${l.marcas ? escapeHtml(l.marcas.nome) : '—'} · val. ${l.ano_validade} (${l.qtd_cheios} cheios)</option>`
+    `<option value="${l.id}">${l.marcas ? nomeMarcaComTamanho(l.marcas) : '—'} · val. ${l.ano_validade} (${l.qtd_cheios} cheios)</option>`
   ).join('') || '<option value="">Nenhum lote disponível</option>';
 }
 
 function abrirNovoLote() {
   const sel = document.getElementById('lote-marca');
-  sel.innerHTML = allMarcas.filter(m => m.ativo && m.tipo === 'agua').map(m => `<option value="${m.id}">${escapeHtml(m.nome)}</option>`).join('')
+  sel.innerHTML = allMarcas.filter(m => m.ativo && m.tipo === 'agua').map(m => `<option value="${m.id}">${nomeMarcaComTamanho(m)}</option>`).join('')
     || '<option value="">Nenhuma marca de água cadastrada</option>';
   document.getElementById('lote-origem').value = 'novo';
   document.getElementById('lote-ano-validade').value = new Date().getFullYear() + 3;
@@ -1424,11 +1469,15 @@ function atualizarOrigemLote() {
   document.getElementById('lote-ano-wrap').style.display = origem === 'novo' ? 'block' : 'none';
   document.getElementById('lote-vazio-origem-wrap').style.display = origem === 'reaproveitado' ? 'block' : 'none';
   if (origem === 'reaproveitado') {
+    const marca = allMarcas.find(m => m.id === document.getElementById('lote-marca').value);
     const sel = document.getElementById('lote-vazio-origem');
-    const disponiveis = allEstoqueVazios.filter(v => v.quantidade > 0).sort((a, b) => a.ano_validade - b.ano_validade);
+    if (!marca) { sel.innerHTML = '<option value="">Selecione a marca primeiro</option>'; return; }
+    const disponiveis = allEstoqueVazios
+      .filter(v => v.quantidade > 0 && v.tamanho_litros === marca.tamanho_litros)
+      .sort((a, b) => a.ano_validade - b.ano_validade);
     sel.innerHTML = disponiveis.length
       ? disponiveis.map(v => `<option value="${v.ano_validade}">Validade ${v.ano_validade} (${v.quantidade} disponíveis)</option>`).join('')
-      : '<option value="">Nenhum vazio em estoque</option>';
+      : `<option value="">Nenhum vazio de ${marca.tamanho_litros}L em estoque</option>`;
   }
 }
 
@@ -1438,15 +1487,16 @@ async function salvarLote() {
   const qtd_recebida = parseInt(document.getElementById('lote-qtd-cheios').value || 0, 10);
   const data_entrada = document.getElementById('lote-data-entrada').value;
   if (!marca_id || qtd_recebida <= 0) { toast('Preencha marca e quantidade', true); return; }
+  const marcaSelecionada = allMarcas.find(m => m.id === marca_id);
 
   let ano_validade;
   let vazioOrigem = null;
   if (origem === 'reaproveitado') {
     ano_validade = parseInt(document.getElementById('lote-vazio-origem').value || 0, 10);
     if (!ano_validade) { toast('Selecione o vazio a reaproveitar', true); return; }
-    vazioOrigem = allEstoqueVazios.find(v => v.ano_validade === ano_validade);
+    vazioOrigem = allEstoqueVazios.find(v => v.ano_validade === ano_validade && v.tamanho_litros === marcaSelecionada.tamanho_litros);
     if (!vazioOrigem || qtd_recebida > vazioOrigem.quantidade) {
-      toast(`Só há ${vazioOrigem ? vazioOrigem.quantidade : 0} vazios de validade ${ano_validade} disponíveis`, true);
+      toast(`Só há ${vazioOrigem ? vazioOrigem.quantidade : 0} vazios de ${marcaSelecionada.tamanho_litros}L validade ${ano_validade} disponíveis`, true);
       return;
     }
   } else {
@@ -1466,23 +1516,23 @@ async function salvarLote() {
     loteId = lote.id;
   }
 
-  const marcaNome = (allMarcas.find(m => m.id === marca_id) || {}).nome || '';
+  const marcaNome = marcaSelecionada ? marcaSelecionada.nome : '';
 
   if (origem === 'reaproveitado') {
     await sb.from('estoque_vazios').update({ quantidade: vazioOrigem.quantidade - qtd_recebida }).eq('id', vazioOrigem.id);
     await sb.from('movimentos_estoque').insert({
-      ano_validade, tipo: 'reaproveitamento', quantidade: -qtd_recebida,
+      ano_validade, tamanho_litros: marcaSelecionada.tamanho_litros, tipo: 'reaproveitamento', quantidade: -qtd_recebida,
       observacao: `Reaproveitado para encher com ${marcaNome}`, criado_por: currentUserId,
     });
     await sb.from('movimentos_estoque').insert({
-      lote_id: loteId, tipo: 'reaproveitamento', quantidade: qtd_recebida,
+      lote_id: loteId, tamanho_litros: marcaSelecionada.tamanho_litros, tipo: 'reaproveitamento', quantidade: qtd_recebida,
       observacao: 'Reaproveitado do estoque de vazios',
       data: data_entrada ? new Date(data_entrada).toISOString() : undefined,
       criado_por: currentUserId,
     });
   } else {
     await sb.from('movimentos_estoque').insert({
-      lote_id: loteId, tipo: 'entrada_fabrica', quantidade: qtd_recebida,
+      lote_id: loteId, tamanho_litros: marcaSelecionada.tamanho_litros, tipo: 'entrada_fabrica', quantidade: qtd_recebida,
       data: data_entrada ? new Date(data_entrada).toISOString() : undefined,
       criado_por: currentUserId,
     });
@@ -1495,6 +1545,7 @@ async function salvarLote() {
 
 function abrirAvaria() {
   document.getElementById('avaria-tipo').value = 'cheio';
+  document.getElementById('avaria-tamanho').value = '20';
   document.getElementById('avaria-quantidade').value = '';
   document.getElementById('avaria-motivo').value = '';
   atualizarCampoAvaria();
@@ -1523,12 +1574,14 @@ async function salvarAvaria() {
     const { error: errUpd } = await sb.from('lotes_garrafao').update({ qtd_cheios: novaQtd }).eq('id', lote_id);
     if (errUpd) { toastErro('atualizar estoque', errUpd); return; }
 
-    await sb.from('avarias').insert({ lote_id, tipo, quantidade, motivo, criado_por: currentUserId });
-    await sb.from('movimentos_estoque').insert({ lote_id, tipo: 'avaria', quantidade: -quantidade, observacao: motivo, criado_por: currentUserId });
+    const tamanho_litros = lote?.marcas?.tamanho_litros ?? null;
+    await sb.from('avarias').insert({ lote_id, tamanho_litros, tipo, quantidade, motivo, criado_por: currentUserId });
+    await sb.from('movimentos_estoque').insert({ lote_id, tamanho_litros, tipo: 'avaria', quantidade: -quantidade, observacao: motivo, criado_por: currentUserId });
   } else {
+    const tamanho_litros = parseInt(document.getElementById('avaria-tamanho').value, 10);
     const ano_validade = parseInt(document.getElementById('avaria-ano').value || 0, 10);
     if (String(ano_validade).length !== 4) { toast('Informe o ano de validade', true); return; }
-    const vazio = allEstoqueVazios.find(v => v.ano_validade === ano_validade);
+    const vazio = allEstoqueVazios.find(v => v.ano_validade === ano_validade && v.tamanho_litros === tamanho_litros);
     const novaQtd = Math.max(0, (vazio ? vazio.quantidade : 0) - quantidade);
 
     if (vazio) {
@@ -1536,8 +1589,8 @@ async function salvarAvaria() {
       if (errUpd) { toastErro('atualizar estoque', errUpd); return; }
     }
 
-    await sb.from('avarias').insert({ ano_validade, tipo, quantidade, motivo, criado_por: currentUserId });
-    await sb.from('movimentos_estoque').insert({ ano_validade, tipo: 'avaria', quantidade: -quantidade, observacao: motivo, criado_por: currentUserId });
+    await sb.from('avarias').insert({ ano_validade, tamanho_litros, tipo, quantidade, motivo, criado_por: currentUserId });
+    await sb.from('movimentos_estoque').insert({ ano_validade, tamanho_litros, tipo: 'avaria', quantidade: -quantidade, observacao: motivo, criado_por: currentUserId });
   }
 
   closeModal('modal-avaria');
@@ -1713,14 +1766,14 @@ async function abrirExtratoCliente(id) {
 // ============================================================
 async function loadComodatoTransacoes(clienteId) {
   const { data } = await sb.from('movimentos_comodato')
-    .select('*, marcas(nome, tipo)')
+    .select('*, marcas(nome, tipo, tamanho_litros)')
     .eq('cliente_id', clienteId)
     .order('data', { ascending: false });
   currentComodatoFull = data || [];
   renderComodatoLista(currentComodatoFull.slice(0, 5), 'comodato-lista');
 
   const sel = document.getElementById('comodato-devolucao-marca');
-  sel.innerHTML = allMarcas.filter(m => m.ativo).map(m => `<option value="${m.id}" data-tipo="${m.tipo}">${escapeHtml(m.nome)} (${m.tipo === 'gas' ? 'Gás' : 'Água'})</option>`).join('');
+  sel.innerHTML = allMarcas.filter(m => m.ativo).map(m => `<option value="${m.id}" data-tipo="${m.tipo}">${nomeMarcaComTamanho(m)} (${m.tipo === 'gas' ? 'Gás' : 'Água'})</option>`).join('');
   document.getElementById('comodato-devolucao-quantidade').value = '';
   document.getElementById('comodato-devolucao-ano').value = '';
   atualizarCampoAnoComodato();
@@ -1735,7 +1788,7 @@ function atualizarCampoAnoComodato() {
 function comodatoRowHTML(d) {
   const podeExcluir = currentUserRole === 'administrador';
   const tipoLabel = d.tipo === 'emprestimo' ? 'Empréstimo' : 'Devolução';
-  const marcaNome = escapeHtml(d.marcas ? d.marcas.nome : '—');
+  const marcaNome = d.marcas ? nomeMarcaComTamanho(d.marcas) : '—';
   const validadeTexto = d.ano_validade ? ` · val. ${d.ano_validade}` : '';
   return `
     <div class="list-item">
@@ -1769,13 +1822,13 @@ async function registrarDevolucaoComodato() {
     anoValidade = parseInt(document.getElementById('comodato-devolucao-ano').value || 0, 10);
     if (String(anoValidade).length !== 4) { toast('Informe o ano de validade do vasilhame devolvido', true); return; }
 
-    const existente = allEstoqueVazios.find(v => v.ano_validade === anoValidade);
+    const existente = allEstoqueVazios.find(v => v.ano_validade === anoValidade && v.tamanho_litros === marca.tamanho_litros);
     if (existente) {
       await sb.from('estoque_vazios').update({ quantidade: existente.quantidade + quantidade }).eq('id', existente.id);
     } else {
-      await sb.from('estoque_vazios').insert({ ano_validade: anoValidade, quantidade });
+      await sb.from('estoque_vazios').insert({ tamanho_litros: marca.tamanho_litros, ano_validade: anoValidade, quantidade });
     }
-    await sb.from('movimentos_estoque').insert({ ano_validade: anoValidade, tipo: 'retorno_vazio', quantidade, criado_por: currentUserId });
+    await sb.from('movimentos_estoque').insert({ ano_validade: anoValidade, tamanho_litros: marca.tamanho_litros, tipo: 'retorno_vazio', quantidade, criado_por: currentUserId });
   } else {
     const { data: estoque } = await sb.from('estoque_gas').select('*').eq('marca_id', marcaId).maybeSingle();
     if (estoque) {
@@ -1809,7 +1862,8 @@ async function removerMovimentoComodato(id, clienteId, tipo, anoValidade, marcaI
 
   if (tipo === 'devolucao') {
     if (anoValidade) {
-      const vazio = allEstoqueVazios.find(v => v.ano_validade === anoValidade);
+      const marca = allMarcas.find(m => m.id === marcaId);
+      const vazio = allEstoqueVazios.find(v => v.ano_validade === anoValidade && v.tamanho_litros === (marca ? marca.tamanho_litros : null));
       if (vazio) await sb.from('estoque_vazios').update({ quantidade: Math.max(0, vazio.quantidade - quantidade) }).eq('id', vazio.id);
     } else {
       const { data: estoque } = await sb.from('estoque_gas').select('*').eq('marca_id', marcaId).maybeSingle();
@@ -1865,11 +1919,11 @@ async function loadDescontosCliente(clienteId) {
 
   const sel = document.getElementById('desconto-marca');
   sel.innerHTML = '<option value="">Qualquer marca</option>' +
-    allMarcas.filter(m => m.ativo).map(m => `<option value="${m.id}">${escapeHtml(m.nome)}</option>`).join('');
+    allMarcas.filter(m => m.ativo).map(m => `<option value="${m.id}">${nomeMarcaComTamanho(m)}</option>`).join('');
   document.getElementById('desconto-valor').value = '';
 
   const { data: descontos } = await sb.from('descontos_cliente')
-    .select('*, marcas(nome)').eq('cliente_id', clienteId);
+    .select('*, marcas(nome, tipo, tamanho_litros)').eq('cliente_id', clienteId);
   renderDescontosLista(descontos || []);
 }
 
@@ -1880,7 +1934,7 @@ function renderDescontosLista(descontos) {
   el.innerHTML = descontos.map(d => `
     <div class="list-item">
       <div class="item-info">
-        <div class="item-name">${d.marcas ? escapeHtml(d.marcas.nome) : 'Qualquer marca'}</div>
+        <div class="item-name">${d.marcas ? nomeMarcaComTamanho(d.marcas) : 'Qualquer marca'}</div>
         <div class="item-detail">${d.tipo === 'porcentagem' ? d.valor + '%' : fmtMoeda(d.valor)} de desconto</div>
       </div>
       ${podeRemover ? `<button class="btn btn-outline btn-sm" onclick="removerDesconto('${d.id}', '${d.cliente_id}')">Remover</button>` : ''}
@@ -1967,7 +2021,7 @@ async function selecionarClientePedido(id) {
 // PEDIDOS: ITENS DINÂMICOS DO NOVO PEDIDO
 // ============================================================
 function itemPedidoRowHTML(idx) {
-  const aguaOpts = allMarcas.filter(m => m.ativo && m.tipo === 'agua').map(m => `<option value="${m.id}">${escapeHtml(m.nome)}</option>`).join('');
+  const aguaOpts = allMarcas.filter(m => m.ativo && m.tipo === 'agua').map(m => `<option value="${m.id}">${nomeMarcaComTamanho(m)}</option>`).join('');
   const gasOpts  = allMarcas.filter(m => m.ativo && m.tipo === 'gas').map(m => `<option value="${m.id}">${escapeHtml(m.nome)}</option>`).join('');
   return `
     <div class="card pedido-item-row" data-idx="${idx}" style="margin-bottom:10px">
@@ -2395,7 +2449,7 @@ async function abrirPedidoDetalhe(id) {
     ${p.status_entrega === 'pendente' ? `<div class="card-sub" style="margin-top:6px">Estoque e saldos só são atualizados quando o pedido for marcado como entregue.</div>` : ''}
   `;
 
-  const { data: itens } = await sb.from('itens_pedido').select('*, marcas(nome), lotes_garrafao(ano_validade)').eq('pedido_id', id);
+  const { data: itens } = await sb.from('itens_pedido').select('*, marcas(nome, tipo, tamanho_litros), lotes_garrafao(ano_validade)').eq('pedido_id', id);
   const itemIds = (itens || []).map(it => it.id);
   const { data: splitsTodos } = itemIds.length
     ? await sb.from('vazios_devolvidos_pedido').select('*').in('item_pedido_id', itemIds)
@@ -2415,7 +2469,7 @@ async function abrirPedidoDetalhe(id) {
       <div class="list-item" style="flex-direction:column;align-items:stretch">
         <div style="display:flex;justify-content:space-between">
           <div class="item-info">
-            <div class="item-name">${it.marcas ? escapeHtml(it.marcas.nome) : '—'} ${it.lotes_garrafao ? '· val. ' + it.lotes_garrafao.ano_validade : ''}</div>
+            <div class="item-name">${it.marcas ? nomeMarcaComTamanho(it.marcas) : '—'} ${it.lotes_garrafao ? '· val. ' + it.lotes_garrafao.ano_validade : ''}</div>
             <div class="item-detail">${it.quantidade}x · ${tipoLabel[it.tipo_vasilhame]}</div>
           </div>
           <div class="item-value">${fmtMoeda((it.preco_unitario + it.preco_vasilhame) * it.quantidade)}</div>
@@ -2570,7 +2624,8 @@ async function cancelarPedido() {
 
     for (const it of (itens || [])) {
       if (it.lote_id) {
-        const { data: lote } = await sb.from('lotes_garrafao').select('*').eq('id', it.lote_id).single();
+        const { data: lote } = await sb.from('lotes_garrafao').select('*, marcas(tamanho_litros)').eq('id', it.lote_id).single();
+        const tamanho_litros = lote?.marcas?.tamanho_litros ?? null;
         if (lote) {
           await sb.from('lotes_garrafao').update({ qtd_cheios: lote.qtd_cheios + it.quantidade }).eq('id', it.lote_id);
         }
@@ -2578,11 +2633,11 @@ async function cancelarPedido() {
           const { data: splits } = await sb.from('vazios_devolvidos_pedido').select('*').eq('item_pedido_id', it.id);
           const listaSplits = (splits && splits.length) ? splits : (lote ? [{ ano_validade: lote.ano_validade, quantidade: it.quantidade }] : []);
           for (const s of listaSplits) {
-            const vazio = allEstoqueVazios.find(v => v.ano_validade === s.ano_validade);
+            const vazio = allEstoqueVazios.find(v => v.ano_validade === s.ano_validade && v.tamanho_litros === tamanho_litros);
             if (vazio) await sb.from('estoque_vazios').update({ quantidade: Math.max(0, vazio.quantidade - s.quantidade) }).eq('id', vazio.id);
           }
         }
-        await sb.from('movimentos_estoque').insert({ lote_id: it.lote_id, tipo: 'ajuste', quantidade: it.quantidade, referencia_pedido_id: id, observacao: 'Cancelamento de pedido entregue', criado_por: currentUserId });
+        await sb.from('movimentos_estoque').insert({ lote_id: it.lote_id, tamanho_litros, tipo: 'ajuste', quantidade: it.quantidade, referencia_pedido_id: id, observacao: 'Cancelamento de pedido entregue', criado_por: currentUserId });
       } else {
         const { data: estoque } = await sb.from('estoque_gas').select('*').eq('marca_id', it.marca_id).single();
         if (estoque) {
@@ -2627,10 +2682,10 @@ async function loadEntregas() {
 
   const cards = await Promise.all(pedidos.map(async p => {
     const { data: itens } = await sb.from('itens_pedido')
-      .select('quantidade, marcas(nome), lotes_garrafao(ano_validade)')
+      .select('quantidade, marcas(nome, tipo, tamanho_litros), lotes_garrafao(ano_validade)')
       .eq('pedido_id', p.id);
     const itensTexto = (itens || []).map(it =>
-      `${it.quantidade}x ${it.marcas ? escapeHtml(it.marcas.nome) : ''}${it.lotes_garrafao ? ` (val. ${it.lotes_garrafao.ano_validade})` : ''}`
+      `${it.quantidade}x ${it.marcas ? nomeMarcaComTamanho(it.marcas) : ''}${it.lotes_garrafao ? ` (val. ${it.lotes_garrafao.ano_validade})` : ''}`
     ).join(', ');
     return `
       <div class="card">
@@ -2689,7 +2744,7 @@ async function iniciarConfirmacaoEntrega(pedidoId, onConcluido) {
   // vazio na sessão do entregador) pra saber o total do pedido
   const [{ data: itens }, { data: pedido }] = await Promise.all([
     sb.from('itens_pedido')
-      .select('id, marca_id, quantidade, marcas(nome), lotes_garrafao(ano_validade)')
+      .select('id, marca_id, quantidade, marcas(nome, tipo, tamanho_litros), lotes_garrafao(ano_validade)')
       .eq('pedido_id', pedidoId).eq('tipo_vasilhame', 'troca').not('lote_id', 'is', null),
     sb.from('pedidos').select('total').eq('id', pedidoId).single(),
   ]);
@@ -2749,8 +2804,8 @@ function ceItemCardHTML(it) {
   const idx = ceItemSeq++;
   const anoVendido = it.lotes_garrafao ? it.lotes_garrafao.ano_validade : '';
   return `
-    <div class="card ce-item-card" data-idx="${idx}" data-item-id="${it.id}" data-marca-id="${it.marca_id}" data-marca-nome="${escapeHtml(it.marcas ? it.marcas.nome : '')}" data-quantidade="${it.quantidade}" style="margin-bottom:12px">
-      <div class="card-title" style="margin-bottom:4px">${it.marcas ? escapeHtml(it.marcas.nome) : ''}</div>
+    <div class="card ce-item-card" data-idx="${idx}" data-item-id="${it.id}" data-marca-id="${it.marca_id}" data-marca-nome="${it.marcas ? nomeMarcaComTamanho(it.marcas) : ''}" data-tamanho-litros="${it.marcas && it.marcas.tamanho_litros ? it.marcas.tamanho_litros : ''}" data-quantidade="${it.quantidade}" style="margin-bottom:12px">
+      <div class="card-title" style="margin-bottom:4px">${it.marcas ? nomeMarcaComTamanho(it.marcas) : ''}</div>
       <div class="card-sub" style="margin-bottom:8px">Vendido: ${it.quantidade}x · val. ${anoVendido}</div>
       <div class="ce-splits-container">${ceSplitRowHTML(idx, anoVendido, it.quantidade)}</div>
       <button class="btn btn-outline btn-sm btn-block" style="margin-top:6px" onclick="adicionarSplitCE(${idx})">+ Adicionar Outro Ano</button>
@@ -2805,12 +2860,13 @@ async function confirmarAnoVazioEEntregar() {
   const avisosComodato = [];
 
   // busca direto no banco (não usa o cache allEstoqueVazios, que pode estar
-  // vazio na sessão do entregador) pra saber quais anos já têm pool de vazios
-  const { data: vaziosAtuais } = await sb.from('estoque_vazios').select('ano_validade');
+  // vazio na sessão do entregador) pra saber quais tamanho+ano já têm pool de vazios
+  const { data: vaziosAtuais } = await sb.from('estoque_vazios').select('tamanho_litros, ano_validade');
 
   for (const card of cards) {
     const itemId = card.dataset.itemId;
     const marcaNome = card.dataset.marcaNome;
+    const tamanhoLitros = parseInt(card.dataset.tamanhoLitros || 0, 10) || null;
     const esperado = parseInt(card.dataset.quantidade, 10);
     const splits = [...card.querySelectorAll('.ce-split-row')].map(row => ({
       ano: parseInt(row.querySelector('.ce-split-ano').value || 0, 10),
@@ -2827,7 +2883,7 @@ async function confirmarAnoVazioEEntregar() {
     }
     for (const s of splits) {
       if (String(s.ano).length !== 4) { toast(`Informe um ano de validade válido pra ${marcaNome}`, true); return; }
-      if (!(vaziosAtuais || []).some(v => v.ano_validade === s.ano)) {
+      if (!(vaziosAtuais || []).some(v => v.ano_validade === s.ano && v.tamanho_litros === tamanhoLitros)) {
         avisosPoolNovo.push(`Validade ${s.ano} (${s.quantidade}x)`);
       }
       todosOsSplits.push({ item_pedido_id: itemId, ano_validade: s.ano, quantidade: s.quantidade });
@@ -2977,36 +3033,40 @@ async function calcularResumoPeriodoCaixa(inicio, fim) {
     pagamentosRealizados: roundMoeda(Object.values(pagoPorPedido).reduce((s, v) => s + v, 0)),
   };
 
-  // ano_validade vem do lote (cheios) ou direto no movimento (pool de vazios)
+  // ano_validade vem do lote (cheios) ou direto no movimento (pool de
+  // vazios); tamanho_litros já vem denormalizado direto no movimento em
+  // ambos os casos, sem precisar de join.
   const { data: movimentos } = await sb.from('movimentos_estoque')
-    .select('tipo, quantidade, ano_validade, lotes_garrafao(ano_validade)')
+    .select('tipo, quantidade, ano_validade, tamanho_litros, lotes_garrafao(ano_validade)')
     .gte('data', inicio).lte('data', fim);
   const movs = movimentos || [];
-  const agruparPorAno = tipo => {
-    const porAno = {};
+  const agruparPorTamanhoAno = tipo => {
+    const porChave = {};
     movs.filter(m => m.tipo === tipo).forEach(m => {
       const ano = m.ano_validade ?? m.lotes_garrafao?.ano_validade;
-      if (ano == null) return;
-      porAno[ano] = (porAno[ano] || 0) + Math.abs(m.quantidade);
+      if (ano == null || m.tamanho_litros == null) return;
+      const chave = `${m.tamanho_litros}-${ano}`;
+      if (!porChave[chave]) porChave[chave] = { tamanho: m.tamanho_litros, ano, quantidade: 0 };
+      porChave[chave].quantidade += Math.abs(m.quantidade);
     });
-    return porAno;
+    return porChave;
   };
   const estoqueResumo = {
-    recebidosPorAno: agruparPorAno('entrada_fabrica'),
-    vendidosPorAno: agruparPorAno('saida_venda'),
-    avariasPorAno: agruparPorAno('avaria'),
+    recebidosPorChave: agruparPorTamanhoAno('entrada_fabrica'),
+    vendidosPorChave: agruparPorTamanhoAno('saida_venda'),
+    avariasPorChave: agruparPorTamanhoAno('avaria'),
   };
 
   return { pedidosResumo, estoqueResumo };
 }
 
-function linhasGarrafaoPorAno(porAno) {
-  const anos = Object.keys(porAno).map(Number).sort((a, b) => a - b);
-  if (!anos.length) return '<div class="empty-state">Nenhum no período</div>';
-  const total = anos.reduce((s, a) => s + porAno[a], 0);
+function linhasGarrafaoPorTamanhoAno(porChave) {
+  const chaves = Object.keys(porChave).sort((a, b) => porChave[a].tamanho - porChave[b].tamanho || porChave[a].ano - porChave[b].ano);
+  if (!chaves.length) return '<div class="empty-state">Nenhum no período</div>';
+  const total = chaves.reduce((s, c) => s + porChave[c].quantidade, 0);
   return `
     <div class="list-item"><div class="item-info"><div class="item-name">Total</div></div><div class="item-value">${total}</div></div>
-    ${anos.map(ano => `<div class="list-item"><div class="item-info"><div class="item-name">Validade ${ano}</div></div><div class="item-value">${porAno[ano]}</div></div>`).join('')}
+    ${chaves.map(c => `<div class="list-item"><div class="item-info"><div class="item-name">${porChave[c].tamanho}L · Validade ${porChave[c].ano}</div></div><div class="item-value">${porChave[c].quantidade}</div></div>`).join('')}
   `;
 }
 
@@ -3035,12 +3095,12 @@ function htmlResumoPeriodoCaixa({ pedidosResumo, estoqueResumo }) {
     </div>
     <div class="card">
       <div class="card-title" style="margin-bottom:10px">Garrafões no Período</div>
-      <div class="card-sub" style="margin-bottom:6px;font-weight:600">Vendidos por Validade</div>
-      ${linhasGarrafaoPorAno(estoqueResumo.vendidosPorAno)}
-      <div class="card-sub" style="margin:14px 0 6px;font-weight:600">Recebidos por Validade</div>
-      ${linhasGarrafaoPorAno(estoqueResumo.recebidosPorAno)}
-      <div class="card-sub" style="margin:14px 0 6px;font-weight:600">Avarias por Validade</div>
-      ${linhasGarrafaoPorAno(estoqueResumo.avariasPorAno)}
+      <div class="card-sub" style="margin-bottom:6px;font-weight:600">Vendidos por Tamanho e Validade</div>
+      ${linhasGarrafaoPorTamanhoAno(estoqueResumo.vendidosPorChave)}
+      <div class="card-sub" style="margin:14px 0 6px;font-weight:600">Recebidos por Tamanho e Validade</div>
+      ${linhasGarrafaoPorTamanhoAno(estoqueResumo.recebidosPorChave)}
+      <div class="card-sub" style="margin:14px 0 6px;font-weight:600">Avarias por Tamanho e Validade</div>
+      ${linhasGarrafaoPorTamanhoAno(estoqueResumo.avariasPorChave)}
     </div>`;
 }
 
@@ -3389,39 +3449,47 @@ async function loadDashboard() {
   const inicioISO = inicio.toISOString();
   const fimISO = fim.toISOString();
 
-  // Cheios: movimento de recebidos/vendidos por marca dentro do período
-  // (não é "quanto eu tenho agora", é "quanto entrou/saiu nesse período").
+  // Cheios: movimento de recebidos/vendidos por marca (marca já carrega o
+  // tamanho) dentro do período — não é "quanto eu tenho agora", é "quanto
+  // entrou/saiu nesse período". Agrupa por marca_id (não nome) pra não
+  // colapsar marcas com o mesmo nome e tamanhos diferentes.
   const { data: movAgua } = await sb.from('movimentos_estoque')
-    .select('tipo, quantidade, lotes_garrafao(marcas(nome))')
+    .select('tipo, quantidade, lotes_garrafao(marca_id, marcas(nome, tipo, tamanho_litros))')
     .in('tipo', ['entrada_fabrica', 'saida_venda'])
     .gte('data', inicioISO).lt('data', fimISO);
   const porMarcaAgua = {};
   (movAgua || []).forEach(m => {
-    const nome = m.lotes_garrafao?.marcas?.nome || '—';
-    if (!porMarcaAgua[nome]) porMarcaAgua[nome] = { recebidos: 0, vendidos: 0 };
-    if (m.tipo === 'entrada_fabrica') porMarcaAgua[nome].recebidos += m.quantidade;
-    else porMarcaAgua[nome].vendidos += Math.abs(m.quantidade);
+    const marcaId = m.lotes_garrafao?.marca_id || '—';
+    const marca = m.lotes_garrafao?.marcas;
+    if (!porMarcaAgua[marcaId]) porMarcaAgua[marcaId] = { label: marca ? nomeMarcaComTamanho(marca) : '—', recebidos: 0, vendidos: 0 };
+    if (m.tipo === 'entrada_fabrica') porMarcaAgua[marcaId].recebidos += m.quantidade;
+    else porMarcaAgua[marcaId].vendidos += Math.abs(m.quantidade);
   });
-  const nomesAgua = Object.keys(porMarcaAgua);
-  const totalRecebidosAgua = nomesAgua.reduce((s, n) => s + porMarcaAgua[n].recebidos, 0);
-  const totalVendidosAgua = nomesAgua.reduce((s, n) => s + porMarcaAgua[n].vendidos, 0);
-  document.getElementById('dash-estoque-agua').innerHTML = nomesAgua.length ? `
+  const idsAgua = Object.keys(porMarcaAgua);
+  const totalRecebidosAgua = idsAgua.reduce((s, id) => s + porMarcaAgua[id].recebidos, 0);
+  const totalVendidosAgua = idsAgua.reduce((s, id) => s + porMarcaAgua[id].vendidos, 0);
+  document.getElementById('dash-estoque-agua').innerHTML = idsAgua.length ? `
     <div class="list-item"><div class="item-info"><div class="item-name">Total</div></div><div class="item-value">${totalRecebidosAgua} recebidos / ${totalVendidosAgua} vendidos</div></div>
-    ${nomesAgua.map(nome => `<div class="list-item"><div class="item-info"><div class="item-name">${escapeHtml(nome)}</div></div><div class="item-detail">${porMarcaAgua[nome].recebidos} recebidos · ${porMarcaAgua[nome].vendidos} vendidos</div></div>`).join('')}
+    ${idsAgua.map(id => `<div class="list-item"><div class="item-info"><div class="item-name">${porMarcaAgua[id].label}</div></div><div class="item-detail">${porMarcaAgua[id].recebidos} recebidos · ${porMarcaAgua[id].vendidos} vendidos</div></div>`).join('')}
   ` : '<div class="empty-state">Nenhum movimento de cheios no período</div>';
 
-  // Vazios: devoluções registradas no período, por ano de validade.
+  // Vazios: devoluções registradas no período, por tamanho + ano de
+  // validade (tamanho_litros já vem direto no movimento, sem precisar de join).
   const { data: movVazios } = await sb.from('movimentos_estoque')
-    .select('quantidade, ano_validade')
+    .select('quantidade, ano_validade, tamanho_litros')
     .eq('tipo', 'retorno_vazio')
     .gte('data', inicioISO).lt('data', fimISO);
-  const porAnoVazio = {};
-  (movVazios || []).forEach(m => { porAnoVazio[m.ano_validade] = (porAnoVazio[m.ano_validade] || 0) + m.quantidade; });
-  const anosVazio = Object.keys(porAnoVazio).map(Number).sort((a, b) => a - b);
-  const totalVazios = anosVazio.reduce((s, a) => s + porAnoVazio[a], 0);
-  document.getElementById('dash-estoque-vazios').innerHTML = anosVazio.length ? `
+  const porChaveVazio = {};
+  (movVazios || []).forEach(m => {
+    const chave = `${m.tamanho_litros}-${m.ano_validade}`;
+    if (!porChaveVazio[chave]) porChaveVazio[chave] = { tamanho: m.tamanho_litros, ano: m.ano_validade, quantidade: 0 };
+    porChaveVazio[chave].quantidade += m.quantidade;
+  });
+  const chavesVazio = Object.keys(porChaveVazio).sort((a, b) => porChaveVazio[a].tamanho - porChaveVazio[b].tamanho || porChaveVazio[a].ano - porChaveVazio[b].ano);
+  const totalVazios = chavesVazio.reduce((s, c) => s + porChaveVazio[c].quantidade, 0);
+  document.getElementById('dash-estoque-vazios').innerHTML = chavesVazio.length ? `
     <div class="list-item"><div class="item-info"><div class="item-name">Total</div></div><div class="item-value">${totalVazios}</div></div>
-    ${anosVazio.map(ano => `<div class="list-item"><div class="item-info"><div class="item-name">Validade ${ano}</div></div><div class="item-detail">${porAnoVazio[ano]} devolvidos</div></div>`).join('')}
+    ${chavesVazio.map(c => `<div class="list-item"><div class="item-info"><div class="item-name">${porChaveVazio[c].tamanho}L · Validade ${porChaveVazio[c].ano}</div></div><div class="item-detail">${porChaveVazio[c].quantidade} devolvidos</div></div>`).join('')}
   ` : '<div class="empty-state">Nenhum vazio devolvido no período</div>';
 
   // Gás não tem histórico de entrada por data — só dá pra saber o vendido
