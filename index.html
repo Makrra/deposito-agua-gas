@@ -3060,16 +3060,26 @@ async function verificarFechamentoAutomaticoCaixa() {
   return true;
 }
 
+async function checarFechamentoAutomaticoEAtualizarUI() {
+  const fechou = await verificarFechamentoAutomaticoCaixa();
+  if (!fechou) return;
+  aplicarVisibilidadeNavCaixa();
+  if (currentUserRole === 'caixa') goPage('caixa');
+  else if (document.getElementById('page-caixa').classList.contains('active')) await loadCaixa();
+}
+
 let checagemCaixaIntervalId = null;
 function iniciarChecagemPeriodicaCaixa() {
   if (checagemCaixaIntervalId || currentUserRole === 'entregador') return;
-  checagemCaixaIntervalId = setInterval(async () => {
-    const fechou = await verificarFechamentoAutomaticoCaixa();
-    if (!fechou) return;
-    aplicarVisibilidadeNavCaixa();
-    if (currentUserRole === 'caixa') goPage('caixa');
-    else if (document.getElementById('page-caixa').classList.contains('active')) await loadCaixa();
-  }, 5 * 60 * 1000);
+  checagemCaixaIntervalId = setInterval(checarFechamentoAutomaticoEAtualizarUI, 5 * 60 * 1000);
+  // setInterval fica pausado enquanto a tela está apagada ou a aba em
+  // segundo plano (PWA "dormindo"), então sem isso o app podia voltar a
+  // ficar visível ainda mostrando Pedidos/Estoque/Clientes de um caixa que
+  // já devia ter fechado na virada do dia, até o timer finalmente disparar.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') checarFechamentoAutomaticoEAtualizarUI();
+  });
+  window.addEventListener('focus', checarFechamentoAutomaticoEAtualizarUI);
 }
 
 async function loadCaixa() {
