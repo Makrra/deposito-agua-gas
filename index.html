@@ -3200,8 +3200,8 @@ function htmlResumoPeriodoCaixa({ pedidosResumo, estoqueResumo }) {
 
 async function calcularTotaisSessaoAtual() {
   const sessaoId = caixaSessaoAtual.id;
-  const { data: pagamentos } = await sb.from('pagamentos_pedido').select('valor').eq('caixa_sessao_id', sessaoId).eq('forma', 'dinheiro');
-  const dinheiroRecebido = roundMoeda((pagamentos || []).reduce((s, p) => s + parseFloat(p.valor), 0));
+  const { data: pagamentos } = await sb.from('pagamentos_pedido').select('valor, pedidos(status)').eq('caixa_sessao_id', sessaoId).eq('forma', 'dinheiro');
+  const dinheiroRecebido = roundMoeda((pagamentos || []).filter(p => p.pedidos?.status !== 'cancelado').reduce((s, p) => s + parseFloat(p.valor), 0));
 
   const { data: movimentos } = await sb.from('caixa_movimentos').select('tipo, valor').eq('caixa_sessao_id', sessaoId);
   const suprimentos = roundMoeda((movimentos || []).filter(m => m.tipo === 'suprimento').reduce((s, m) => s + parseFloat(m.valor), 0));
@@ -3382,8 +3382,8 @@ async function abrirRelatorioCaixa(sessaoId) {
 
   document.getElementById('rc-titulo').textContent = `Caixa de ${fmtDataHora(sessao.aberto_em)}`;
 
-  const { data: pagamentos } = await sb.from('pagamentos_pedido').select('valor').eq('caixa_sessao_id', sessaoId).eq('forma', 'dinheiro');
-  const dinheiroRecebido = roundMoeda((pagamentos || []).reduce((s, p) => s + parseFloat(p.valor), 0));
+  const { data: pagamentos } = await sb.from('pagamentos_pedido').select('valor, pedidos(status)').eq('caixa_sessao_id', sessaoId).eq('forma', 'dinheiro');
+  const dinheiroRecebido = roundMoeda((pagamentos || []).filter(p => p.pedidos?.status !== 'cancelado').reduce((s, p) => s + parseFloat(p.valor), 0));
 
   const { data: movimentos } = await sb.from('caixa_movimentos').select('*, usuarios(nome)').eq('caixa_sessao_id', sessaoId).order('data', { ascending: false });
   const suprimentos = roundMoeda((movimentos || []).filter(m => m.tipo === 'suprimento').reduce((s, m) => s + parseFloat(m.valor), 0));
@@ -3651,8 +3651,8 @@ async function loadDashboardCaixaKPIs() {
   }
 
   const sessaoId = caixaSessaoAtual.id;
-  const { data: pagamentos } = await sb.from('pagamentos_pedido').select('valor').eq('caixa_sessao_id', sessaoId).eq('forma', 'dinheiro');
-  const dinheiroRecebido = roundMoeda((pagamentos || []).reduce((s, p) => s + parseFloat(p.valor), 0));
+  const { data: pagamentos } = await sb.from('pagamentos_pedido').select('valor, pedidos(status)').eq('caixa_sessao_id', sessaoId).eq('forma', 'dinheiro');
+  const dinheiroRecebido = roundMoeda((pagamentos || []).filter(p => p.pedidos?.status !== 'cancelado').reduce((s, p) => s + parseFloat(p.valor), 0));
 
   const { data: movimentos } = await sb.from('caixa_movimentos').select('tipo, valor').eq('caixa_sessao_id', sessaoId);
   const suprimentos = roundMoeda((movimentos || []).filter(m => m.tipo === 'suprimento').reduce((s, m) => s + parseFloat(m.valor), 0));
