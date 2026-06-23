@@ -339,6 +339,10 @@ select.form-control option { background: var(--surface); }
 
 <!-- ======= PAGE: PEDIDOS ======= -->
 <div class="page" id="page-pedidos">
+  <div class="search-box">
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    <input type="text" id="busca-pedido" placeholder="Buscar por cliente ou nº do pedido..." oninput="renderPedidosList()">
+  </div>
   <div class="tabs">
     <button class="tab-btn active" id="tab-pedidos-todos" onclick="filterPedidos('todos')">Todos</button>
     <button class="tab-btn" id="tab-pedidos-pendente" onclick="filterPedidos('pendente')">Entrega Pendente</button>
@@ -2408,7 +2412,7 @@ async function salvarPedido() {
 async function loadPedidos() {
   await loadEntregadoresList();
   const { data, error } = await sb.from('pedidos')
-    .select('*, clientes(nome), usuarios!pedidos_entregador_id_fkey(nome), criador:usuarios!pedidos_criado_por_fkey(nome, role)')
+    .select('*, clientes(nome), usuarios!pedidos_entregador_id_fkey(nome), criador:usuarios!pedidos_criado_por_fkey(nome, role), itens_pedido(quantidade, tipo_vasilhame, marcas(nome, tipo, tamanho_litros))')
     .order('data', { ascending: false });
   if (error) { toastErro('carregar pedidos', error); return; }
   allPedidos = data || [];
@@ -2498,8 +2502,18 @@ function renderPedidosList() {
     const fim = new Date(pedidosFiltroPeriodo.fim).getTime();
     lista = lista.filter(p => { const t = new Date(p.data).getTime(); return t >= ini && t <= fim; });
   }
+  const termoBusca = (document.getElementById('busca-pedido')?.value || '').trim().toLowerCase();
+  if (termoBusca) {
+    lista = lista.filter(p =>
+      (p.clientes?.nome || '').toLowerCase().includes(termoBusca) || String(p.numero).includes(termoBusca)
+    );
+  }
   if (!lista.length) { el.innerHTML = '<div class="empty-state">Nenhum pedido encontrado</div>'; return; }
-  el.innerHTML = lista.map(p => `
+  el.innerHTML = lista.map(p => {
+    const itensResumo = (p.itens_pedido || [])
+      .map(it => `${it.quantidade}x ${it.marcas ? nomeMarcaComTamanho(it.marcas) : '—'}`)
+      .join(' · ');
+    return `
     <div class="card" style="cursor:pointer" onclick="abrirPedidoDetalhe('${p.id}')">
       <div class="card-header">
         <div>
@@ -2508,11 +2522,13 @@ function renderPedidosList() {
         </div>
         <div class="item-value">${fmtMoeda(p.total)}</div>
       </div>
+      ${itensResumo ? `<div class="card-sub" style="margin-top:6px">${itensResumo}</div>` : ''}
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
         ${badgePagamento(p.forma_pagamento)} ${badgeStatusPagamento(p)} ${badgeStatusEntrega(p.status_entrega)}
       </div>
     </div>
-  `).join('');
+  `;
+  }).join('');
 }
 
 // ============================================================
@@ -3653,9 +3669,21 @@ async function loadDashboard() {
   const totalRecebidoAgua = roundMoeda(idsAgua.reduce((s, id) => s + (porMarcaAgua[id].recebido || 0), 0));
   const totalPendenteAgua = roundMoeda(idsAgua.reduce((s, id) => s + (porMarcaAgua[id].pendente || 0), 0));
   document.getElementById('dash-estoque-agua').innerHTML = idsAgua.length ? `
-    <div class="list-item"><div class="item-info"><div class="item-name">Total</div></div><div class="item-value">${totalVendidosAgua} vendidos</div></div>
-    <div class="list-item"><div class="item-info"><div class="item-name">Recebido / Pendente</div></div><div class="item-value"><span class="text-green">${fmtMoeda(totalRecebidoAgua)}</span> / <span class="text-red">${fmtMoeda(totalPendenteAgua)}</span></div></div>
-    ${idsAgua.map(id => `<div class="list-item"><div class="item-info"><div class="item-name">${porMarcaAgua[id].label}</div></div><div class="item-detail">${porMarcaAgua[id].vendidos} vendidos · ${fmtMoeda(porMarcaAgua[id].recebido || 0)} recebido · ${fmtMoeda(porMarcaAgua[id].pendente || 0)} pendente</div></div>`).join('')}
+    <div class="stats" style="grid-template-columns:repeat(3,1fr);margin-bottom:14px">
+      <div class="stat-card"><div class="stat-val">${totalVendidosAgua}</div><div class="stat-lbl">Vendidos</div></div>
+      <div class="stat-card"><div class="stat-val text-green">${fmtMoeda(totalRecebidoAgua)}</div><div class="stat-lbl">Recebido</div></div>
+      <div class="stat-card"><div class="stat-val text-red">${fmtMoeda(totalPendenteAgua)}</div><div class="stat-lbl">Pendente</div></div>
+    </div>
+    ${idsAgua.map(id => `
+      <div class="card" style="margin-bottom:8px;padding:12px">
+        <div class="card-sub" style="font-weight:700;margin-bottom:8px">${porMarcaAgua[id].label}</div>
+        <div class="stats" style="grid-template-columns:repeat(3,1fr);margin-bottom:0">
+          <div class="stat-card" style="padding:8px 4px"><div class="stat-val" style="font-size:1.05rem">${porMarcaAgua[id].vendidos}</div><div class="stat-lbl">Vendidos</div></div>
+          <div class="stat-card" style="padding:8px 4px"><div class="stat-val text-green" style="font-size:1.05rem">${fmtMoeda(porMarcaAgua[id].recebido || 0)}</div><div class="stat-lbl">Recebido</div></div>
+          <div class="stat-card" style="padding:8px 4px"><div class="stat-val text-red" style="font-size:1.05rem">${fmtMoeda(porMarcaAgua[id].pendente || 0)}</div><div class="stat-lbl">Pendente</div></div>
+        </div>
+      </div>
+    `).join('')}
   ` : '<div class="empty-state">Nenhum movimento de cheios no período</div>';
 
   // Vazios: devoluções registradas no período, por tamanho + ano de
