@@ -954,6 +954,7 @@ select.form-control option { background: var(--surface); }
       <button class="btn btn-success btn-sm" style="flex:1" id="pd-btn-entregar" onclick="marcarPedidoEntregue()">Marcar Entregue</button>
       <button class="btn btn-outline btn-sm" style="flex:1;color:var(--red);border-color:var(--red)" id="pd-btn-cancelar" onclick="cancelarPedido()">Cancelar Pedido</button>
     </div>
+    <button class="btn btn-outline btn-sm btn-block" style="margin-top:8px;color:var(--yellow);border-color:var(--yellow)" id="pd-btn-estornar" onclick="estornarEntrega()">Estornar Entrega</button>
   </div>
 </div>
 
@@ -2627,6 +2628,7 @@ async function abrirPedidoDetalhe(id) {
 
   document.getElementById('pd-btn-entregar').style.display = p.status_entrega === 'pendente' ? 'block' : 'none';
   document.getElementById('pd-btn-cancelar').style.display = p.status !== 'cancelado' ? 'block' : 'none';
+  document.getElementById('pd-btn-estornar').style.display = (p.status_entrega === 'entregue' && isAdminLevel()) ? 'block' : 'none';
 
   openModal('modal-pedido-detalhe');
 }
@@ -2744,6 +2746,65 @@ async function cancelarPedido() {
   await sb.from('pedidos').update({ status: 'cancelado', status_entrega: 'cancelada' }).eq('id', id);
 
   toast('Pedido cancelado.' + (jaEntregue ? ' Estoque e saldos revertidos.' : ''));
+  closeModal('modal-pedido-detalhe');
+  await loadClientes();
+  await loadEstoque();
+  await loadPedidos();
+}
+
+// Desfaz só a ENTREGA (estoque/comodato), mantendo o pedido aberto e os
+// pagamentos já confirmados intactos — pro caso de a entrega ter sido
+// confirmada errada (quantidade, vasilhame devolvido, etc.) e precisar ser
+// refeita. Restrito a admin/desenvolvedor. Diferente de cancelarPedido():
+// aqui os movimentos da entrega são removidos (não compensados com
+// 'ajuste'), pra que reconfirmar a entrega depois gere movimentos limpos
+// em vez de duplicar nos relatórios de vendido/devolvido.
+async function estornarEntrega() {
+  if (!isAdminLevel()) { toast('Só o administrador pode estornar entregas.', true); return; }
+  const id = currentPedidoDetalheId;
+  const p = allPedidos.find(x => x.id === id);
+  if (!p || p.status_entrega !== 'entregue') return;
+  if (!confirm(`Estornar a entrega do pedido de ${p.clientes ? p.clientes.nome : ''}? Estoque e comodato voltam ao estado anterior à entrega, e o pedido volta para "entrega pendente" pra ser confirmado de novo. Pagamentos já confirmados não são alterados.`)) return;
+
+  const { data: itens } = await sb.from('itens_pedido').select('*').eq('pedido_id', id);
+  const cliente = allClientes.find(c => c.id === p.cliente_id);
+
+  for (const it of (itens || [])) {
+    if (it.lote_id) {
+      const { data: lote } = await sb.from('lotes_garrafao').select('*, marcas(tamanho_litros)').eq('id', it.lote_id).single();
+      const tamanho_litros = lote?.marcas?.tamanho_litros ?? null;
+      if (lote) {
+        await sb.from('lotes_garrafao').update({ qtd_cheios: lote.qtd_cheios + it.quantidade }).eq('id', it.lote_id);
+      }
+      if (it.tipo_vasilhame === 'troca') {
+        const { data: splits } = await sb.from('vazios_devolvidos_pedido').select('*').eq('item_pedido_id', it.id);
+        const listaSplits = (splits && splits.length) ? splits : (lote ? [{ ano_validade: lote.ano_validade, quantidade: it.quantidade }] : []);
+        for (const s of listaSplits) {
+          const vazio = allEstoqueVazios.find(v => v.ano_validade === s.ano_validade && v.tamanho_litros === tamanho_litros);
+          if (vazio) await sb.from('estoque_vazios').update({ quantidade: Math.max(0, vazio.quantidade - s.quantidade) }).eq('id', vazio.id);
+        }
+        await sb.from('vazios_devolvidos_pedido').delete().eq('item_pedido_id', it.id);
+      }
+      await sb.from('movimentos_estoque').delete().eq('referencia_pedido_id', id).in('tipo', ['saida_venda', 'retorno_vazio']);
+    } else {
+      const { data: estoque } = await sb.from('estoque_gas').select('*').eq('marca_id', it.marca_id).single();
+      if (estoque) {
+        const novoVazios = it.tipo_vasilhame === 'troca' ? Math.max(0, estoque.qtd_vazios - it.quantidade) : estoque.qtd_vazios;
+        await sb.from('estoque_gas').update({ qtd_cheios: estoque.qtd_cheios + it.quantidade, qtd_vazios: novoVazios }).eq('id', estoque.id);
+      }
+    }
+  }
+
+  const { data: emprestimos } = await sb.from('movimentos_comodato').select('quantidade').eq('referencia_pedido_id', id).eq('tipo', 'emprestimo');
+  const totalEmprestado = (emprestimos || []).reduce((s, x) => s + x.quantidade, 0);
+  if (totalEmprestado > 0 && cliente) {
+    await sb.from('movimentos_comodato').delete().eq('referencia_pedido_id', id).eq('tipo', 'emprestimo');
+    await sb.from('clientes').update({ saldo_comodato_garrafoes: Math.max(0, cliente.saldo_comodato_garrafoes - totalEmprestado) }).eq('id', p.cliente_id);
+  }
+
+  await sb.from('pedidos').update({ status_entrega: 'pendente', data_entrega: null }).eq('id', id);
+
+  toast('Entrega estornada. Estoque e comodato revertidos.');
   closeModal('modal-pedido-detalhe');
   await loadClientes();
   await loadEstoque();
@@ -3525,9 +3586,11 @@ async function loadDashboard() {
 
   let pagamentosEfetuados = 0;
   const idsHoje = pedidosHoje.map(p => p.id);
+  const pagoPorPedidoHoje = {};
   if (idsHoje.length) {
-    const { data: pagamentos } = await sb.from('pagamentos_pedido').select('valor').in('pedido_id', idsHoje);
-    pagamentosEfetuados = roundMoeda((pagamentos || []).reduce((s, x) => s + parseFloat(x.valor), 0));
+    const { data: pagamentos } = await sb.from('pagamentos_pedido').select('pedido_id, valor').in('pedido_id', idsHoje);
+    (pagamentos || []).forEach(pg => { pagoPorPedidoHoje[pg.pedido_id] = roundMoeda((pagoPorPedidoHoje[pg.pedido_id] || 0) + parseFloat(pg.valor)); });
+    pagamentosEfetuados = roundMoeda(Object.values(pagoPorPedidoHoje).reduce((s, v) => s + v, 0));
   }
   const pagamentosPendentes = Math.max(0, roundMoeda(vendasHoje - pagamentosEfetuados));
 
@@ -3563,11 +3626,36 @@ async function loadDashboard() {
     if (!porMarcaAgua[marcaId]) porMarcaAgua[marcaId] = { label: marca ? nomeMarcaComTamanho(marca) : '—', vendidos: 0 };
     porMarcaAgua[marcaId].vendidos += Math.abs(m.quantidade);
   });
+  // Valor recebido/pendente por marca: pagamento é só por pedido, não por
+  // item, então rateia o pago/pendente do pedido proporcionalmente ao
+  // subtotal de cada item de água dentro dele (mesma ideia de
+  // "pagoPorPedido" usada em outros relatórios).
+  if (idsHoje.length) {
+    const { data: itensAgua } = await sb.from('itens_pedido')
+      .select('pedido_id, marca_id, quantidade, preco_unitario, preco_vasilhame, marcas(nome, tipo, tamanho_litros)')
+      .in('pedido_id', idsHoje);
+    const totalPedidoPorId = {};
+    pedidosHoje.forEach(p => { totalPedidoPorId[p.id] = parseFloat(p.total); });
+    (itensAgua || []).filter(it => it.marcas?.tipo === 'agua').forEach(it => {
+      const subtotal = roundMoeda((parseFloat(it.preco_unitario) + parseFloat(it.preco_vasilhame)) * it.quantidade);
+      const totalPedido = totalPedidoPorId[it.pedido_id] || 0;
+      const ratioPago = totalPedido > 0 ? Math.min(1, (pagoPorPedidoHoje[it.pedido_id] || 0) / totalPedido) : 0;
+      const recebido = roundMoeda(subtotal * ratioPago);
+      const marcaId = it.marca_id;
+      if (!porMarcaAgua[marcaId]) porMarcaAgua[marcaId] = { label: it.marcas ? nomeMarcaComTamanho(it.marcas) : '—', vendidos: 0, recebido: 0, pendente: 0 };
+      porMarcaAgua[marcaId].recebido = roundMoeda((porMarcaAgua[marcaId].recebido || 0) + recebido);
+      porMarcaAgua[marcaId].pendente = roundMoeda((porMarcaAgua[marcaId].pendente || 0) + (subtotal - recebido));
+    });
+  }
+
   const idsAgua = Object.keys(porMarcaAgua);
   const totalVendidosAgua = idsAgua.reduce((s, id) => s + porMarcaAgua[id].vendidos, 0);
+  const totalRecebidoAgua = roundMoeda(idsAgua.reduce((s, id) => s + (porMarcaAgua[id].recebido || 0), 0));
+  const totalPendenteAgua = roundMoeda(idsAgua.reduce((s, id) => s + (porMarcaAgua[id].pendente || 0), 0));
   document.getElementById('dash-estoque-agua').innerHTML = idsAgua.length ? `
     <div class="list-item"><div class="item-info"><div class="item-name">Total</div></div><div class="item-value">${totalVendidosAgua} vendidos</div></div>
-    ${idsAgua.map(id => `<div class="list-item"><div class="item-info"><div class="item-name">${porMarcaAgua[id].label}</div></div><div class="item-detail">${porMarcaAgua[id].vendidos} vendidos</div></div>`).join('')}
+    <div class="list-item"><div class="item-info"><div class="item-name">Recebido / Pendente</div></div><div class="item-value"><span class="text-green">${fmtMoeda(totalRecebidoAgua)}</span> / <span class="text-red">${fmtMoeda(totalPendenteAgua)}</span></div></div>
+    ${idsAgua.map(id => `<div class="list-item"><div class="item-info"><div class="item-name">${porMarcaAgua[id].label}</div></div><div class="item-detail">${porMarcaAgua[id].vendidos} vendidos · ${fmtMoeda(porMarcaAgua[id].recebido || 0)} recebido · ${fmtMoeda(porMarcaAgua[id].pendente || 0)} pendente</div></div>`).join('')}
   ` : '<div class="empty-state">Nenhum movimento de cheios no período</div>';
 
   // Vazios: devoluções registradas no período, por tamanho + ano de
