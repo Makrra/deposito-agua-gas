@@ -3131,9 +3131,12 @@ async function calcularResumoPeriodoCaixa(inicio, fim) {
   // vazios); tamanho_litros já vem denormalizado direto no movimento em
   // ambos os casos, sem precisar de join.
   const { data: movimentos } = await sb.from('movimentos_estoque')
-    .select('tipo, quantidade, ano_validade, tamanho_litros, lotes_garrafao(ano_validade)')
+    .select('tipo, quantidade, ano_validade, tamanho_litros, referencia_pedido_id, pedidos(status), lotes_garrafao(ano_validade)')
     .gte('data', inicio).lte('data', fim);
-  const movs = movimentos || [];
+  // pedido cancelado depois de entregue gera um 'ajuste' revertendo o
+  // estoque, mas a 'saida_venda' original não é removida — sem esse
+  // filtro ela continuava contando como vendida pra sempre.
+  const movs = (movimentos || []).filter(m => m.pedidos?.status !== 'cancelado');
   const agruparPorTamanhoAno = tipo => {
     const porChave = {};
     movs.filter(m => m.tipo === tipo).forEach(m => {
@@ -3543,38 +3546,38 @@ async function loadDashboard() {
   const inicioISO = inicio.toISOString();
   const fimISO = fim.toISOString();
 
-  // Cheios: movimento de recebidos/vendidos por marca (marca já carrega o
-  // tamanho) dentro do período — não é "quanto eu tenho agora", é "quanto
-  // entrou/saiu nesse período". Agrupa por marca_id (não nome) pra não
-  // colapsar marcas com o mesmo nome e tamanhos diferentes.
+  // Cheios: movimento de vendidos por marca (marca já carrega o tamanho)
+  // dentro do período — não é "quanto eu tenho agora", é "quanto saiu
+  // nesse período". Agrupa por marca_id (não nome) pra não colapsar marcas
+  // com o mesmo nome e tamanhos diferentes. Pedidos cancelados não contam
+  // como venda, mesmo que o estoque já tenha sido baixado e depois
+  // revertido (a reversão entra como 'ajuste', não como 'saida_venda').
   const { data: movAgua } = await sb.from('movimentos_estoque')
-    .select('tipo, quantidade, lotes_garrafao(marca_id, marcas(nome, tipo, tamanho_litros))')
-    .in('tipo', ['entrada_fabrica', 'saida_venda'])
+    .select('quantidade, referencia_pedido_id, pedidos(status), lotes_garrafao(marca_id, marcas(nome, tipo, tamanho_litros))')
+    .eq('tipo', 'saida_venda')
     .gte('data', inicioISO).lt('data', fimISO);
   const porMarcaAgua = {};
-  (movAgua || []).forEach(m => {
+  (movAgua || []).filter(m => m.pedidos?.status !== 'cancelado').forEach(m => {
     const marcaId = m.lotes_garrafao?.marca_id || '—';
     const marca = m.lotes_garrafao?.marcas;
-    if (!porMarcaAgua[marcaId]) porMarcaAgua[marcaId] = { label: marca ? nomeMarcaComTamanho(marca) : '—', recebidos: 0, vendidos: 0 };
-    if (m.tipo === 'entrada_fabrica') porMarcaAgua[marcaId].recebidos += m.quantidade;
-    else porMarcaAgua[marcaId].vendidos += Math.abs(m.quantidade);
+    if (!porMarcaAgua[marcaId]) porMarcaAgua[marcaId] = { label: marca ? nomeMarcaComTamanho(marca) : '—', vendidos: 0 };
+    porMarcaAgua[marcaId].vendidos += Math.abs(m.quantidade);
   });
   const idsAgua = Object.keys(porMarcaAgua);
-  const totalRecebidosAgua = idsAgua.reduce((s, id) => s + porMarcaAgua[id].recebidos, 0);
   const totalVendidosAgua = idsAgua.reduce((s, id) => s + porMarcaAgua[id].vendidos, 0);
   document.getElementById('dash-estoque-agua').innerHTML = idsAgua.length ? `
-    <div class="list-item"><div class="item-info"><div class="item-name">Total</div></div><div class="item-value">${totalRecebidosAgua} recebidos / ${totalVendidosAgua} vendidos</div></div>
-    ${idsAgua.map(id => `<div class="list-item"><div class="item-info"><div class="item-name">${porMarcaAgua[id].label}</div></div><div class="item-detail">${porMarcaAgua[id].recebidos} recebidos · ${porMarcaAgua[id].vendidos} vendidos</div></div>`).join('')}
+    <div class="list-item"><div class="item-info"><div class="item-name">Total</div></div><div class="item-value">${totalVendidosAgua} vendidos</div></div>
+    ${idsAgua.map(id => `<div class="list-item"><div class="item-info"><div class="item-name">${porMarcaAgua[id].label}</div></div><div class="item-detail">${porMarcaAgua[id].vendidos} vendidos</div></div>`).join('')}
   ` : '<div class="empty-state">Nenhum movimento de cheios no período</div>';
 
   // Vazios: devoluções registradas no período, por tamanho + ano de
   // validade (tamanho_litros já vem direto no movimento, sem precisar de join).
   const { data: movVazios } = await sb.from('movimentos_estoque')
-    .select('quantidade, ano_validade, tamanho_litros')
+    .select('quantidade, ano_validade, tamanho_litros, referencia_pedido_id, pedidos(status)')
     .eq('tipo', 'retorno_vazio')
     .gte('data', inicioISO).lt('data', fimISO);
   const porChaveVazio = {};
-  (movVazios || []).forEach(m => {
+  (movVazios || []).filter(m => m.pedidos?.status !== 'cancelado').forEach(m => {
     const chave = `${m.tamanho_litros}-${m.ano_validade}`;
     if (!porChaveVazio[chave]) porChaveVazio[chave] = { tamanho: m.tamanho_litros, ano: m.ano_validade, quantidade: 0 };
     porChaveVazio[chave].quantidade += m.quantidade;
