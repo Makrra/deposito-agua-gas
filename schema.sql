@@ -372,6 +372,24 @@ CREATE TABLE IF NOT EXISTS erros_app (
 CREATE INDEX IF NOT EXISTS idx_erros_app_criado_em ON erros_app(criado_em DESC);
 
 -- ------------------------------------------------------------
+-- ATIVIDADES_APP (trilha de auditoria das ações de caixa/admin pro
+-- desenvolvedor acompanhar — pedido criado, entrega confirmada, pagamento
+-- confirmado/estornado, cliente criado/alterado, caixa aberto/fechado,
+-- login, etc. Mesmo padrão de erros_app, só que pra ações normais em vez
+-- de erro.)
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS atividades_app (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  acao       TEXT NOT NULL,  -- tipo do evento, ex: 'pedido_criado', 'login'
+  detalhe    TEXT,           -- descrição legível, ex: "Pedido #42 · João Silva"
+  usuario_id UUID REFERENCES usuarios(id),
+  role       TEXT,
+  criado_em  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_atividades_app_criado_em ON atividades_app(criado_em DESC);
+
+-- ------------------------------------------------------------
 -- 13. VIEWS
 -- ------------------------------------------------------------
 CREATE OR REPLACE VIEW vw_caixa_dia WITH (security_invoker = true) AS
@@ -826,6 +844,17 @@ CREATE POLICY "erros_app_insert_auth" ON erros_app FOR INSERT
   WITH CHECK (auth.role() = 'authenticated');
 DROP POLICY IF EXISTS "erros_app_select_dev" ON erros_app;
 CREATE POLICY "erros_app_select_dev" ON erros_app FOR SELECT
+  USING (public.current_role() = 'desenvolvedor');
+
+ALTER TABLE atividades_app ENABLE ROW LEVEL SECURITY;
+
+-- atividades_app: mesma régua de erros_app — qualquer autenticado registra
+-- a própria ação, só "desenvolvedor" lê a trilha.
+DROP POLICY IF EXISTS "atividades_app_insert_auth" ON atividades_app;
+CREATE POLICY "atividades_app_insert_auth" ON atividades_app FOR INSERT
+  WITH CHECK (auth.role() = 'authenticated');
+DROP POLICY IF EXISTS "atividades_app_select_dev" ON atividades_app;
+CREATE POLICY "atividades_app_select_dev" ON atividades_app FOR SELECT
   USING (public.current_role() = 'desenvolvedor');
 
 -- ============================================================

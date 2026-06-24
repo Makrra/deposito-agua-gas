@@ -464,8 +464,12 @@ select.form-control option { background: var(--surface); }
 
 <!-- ======= PAGE: LOGS (desenvolvedor) ======= -->
 <div class="page" id="page-logs">
+  <div class="tabs">
+    <button class="tab-btn active" id="tab-logs-atividades" onclick="filterLogsTab('atividades')">Atividades</button>
+    <button class="tab-btn" id="tab-logs-erros" onclick="filterLogsTab('erros')">Erros</button>
+  </div>
   <div style="display:flex;gap:8px;margin-bottom:14px">
-    <button class="btn btn-outline btn-sm" style="flex:1" onclick="loadLogs()">Atualizar</button>
+    <button class="btn btn-outline btn-sm" style="flex:1" onclick="loadLogsAtuais()">Atualizar</button>
   </div>
   <div id="logs-list" class="loading"><div class="spinner"></div>Carregando...</div>
 </div>
@@ -948,6 +952,8 @@ select.form-control option { background: var(--surface); }
 
     <div id="pd-recebimento-entregador" class="card-sub" style="margin:8px 0"></div>
 
+    <div id="pd-pagamentos-confirmados" class="card" style="display:none"></div>
+
     <div id="pd-pagamento-card" class="card" style="display:none">
       <div class="card-title" style="margin-bottom:10px">Confirmar Pagamento</div>
       <div class="card-sub" id="pd-pagamento-info" style="margin-bottom:8px"></div>
@@ -1100,7 +1106,7 @@ function goPage(name) {
   if (name === 'pedidos')   loadPedidos();
   if (name === 'entregas')  loadEntregas();
   if (name === 'caixa')     loadCaixa();
-  if (name === 'logs')      loadLogs();
+  if (name === 'logs')      loadLogsAtuais();
 }
 
 // Botão de atualizar no cabeçalho — recarrega os dados da tela atual sem
@@ -1116,7 +1122,7 @@ function atualizarPaginaAtual() {
   if (name === 'pedidos')   loadPedidos();
   if (name === 'entregas')  loadEntregas();
   if (name === 'caixa')     loadCaixa();
-  if (name === 'logs')      loadLogs();
+  if (name === 'logs')      loadLogsAtuais();
   toast('Atualizado!');
 }
 
@@ -1166,6 +1172,21 @@ function toastErro(acao, error) {
   console.error(acao, error);
   toast('Erro ao ' + acao + ': ' + (error?.message || ''), true);
   logErroApp(acao, error);
+}
+
+// Trilha de auditoria pro perfil "desenvolvedor" acompanhar ações de
+// caixa/admin (não erros — isso é o erros_app). Cada chamada já carrega
+// usuário/role atuais; nunca deixa uma falha de log quebrar a ação real.
+async function logAtividade(acao, detalhe) {
+  try {
+    await sb.from('atividades_app').insert({
+      acao, detalhe,
+      usuario_id: currentUserId,
+      role: currentUserRole,
+    });
+  } catch (e) {
+    console.error('Falha ao registrar atividade:', e);
+  }
 }
 
 // ============================================================
@@ -1790,6 +1811,7 @@ async function excluirCliente() {
 
   const { error } = await sb.from('clientes').delete().eq('id', id);
   if (error) { toastErro('excluir cliente', error); return; }
+  logAtividade('cliente_excluido', c.nome);
 
   closeModal('modal-cliente');
   toast('Cliente excluído.');
@@ -1822,6 +1844,7 @@ async function salvarCliente() {
     : await sb.from('clientes').insert(payload);
 
   if (error) { toastErro('salvar cliente', error); return; }
+  logAtividade(id ? 'cliente_alterado' : 'cliente_criado', nome);
   closeModal('modal-cliente');
   toast('Cliente salvo!');
   loadClientes();
@@ -2399,6 +2422,9 @@ async function salvarPedido() {
     if (errItem) toastErro('salvar item do pedido', errItem);
   }
 
+  const clienteNome = allClientes.find(c => c.id === cliente_id)?.nome || '—';
+  logAtividade('pedido_criado', `Pedido #${pedido.numero} · ${clienteNome} · ${fmtMoeda(total)}`);
+
   closeModal('modal-novo-pedido');
   toast(forma_pagamento === 'misto'
     ? `Pedido criado! Combinado Dinheiro ${fmtMoeda(valorDinheiroMisto)} + Pix ${fmtMoeda(valorPixMisto)} — ambos ficam pendentes até o caixa confirmar o recebimento de cada um.`
@@ -2593,10 +2619,25 @@ async function abrirPedidoDetalhe(id) {
     recebimentoEl.innerHTML = '';
   }
 
+  const { data: pagamentos } = await sb.from('pagamentos_pedido').select('id, forma, valor, data, caixa_sessoes(status)').eq('pedido_id', id).order('data', { ascending: false });
+  const confirmadosEl = document.getElementById('pd-pagamentos-confirmados');
+  confirmadosEl.style.display = (pagamentos && pagamentos.length) ? 'block' : 'none';
+  confirmadosEl.innerHTML = (pagamentos && pagamentos.length) ? `
+    <div class="card-title" style="margin-bottom:10px">Pagamentos Confirmados</div>
+    ${pagamentos.map(pg => `
+      <div class="list-item">
+        <div class="item-info">
+          <div class="item-name">${badgePagamento(pg.forma)} ${fmtMoeda(pg.valor)}</div>
+          <div class="item-detail">${fmtDataHora(pg.data)}${pg.caixa_sessoes?.status === 'fechado' ? ' · sessão de caixa já fechada' : ''}</div>
+        </div>
+        ${isAdminLevel() ? `<button class="btn btn-outline btn-sm" style="color:var(--yellow);border-color:var(--yellow)" onclick="estornarPagamento('${pg.id}')">Estornar</button>` : ''}
+      </div>
+    `).join('')}
+  ` : '';
+
   const pagamentoCard = document.getElementById('pd-pagamento-card');
   const conteudoEl = document.getElementById('pd-pagamento-conteudo');
   if (p.status !== 'cancelado') {
-    const { data: pagamentos } = await sb.from('pagamentos_pedido').select('forma, valor').eq('pedido_id', id);
     const totalPago = roundMoeda((pagamentos || []).reduce((s, x) => s + parseFloat(x.valor), 0));
     const pendente = Math.max(0, roundMoeda(p.total - totalPago));
     if (pendente > 0) {
@@ -2667,6 +2708,7 @@ async function confirmarPagamentoPedido() {
     caixa_sessao_id: caixaSessaoAtual ? caixaSessaoAtual.id : null,
   });
   if (error) { toastErro('confirmar pagamento', error); return; }
+  logAtividade('pagamento_confirmado', `Pedido #${p.numero} · ${p.clientes ? p.clientes.nome : '—'} · ${fmtMoeda(valor)} (${forma})`);
 
   toast('Pagamento confirmado!');
   await loadPedidos();
@@ -2691,8 +2733,36 @@ async function confirmarPagamentoMistoParte(tipo) {
     caixa_sessao_id: caixaSessaoAtual ? caixaSessaoAtual.id : null,
   });
   if (error) { toastErro('confirmar pagamento', error); return; }
+  logAtividade('pagamento_confirmado', `Pedido #${p.numero} · ${p.clientes ? p.clientes.nome : '—'} · ${fmtMoeda(valor)} (${tipo})`);
 
   toast(`${tipo === 'dinheiro' ? 'Dinheiro' : 'Pix'} confirmado!`);
+  await loadPedidos();
+  await loadClientes();
+  abrirPedidoDetalhe(id);
+}
+
+// Desfaz um pagamento confirmado errado (ex: registrado como dinheiro, mas
+// foi Pix) — apaga o registro pra poder confirmar de novo com a forma
+// certa. Restrito a admin/desenvolvedor, mesma régua de estornarEntrega().
+async function estornarPagamento(pagamentoId) {
+  if (!isAdminLevel()) { toast('Só o administrador pode estornar pagamentos.', true); return; }
+  const id = currentPedidoDetalheId;
+  const { data: pagamento } = await sb.from('pagamentos_pedido').select('*, caixa_sessoes(status)').eq('id', pagamentoId).single();
+  if (!pagamento) return;
+
+  const labels = { dinheiro: 'Dinheiro', pix: 'Pix', cartao_credito: 'Cartão de Crédito' };
+  let aviso = `Estornar o pagamento de ${fmtMoeda(pagamento.valor)} (${labels[pagamento.forma] || pagamento.forma})? O pedido volta a ficar com esse valor pendente, pra você confirmar de novo com a forma correta.`;
+  if (pagamento.caixa_sessoes?.status === 'fechado') {
+    aviso += '\n\nAtenção: esse pagamento pertence a uma sessão de caixa JÁ FECHADA. O valor esperado registrado no fechamento dessa sessão não é corrigido automaticamente.';
+  }
+  if (!confirm(aviso)) return;
+
+  const { error } = await sb.from('pagamentos_pedido').delete().eq('id', pagamentoId);
+  if (error) { toastErro('estornar pagamento', error); return; }
+  const pedidoRef = allPedidos.find(x => x.id === id);
+  logAtividade('pagamento_estornado', `Pedido #${pedidoRef?.numero ?? '—'} · ${pedidoRef?.clientes?.nome || '—'} · ${fmtMoeda(pagamento.valor)} (${labels[pagamento.forma] || pagamento.forma})`);
+
+  toast('Pagamento estornado.');
   await loadPedidos();
   await loadClientes();
   abrirPedidoDetalhe(id);
@@ -2760,6 +2830,7 @@ async function cancelarPedido() {
   }
 
   await sb.from('pedidos').update({ status: 'cancelado', status_entrega: 'cancelada' }).eq('id', id);
+  logAtividade('pedido_cancelado', `Pedido #${p.numero} · ${p.clientes ? p.clientes.nome : '—'} · ${fmtMoeda(p.total)}`);
 
   toast('Pedido cancelado.' + (jaEntregue ? ' Estoque e saldos revertidos.' : ''));
   closeModal('modal-pedido-detalhe');
@@ -2819,6 +2890,7 @@ async function estornarEntrega() {
   }
 
   await sb.from('pedidos').update({ status_entrega: 'pendente', data_entrega: null }).eq('id', id);
+  logAtividade('entrega_estornada', `Pedido #${p.numero} · ${p.clientes ? p.clientes.nome : '—'}`);
 
   toast('Entrega estornada. Estoque e comodato revertidos.');
   closeModal('modal-pedido-detalhe');
@@ -2877,6 +2949,41 @@ async function marcarEntregaConcluida(id) {
 // ============================================================
 // LOGS (desenvolvedor)
 // ============================================================
+let currentLogsTab = 'atividades';
+function filterLogsTab(tab) {
+  currentLogsTab = tab;
+  document.getElementById('tab-logs-atividades').classList.toggle('active', tab === 'atividades');
+  document.getElementById('tab-logs-erros').classList.toggle('active', tab === 'erros');
+  loadLogsAtuais();
+}
+function loadLogsAtuais() {
+  return currentLogsTab === 'erros' ? loadLogs() : loadAtividades();
+}
+
+const ATIVIDADE_LABEL = {
+  login: 'Login', pedido_criado: 'Pedido Criado', pedido_cancelado: 'Pedido Cancelado',
+  entrega_confirmada: 'Entrega Confirmada', entrega_estornada: 'Entrega Estornada',
+  pagamento_confirmado: 'Pagamento Confirmado', pagamento_estornado: 'Pagamento Estornado',
+  cliente_criado: 'Cliente Criado', cliente_alterado: 'Cliente Alterado', cliente_excluido: 'Cliente Excluído',
+  caixa_aberto: 'Caixa Aberto', caixa_fechado: 'Caixa Fechado',
+};
+
+async function loadAtividades() {
+  const el = document.getElementById('logs-list');
+  const { data, error } = await sb.from('atividades_app').select('*, usuarios(nome)').order('criado_em', { ascending: false }).limit(200);
+  if (error) { el.innerHTML = '<div class="empty-state">Erro ao carregar atividades: ' + escapeHtml(error.message) + '</div>'; return; }
+  if (!data.length) { el.innerHTML = '<div class="empty-state">Nenhuma atividade registrada</div>'; return; }
+  el.innerHTML = data.map(l => `
+    <div class="list-item">
+      <div class="item-info">
+        <div class="item-name">${escapeHtml(ATIVIDADE_LABEL[l.acao] || l.acao)}</div>
+        <div class="item-detail">${escapeHtml(l.detalhe || '—')}</div>
+        <div class="item-detail">${escapeHtml(l.usuarios?.nome || '—')} (${escapeHtml(l.role || '—')}) · ${fmtDataHora(l.criado_em)}</div>
+      </div>
+    </div>
+  `).join('');
+}
+
 async function loadLogs() {
   const el = document.getElementById('logs-list');
   const { data, error } = await sb.from('erros_app').select('*').order('criado_em', { ascending: false }).limit(200);
@@ -3091,6 +3198,8 @@ async function confirmarAnoVazioEEntregar() {
 async function efetivarEntrega(pedidoId, onConcluido) {
   const { error } = await sb.from('pedidos').update({ status_entrega: 'entregue', data_entrega: new Date().toISOString() }).eq('id', pedidoId);
   if (error) { toastErro('marcar entregue', error); return; }
+  const pedidoRef = allPedidos.find(x => x.id === pedidoId);
+  logAtividade('entrega_confirmada', `Pedido #${pedidoRef?.numero ?? '—'} · ${pedidoRef?.clientes?.nome || '—'}`);
   if (onConcluido) await onConcluido();
 }
 
@@ -3131,6 +3240,7 @@ async function verificarFechamentoAutomaticoCaixa() {
     fechado_por: null,
   }).eq('id', caixaSessaoAtual.id).eq('status', 'aberto');
   if (error) { console.error('Erro ao fechar caixa automaticamente:', error); return false; }
+  logAtividade('caixa_fechado', `Automático (virada do dia) · Esperado: ${fmtMoeda(totais.esperado)}`);
 
   toast(`O caixa aberto em ${fmtDataHora(caixaSessaoAtual.aberto_em)} foi fechado automaticamente (virada do dia).`);
   caixaSessaoAtual = null;
@@ -3333,6 +3443,7 @@ async function salvarAberturaCaixa() {
     else toastErro('abrir caixa', error);
     return;
   }
+  logAtividade('caixa_aberto', `Troco inicial: ${fmtMoeda(troco_inicial)}`);
 
   closeModal('modal-abrir-caixa');
   toast('Caixa aberto!');
@@ -3412,6 +3523,7 @@ async function salvarFechamentoCaixa() {
     fechado_por: currentUserId,
   }).eq('id', caixaSessaoAtual.id);
   if (error) { toastErro('fechar caixa', error); return; }
+  logAtividade('caixa_fechado', `Manual · Esperado: ${fmtMoeda(totais.esperado)} · Contado: ${fmtMoeda(valor_contado)} · Diferença: ${fmtMoeda(diferenca)}`);
 
   closeModal('modal-fechar-caixa');
   toast('Caixa fechado!');
@@ -3799,6 +3911,7 @@ async function doLogin() {
   const { error } = await sb.auth.signInWithPassword({ email, password });
   if (error) { errEl.textContent = 'E-mail ou senha inválidos'; return; }
   await showApp();
+  logAtividade('login', email);
 }
 
 async function doLogout() {
