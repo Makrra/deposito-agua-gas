@@ -805,7 +805,21 @@ select.form-control option { background: var(--surface); }
       <textarea class="form-control" id="cliente-observacao" rows="2"></textarea>
     </div>
     <button class="btn btn-primary btn-block" onclick="salvarCliente()">Salvar</button>
+    <button class="btn btn-outline btn-block" id="btn-transferir-cliente" style="display:none;margin-top:8px;color:var(--yellow);border-color:var(--yellow)" onclick="abrirModalTransferirCliente()">Transferir Pedidos pra Outro Cliente</button>
     <button class="btn btn-outline btn-block" id="btn-excluir-cliente" style="display:none;margin-top:8px;color:var(--red);border-color:var(--red)" onclick="excluirCliente()">Excluir Cliente</button>
+  </div>
+</div>
+
+<!-- ===== MODAL: Transferir Pedidos (mescla cadastro duplicado) ===== -->
+<div class="modal-overlay" id="modal-transferir-cliente">
+  <div class="modal">
+    <div class="modal-title">Transferir Pedidos</div>
+    <div class="card-sub" style="margin-bottom:10px" id="tc-origem-info"></div>
+    <div class="card-sub" style="margin-bottom:14px">Escolha o cliente que vai RECEBER os pedidos, pagamentos e comodato. O cliente de origem fica sem nenhum vínculo depois e pode ser excluído.</div>
+    <div class="search-box">
+      <input type="text" id="tc-busca-cliente" placeholder="Buscar cliente de destino..." oninput="filterClientesTransferencia()">
+    </div>
+    <div class="picker-list" id="tc-cliente-picker"></div>
   </div>
 </div>
 
@@ -1760,6 +1774,7 @@ function abrirNovoCliente() {
   document.getElementById('cliente-endereco-legado').style.display = 'none';
   document.getElementById('cliente-observacao').value = '';
   document.getElementById('btn-excluir-cliente').style.display = 'none';
+  document.getElementById('btn-transferir-cliente').style.display = 'none';
   openModal('modal-cliente');
 }
 
@@ -1785,6 +1800,7 @@ function abrirEditarCliente(id) {
   legadoEl.textContent = c.endereco ? `Endereço cadastrado antes da separação em campos (referência): ${c.endereco}` : '';
   document.getElementById('cliente-observacao').value = c.observacao || '';
   document.getElementById('btn-excluir-cliente').style.display = isAdminLevel() ? 'block' : 'none';
+  document.getElementById('btn-transferir-cliente').style.display = isAdminLevel() ? 'block' : 'none';
   openModal('modal-cliente');
 }
 
@@ -1804,12 +1820,95 @@ async function excluirCliente() {
   if (!segundaConfirmacao) return;
 
   const { error } = await sb.from('clientes').delete().eq('id', id);
-  if (error) { toastErro('excluir cliente', error); return; }
+  if (error) {
+    // pedidos.cliente_id é ON DELETE RESTRICT de propósito — não dá pra
+    // excluir cliente com pedido registrado sem perder histórico de
+    // vendas, então o banco bloqueia em vez de deixar órfão ou cascatear.
+    if (error.code === '23503') {
+      toast(`"${c.nome}" tem pedidos registrados e não pode ser excluído, pra não perder o histórico de vendas. Se for cadastro duplicado, use "Transferir Pedidos pra Outro Cliente" antes de excluir.`, true);
+    } else {
+      toastErro('excluir cliente', error);
+    }
+    return;
+  }
   logAtividade('cliente_excluido', c.nome);
 
   closeModal('modal-cliente');
   toast('Cliente excluído.');
   loadClientes();
+}
+
+// Resolve cadastro duplicado de cliente: move pedidos, pagamentos e
+// comodato pro cliente "bom" (destino), pra que o duplicado (origem) fique
+// sem nenhum vínculo e possa ser excluído normalmente depois. Restrito a
+// admin/desenvolvedor, mesma régua de excluirCliente().
+function abrirModalTransferirCliente() {
+  const id = document.getElementById('cliente-id').value;
+  const c = allClientes.find(x => x.id === id);
+  if (!c) return;
+  document.getElementById('tc-origem-info').innerHTML = `Origem: <strong>${escapeHtml(c.nome)}</strong>${c.apelido ? ` (${escapeHtml(c.apelido)})` : ''}`;
+  document.getElementById('tc-busca-cliente').value = '';
+  document.getElementById('tc-cliente-picker').innerHTML = '';
+  closeModal('modal-cliente');
+  openModal('modal-transferir-cliente');
+}
+
+function filterClientesTransferencia() {
+  const origemId = document.getElementById('cliente-id').value;
+  const termo = document.getElementById('tc-busca-cliente').value.trim().toLowerCase();
+  const el = document.getElementById('tc-cliente-picker');
+  if (!termo) { el.innerHTML = ''; return; }
+  const filtrados = allClientes.filter(c =>
+    c.id !== origemId && (c.nome.toLowerCase().includes(termo) || (c.apelido || '').toLowerCase().includes(termo) || (c.telefone || '').includes(termo))
+  ).slice(0, 8);
+  el.innerHTML = filtrados.length ? filtrados.map(c => `
+    <div class="list-item" onclick="confirmarTransferenciaCliente('${c.id}')">
+      <div class="avatar">${escapeHtml(c.nome.slice(0, 2).toUpperCase())}</div>
+      <div class="item-info"><div class="item-name">${escapeHtml(c.nome)}${c.apelido ? ' · ' + escapeHtml(c.apelido) : ''}</div><div class="item-detail">${escapeHtml(c.telefone) || ''}</div></div>
+    </div>
+  `).join('') : '<div class="picker-empty">Nenhum cliente encontrado</div>';
+}
+
+async function confirmarTransferenciaCliente(destinoId) {
+  const origemId = document.getElementById('cliente-id').value;
+  const origem = allClientes.find(x => x.id === origemId);
+  const destino = allClientes.find(x => x.id === destinoId);
+  if (!origem || !destino) return;
+  if (!confirm(`Transferir todos os pedidos, pagamentos e comodato de "${origem.nome}" pra "${destino.nome}"?\n\nIsso não pode ser desfeito. "${origem.nome}" fica sem nenhum vínculo depois (pode ser excluído).`)) return;
+
+  const { error: errPedidos } = await sb.from('pedidos').update({ cliente_id: destinoId }).eq('cliente_id', origemId);
+  if (errPedidos) { toastErro('transferir pedidos', errPedidos); return; }
+
+  // pagamentos_pedido tem cliente_id próprio (denormalizado, ON DELETE
+  // CASCADE) — se não mover junto, excluir a origem depois apagaria o
+  // histórico de pagamento dos pedidos que acabaram de ser transferidos.
+  const { error: errPagamentos } = await sb.from('pagamentos_pedido').update({ cliente_id: destinoId }).eq('cliente_id', origemId);
+  if (errPagamentos) { toastErro('transferir pagamentos', errPagamentos); return; }
+
+  const { error: errComodato } = await sb.from('movimentos_comodato').update({ cliente_id: destinoId }).eq('cliente_id', origemId);
+  if (errComodato) { toastErro('transferir comodato', errComodato); return; }
+
+  if (origem.saldo_comodato_garrafoes > 0) {
+    await sb.from('clientes').update({ saldo_comodato_garrafoes: destino.saldo_comodato_garrafoes + origem.saldo_comodato_garrafoes }).eq('id', destinoId);
+    await sb.from('clientes').update({ saldo_comodato_garrafoes: 0 }).eq('id', origemId);
+  }
+
+  // descontos_cliente tem UNIQUE (cliente_id, marca_id) — só copia os que
+  // não colidem com um desconto que o destino já tenha pra mesma marca
+  // (ou "geral", marca_id null); o resto fica perdido junto com a origem.
+  const { data: descontosOrigem } = await sb.from('descontos_cliente').select('id, marca_id').eq('cliente_id', origemId);
+  const { data: descontosDestino } = await sb.from('descontos_cliente').select('marca_id').eq('cliente_id', destinoId);
+  const marcasDestino = new Set((descontosDestino || []).map(d => d.marca_id));
+  let descontosIgnorados = 0;
+  for (const d of (descontosOrigem || [])) {
+    if (marcasDestino.has(d.marca_id)) { descontosIgnorados++; continue; }
+    await sb.from('descontos_cliente').update({ cliente_id: destinoId }).eq('id', d.id);
+  }
+
+  logAtividade('cliente_transferido', `${origem.nome} → ${destino.nome}`);
+  closeModal('modal-transferir-cliente');
+  toast('Transferência concluída!' + (descontosIgnorados ? ` (${descontosIgnorados} desconto(s) não copiados por já existir igual no destino)` : ''));
+  await loadClientes();
 }
 
 async function salvarCliente() {
@@ -2971,7 +3070,7 @@ const ATIVIDADE_LABEL = {
   login: 'Login', pedido_criado: 'Pedido Criado', pedido_cancelado: 'Pedido Cancelado',
   entrega_confirmada: 'Entrega Confirmada', entrega_estornada: 'Entrega Estornada',
   pagamento_confirmado: 'Pagamento Confirmado', pagamento_estornado: 'Pagamento Estornado',
-  cliente_criado: 'Cliente Criado', cliente_alterado: 'Cliente Alterado', cliente_excluido: 'Cliente Excluído',
+  cliente_criado: 'Cliente Criado', cliente_alterado: 'Cliente Alterado', cliente_excluido: 'Cliente Excluído', cliente_transferido: 'Pedidos Transferidos',
   caixa_aberto: 'Caixa Aberto', caixa_fechado: 'Caixa Fechado',
 };
 
