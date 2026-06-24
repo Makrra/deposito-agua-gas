@@ -305,19 +305,13 @@ select.form-control option { background: var(--surface); }
     <div class="stat-card"><div class="stat-val text-red" id="dash-entregas-pendentes">—</div><div class="stat-lbl">Entregas Pendentes</div></div>
   </div>
 
-  <div class="card" style="cursor:pointer" onclick="goPage('caixa')">
-    <div class="card-title" id="dash-caixa-status" style="margin-bottom:10px">Caixa</div>
-    <div class="stats" style="grid-template-columns:repeat(2,1fr)">
-      <div class="stat-card"><div class="stat-val" id="dash-caixa-troco-inicial">—</div><div class="stat-lbl">Troco Inicial</div></div>
-      <div class="stat-card"><div class="stat-val text-green" id="dash-caixa-dinheiro-recebido">—</div><div class="stat-lbl">Dinheiro Recebido</div></div>
-      <div class="stat-card"><div class="stat-val text-green" id="dash-caixa-suprimentos">—</div><div class="stat-lbl">Suprimentos</div></div>
-      <div class="stat-card"><div class="stat-val text-red" id="dash-caixa-sangrias">—</div><div class="stat-lbl">Sangrias</div></div>
-    </div>
-    <div class="stat-card" style="margin-top:10px"><div class="stat-val" id="dash-caixa-esperado" style="font-size:1.4rem">—</div><div class="stat-lbl">Valor Esperado na Gaveta</div></div>
+  <div class="card">
+    <div class="card-title" style="margin-bottom:10px">Pagamentos por Forma (Período)</div>
+    <div id="dash-pagamentos-forma" class="loading"><div class="spinner"></div>Carregando...</div>
   </div>
 
   <div class="card">
-    <div class="card-title" style="margin-bottom:10px">Movimento de Cheios por Marca (Período)</div>
+    <div class="card-title" style="margin-bottom:10px">Estoque Cheios por Marca (Período)</div>
     <div id="dash-estoque-agua" class="loading"><div class="spinner"></div>Carregando...</div>
   </div>
 
@@ -975,7 +969,7 @@ select.form-control option { background: var(--surface); }
     <div class="card-sub" style="margin-bottom:14px">Informe o ano de validade de cada vasilhame que o cliente devolveu na troca.</div>
     <div id="ce-itens-container"></div>
 
-    <div class="form-group" style="margin-top:10px">
+    <div class="form-group" style="margin-top:10px" id="ce-recebimento-section">
       <label class="form-label">Valores Recebidos na Entrega</label>
       <div class="card-sub" id="ce-total-pedido-info" style="margin-bottom:8px"></div>
       <div id="ce-recebimento-container"></div>
@@ -1823,12 +1817,25 @@ async function salvarCliente() {
   const nome = document.getElementById('cliente-nome').value.trim();
   if (!nome) { toast('Informe o nome do cliente', true); return; }
 
+  const telefone = document.getElementById('cliente-telefone').value.trim();
+  const cpf = document.getElementById('cliente-cpf').value.trim();
+
+  // Telefone/CPF em branco nunca conta como duplicado — só bloqueia
+  // quando os dois lados têm o campo preenchido e igual. Nome não entra
+  // nessa checagem (nomes iguais de pessoas diferentes são legítimos).
+  if (telefone && allClientes.some(c => c.id !== id && (c.telefone || '').trim() === telefone)) {
+    toast('Já existe outro cliente com esse telefone.', true); return;
+  }
+  if (cpf && allClientes.some(c => c.id !== id && (c.cpf || '').trim() === cpf)) {
+    toast('Já existe outro cliente com esse CPF.', true); return;
+  }
+
   const payload = {
     tipo: document.getElementById('cliente-tipo').value,
     nome,
     apelido: document.getElementById('cliente-apelido').value.trim(),
-    telefone: document.getElementById('cliente-telefone').value.trim(),
-    cpf: document.getElementById('cliente-cpf').value.trim(),
+    telefone,
+    cpf,
     endereco_rua: document.getElementById('cliente-endereco-rua').value.trim(),
     endereco_numero: document.getElementById('cliente-endereco-numero').value.trim(),
     endereco_complemento: document.getElementById('cliente-endereco-complemento').value.trim(),
@@ -2094,12 +2101,12 @@ function filterClientesPedido() {
   const el = document.getElementById('np-cliente-picker');
   if (!termo) { el.innerHTML = ''; return; }
   const filtrados = allClientes.filter(c =>
-    c.nome.toLowerCase().includes(termo) || (c.telefone || '').includes(termo)
+    c.nome.toLowerCase().includes(termo) || (c.apelido || '').toLowerCase().includes(termo) || (c.telefone || '').includes(termo)
   ).slice(0, 8);
   el.innerHTML = filtrados.length ? filtrados.map(c => `
     <div class="list-item" onclick="selecionarClientePedido('${c.id}')">
       <div class="avatar">${escapeHtml(c.nome.slice(0, 2).toUpperCase())}</div>
-      <div class="item-info"><div class="item-name">${escapeHtml(c.nome)}</div><div class="item-detail">${escapeHtml(c.telefone) || ''}</div></div>
+      <div class="item-info"><div class="item-name">${escapeHtml(c.nome)}${c.apelido ? ' · ' + escapeHtml(c.apelido) : ''}</div><div class="item-detail">${escapeHtml(c.telefone) || ''}</div></div>
     </div>
   `).join('') : '<div class="picker-empty">Nenhum cliente encontrado</div>';
 }
@@ -2110,7 +2117,7 @@ async function selecionarClientePedido(id) {
   document.getElementById('np-cliente-id').value = id;
   const pendenteAtual = pendentesPorCliente[id] || 0;
   document.getElementById('np-cliente-selecionado').innerHTML =
-    `Selecionado: <strong>${escapeHtml(c.nome)}</strong>${pendenteAtual > 0 ? ` · pendência atual: <span class="text-red">${fmtMoeda(pendenteAtual)}</span>` : ''}`;
+    `Selecionado: <strong>${escapeHtml(c.nome)}</strong>${c.apelido ? ` (${escapeHtml(c.apelido)})` : ''}${pendenteAtual > 0 ? ` · pendência atual: <span class="text-red">${fmtMoeda(pendenteAtual)}</span>` : ''}`;
   document.getElementById('np-busca-cliente').value = '';
   document.getElementById('np-cliente-picker').innerHTML = '';
 
@@ -3014,7 +3021,7 @@ async function iniciarConfirmacaoEntrega(pedidoId, onConcluido) {
     sb.from('itens_pedido')
       .select('id, marca_id, quantidade, marcas(nome, tipo, tamanho_litros), lotes_garrafao(ano_validade)')
       .eq('pedido_id', pedidoId).eq('tipo_vasilhame', 'troca').not('lote_id', 'is', null),
-    sb.from('pedidos').select('total').eq('id', pedidoId).single(),
+    sb.from('pedidos').select('total, entregador_id').eq('id', pedidoId).single(),
   ]);
 
   pendingEntregaPedidoId = pedidoId;
@@ -3025,10 +3032,17 @@ async function iniciarConfirmacaoEntrega(pedidoId, onConcluido) {
     : '<div class="card-sub" style="margin-bottom:12px">Sem troca de vasilhame neste pedido.</div>';
   document.querySelectorAll('.ce-item-card').forEach(card => atualizarTotalCE(parseInt(card.dataset.idx, 10)));
 
-  ceRecebimentoSeq = 0;
-  document.getElementById('ce-total-pedido-info').textContent = `Total do pedido: ${fmtMoeda(pedido ? pedido.total : 0)}`;
-  document.getElementById('ce-recebimento-container').innerHTML = ceRecebimentoRowHTML();
-  atualizarTotalRecebimentoCE();
+  // Sem entregador atribuído, quem confirma a entrega já é quem dá baixa
+  // oficial do pagamento (admin/caixa) — não tem sentido o "informe" que
+  // existe só pra repassar pro caixa o que o entregador recebeu na rua.
+  const temEntregador = !!(pedido && pedido.entregador_id);
+  document.getElementById('ce-recebimento-section').style.display = temEntregador ? 'block' : 'none';
+  if (temEntregador) {
+    ceRecebimentoSeq = 0;
+    document.getElementById('ce-total-pedido-info').textContent = `Total do pedido: ${fmtMoeda(pedido ? pedido.total : 0)}`;
+    document.getElementById('ce-recebimento-container').innerHTML = ceRecebimentoRowHTML();
+    atualizarTotalRecebimentoCE();
+  }
 
   openModal('modal-confirmar-entrega');
 }
@@ -3703,39 +3717,91 @@ function calcularIntervaloDashboard() {
 
 async function loadDashboard() {
   const { inicio, fim } = calcularIntervaloDashboard();
+  const inicioISO = inicio.toISOString();
+  const fimISO = fim.toISOString();
 
+  // "Vendas no Período" é pela data de CRIAÇÃO do pedido. Pagamentos e
+  // entregas NÃO seguem essa mesma data — cada um conta no dia em que a
+  // própria ação aconteceu (confirmação de pagamento / confirmação de
+  // entrega), não no dia em que o pedido foi criado. Um pedido criado
+  // ontem e pago/entregue hoje entra nos números de hoje, não de ontem.
   const { data: pedidosHojeRaw } = await sb.from('pedidos')
-    .select('id, total, status, status_entrega, forma_pagamento')
-    .gte('data', inicio.toISOString())
-    .lt('data', fim.toISOString());
+    .select('id, total, status, status_entrega, forma_pagamento, valor_dinheiro_misto, valor_pix_misto')
+    .gte('data', inicioISO)
+    .lt('data', fimISO);
   const pedidosHoje = (pedidosHojeRaw || []).filter(p => p.status !== 'cancelado');
+  const idsHoje = pedidosHoje.map(p => p.id);
 
   const vendasHoje = roundMoeda(pedidosHoje.reduce((s, p) => s + parseFloat(p.total), 0));
 
-  let pagamentosEfetuados = 0;
-  const idsHoje = pedidosHoje.map(p => p.id);
-  const pagoPorPedidoHoje = {};
-  if (idsHoje.length) {
-    const { data: pagamentos } = await sb.from('pagamentos_pedido').select('pedido_id, valor').in('pedido_id', idsHoje);
-    (pagamentos || []).forEach(pg => { pagoPorPedidoHoje[pg.pedido_id] = roundMoeda((pagoPorPedidoHoje[pg.pedido_id] || 0) + parseFloat(pg.valor)); });
-    pagamentosEfetuados = roundMoeda(Object.values(pagoPorPedidoHoje).reduce((s, v) => s + v, 0));
-  }
-  const pagamentosPendentes = Math.max(0, roundMoeda(vendasHoje - pagamentosEfetuados));
+  // Pagamentos Efetuados: soma pela data em que o PAGAMENTO foi confirmado
+  // (mesma régua do caixa, que conta dinheiro pela sessão em que foi
+  // confirmado) — não pela data de criação do pedido a que pertence.
+  const FORMAS = ['dinheiro', 'pix', 'cartao_credito'];
+  const efetuadoPorForma = { dinheiro: 0, pix: 0, cartao_credito: 0 };
+  const { data: pagamentosPeriodo } = await sb.from('pagamentos_pedido')
+    .select('forma, valor, pedidos(status)')
+    .gte('data', inicioISO).lt('data', fimISO);
+  (pagamentosPeriodo || []).filter(p => p.pedidos?.status !== 'cancelado').forEach(p => {
+    if (efetuadoPorForma[p.forma] == null) return;
+    efetuadoPorForma[p.forma] = roundMoeda(efetuadoPorForma[p.forma] + parseFloat(p.valor));
+  });
+  const pagamentosEfetuados = roundMoeda(FORMAS.reduce((s, f) => s + efetuadoPorForma[f], 0));
 
+  // Pagamentos Pendentes: dos pedidos CRIADOS no período, quanto ainda
+  // falta pagar até agora (independente de quando o que já foi pago foi
+  // confirmado) — por isso usa todos os pagamentos desses pedidos, sem
+  // filtrar por data.
+  const pendentePorForma = { dinheiro: 0, pix: 0, cartao_credito: 0 };
+  const pagoPorPedidoForma = {};
+  if (idsHoje.length) {
+    const { data: pagamentosCohorte } = await sb.from('pagamentos_pedido').select('pedido_id, forma, valor').in('pedido_id', idsHoje);
+    (pagamentosCohorte || []).forEach(pg => {
+      if (!pagoPorPedidoForma[pg.pedido_id]) pagoPorPedidoForma[pg.pedido_id] = {};
+      pagoPorPedidoForma[pg.pedido_id][pg.forma] = roundMoeda((pagoPorPedidoForma[pg.pedido_id][pg.forma] || 0) + parseFloat(pg.valor));
+    });
+  }
+  pedidosHoje.forEach(p => {
+    const pago = pagoPorPedidoForma[p.id] || {};
+    if (p.forma_pagamento === 'misto') {
+      pendentePorForma.dinheiro = roundMoeda(pendentePorForma.dinheiro + Math.max(0, roundMoeda(parseFloat(p.valor_dinheiro_misto || 0) - (pago.dinheiro || 0))));
+      pendentePorForma.pix = roundMoeda(pendentePorForma.pix + Math.max(0, roundMoeda(parseFloat(p.valor_pix_misto || 0) - (pago.pix || 0))));
+    } else if (pendentePorForma[p.forma_pagamento] != null) {
+      const totalPagoPedido = FORMAS.reduce((s, f) => s + (pago[f] || 0), 0);
+      const pendente = Math.max(0, roundMoeda(parseFloat(p.total) - totalPagoPedido));
+      pendentePorForma[p.forma_pagamento] = roundMoeda(pendentePorForma[p.forma_pagamento] + pendente);
+    }
+  });
+  const pagamentosPendentes = roundMoeda(FORMAS.reduce((s, f) => s + pendentePorForma[f], 0));
+
+  // Entregas: "Efetuadas" conta pela data em que a ENTREGA foi confirmada
+  // (data_entrega) — mesma lógica de pagamento, decoupled da criação do
+  // pedido. "Pendentes" continua olhando, dos pedidos criados no período,
+  // o que ainda falta entregar até agora.
+  const { data: entreguesPeriodoRaw } = await sb.from('pedidos').select('id')
+    .neq('status', 'cancelado')
+    .gte('data_entrega', inicioISO).lt('data_entrega', fimISO);
   const entregasTotal = pedidosHoje.length;
-  const entregasEfetuadas = pedidosHoje.filter(p => p.status_entrega === 'entregue').length;
+  const entregasEfetuadas = (entreguesPeriodoRaw || []).length;
   const entregasPendentes = pedidosHoje.filter(p => p.status_entrega === 'pendente').length;
 
   document.getElementById('dash-vendas-hoje').textContent = fmtMoeda(vendasHoje);
   document.getElementById('dash-pagamentos-efetuados').textContent = fmtMoeda(pagamentosEfetuados);
   document.getElementById('dash-pagamentos-pendentes').textContent = fmtMoeda(pagamentosPendentes);
-  await loadDashboardCaixaKPIs();
   document.getElementById('dash-entregas-total').textContent = entregasTotal;
   document.getElementById('dash-entregas-efetuadas').textContent = entregasEfetuadas;
   document.getElementById('dash-entregas-pendentes').textContent = entregasPendentes;
 
-  const inicioISO = inicio.toISOString();
-  const fimISO = fim.toISOString();
+  const labelForma = { dinheiro: 'Dinheiro', pix: 'Pix', cartao_credito: 'Cartão de Crédito' };
+  document.getElementById('dash-pagamentos-forma').innerHTML = FORMAS.map(f => `
+    <div class="card" style="margin-bottom:8px;padding:12px">
+      <div class="card-sub" style="font-weight:700;margin-bottom:8px">${labelForma[f]}</div>
+      <div class="stats" style="grid-template-columns:repeat(2,1fr);margin-bottom:0">
+        <div class="stat-card"><div class="stat-val text-green">${fmtMoeda(efetuadoPorForma[f])}</div><div class="stat-lbl">Efetuado</div></div>
+        <div class="stat-card"><div class="stat-val text-red">${fmtMoeda(pendentePorForma[f])}</div><div class="stat-lbl">Pendente</div></div>
+      </div>
+    </div>
+  `).join('');
 
   // Cheios: movimento de vendidos por marca (marca já carrega o tamanho)
   // dentro do período — não é "quanto eu tenho agora", é "quanto saiu
@@ -3751,13 +3817,14 @@ async function loadDashboard() {
   (movAgua || []).filter(m => m.pedidos?.status !== 'cancelado').forEach(m => {
     const marcaId = m.lotes_garrafao?.marca_id || '—';
     const marca = m.lotes_garrafao?.marcas;
-    if (!porMarcaAgua[marcaId]) porMarcaAgua[marcaId] = { label: marca ? nomeMarcaComTamanho(marca) : '—', vendidos: 0 };
+    if (!porMarcaAgua[marcaId]) porMarcaAgua[marcaId] = { label: marca ? nomeMarcaComTamanho(marca) : '—', vendidos: 0, recebido: 0, pendente: 0 };
     porMarcaAgua[marcaId].vendidos += Math.abs(m.quantidade);
   });
-  // Valor recebido/pendente por marca: pagamento é só por pedido, não por
-  // item, então rateia o pago/pendente do pedido proporcionalmente ao
-  // subtotal de cada item de água dentro dele (mesma ideia de
-  // "pagoPorPedido" usada em outros relatórios).
+
+  // Recebido/pendente por marca: pagamento é só por pedido, não por item,
+  // então rateia o pago/pendente do pedido proporcionalmente ao subtotal
+  // de cada item de água dentro dele (reaproveita pagoPorPedidoForma já
+  // calculado acima pro card de pagamentos por forma).
   if (idsHoje.length) {
     const { data: itensAgua } = await sb.from('itens_pedido')
       .select('pedido_id, marca_id, quantidade, preco_unitario, preco_vasilhame, marcas(nome, tipo, tamanho_litros)')
@@ -3767,35 +3834,46 @@ async function loadDashboard() {
     (itensAgua || []).filter(it => it.marcas?.tipo === 'agua').forEach(it => {
       const subtotal = roundMoeda((parseFloat(it.preco_unitario) + parseFloat(it.preco_vasilhame)) * it.quantidade);
       const totalPedido = totalPedidoPorId[it.pedido_id] || 0;
-      const ratioPago = totalPedido > 0 ? Math.min(1, (pagoPorPedidoHoje[it.pedido_id] || 0) / totalPedido) : 0;
+      const pagoPedido = Object.values(pagoPorPedidoForma[it.pedido_id] || {}).reduce((s, v) => s + v, 0);
+      const ratioPago = totalPedido > 0 ? Math.min(1, pagoPedido / totalPedido) : 0;
       const recebido = roundMoeda(subtotal * ratioPago);
       const marcaId = it.marca_id;
       if (!porMarcaAgua[marcaId]) porMarcaAgua[marcaId] = { label: it.marcas ? nomeMarcaComTamanho(it.marcas) : '—', vendidos: 0, recebido: 0, pendente: 0 };
-      porMarcaAgua[marcaId].recebido = roundMoeda((porMarcaAgua[marcaId].recebido || 0) + recebido);
-      porMarcaAgua[marcaId].pendente = roundMoeda((porMarcaAgua[marcaId].pendente || 0) + (subtotal - recebido));
+      porMarcaAgua[marcaId].recebido = roundMoeda(porMarcaAgua[marcaId].recebido + recebido);
+      porMarcaAgua[marcaId].pendente = roundMoeda(porMarcaAgua[marcaId].pendente + (subtotal - recebido));
     });
   }
 
+  // Apresentação proposital diferente do card "Pagamentos por Forma"
+  // (sem caixinhas/.stat-card) — uma barrinha de proporção recebido x
+  // pendente por marca, pra não confundir visualmente os dois cards.
   const idsAgua = Object.keys(porMarcaAgua);
   const totalVendidosAgua = idsAgua.reduce((s, id) => s + porMarcaAgua[id].vendidos, 0);
-  const totalRecebidoAgua = roundMoeda(idsAgua.reduce((s, id) => s + (porMarcaAgua[id].recebido || 0), 0));
-  const totalPendenteAgua = roundMoeda(idsAgua.reduce((s, id) => s + (porMarcaAgua[id].pendente || 0), 0));
+  const totalRecebidoAgua = roundMoeda(idsAgua.reduce((s, id) => s + porMarcaAgua[id].recebido, 0));
+  const totalPendenteAgua = roundMoeda(idsAgua.reduce((s, id) => s + porMarcaAgua[id].pendente, 0));
   document.getElementById('dash-estoque-agua').innerHTML = idsAgua.length ? `
-    <div class="stats" style="grid-template-columns:repeat(3,1fr);margin-bottom:14px">
-      <div class="stat-card"><div class="stat-val">${totalVendidosAgua}</div><div class="stat-lbl">Vendidos</div></div>
-      <div class="stat-card"><div class="stat-val text-green">${fmtMoeda(totalRecebidoAgua)}</div><div class="stat-lbl">Recebido</div></div>
-      <div class="stat-card"><div class="stat-val text-red">${fmtMoeda(totalPendenteAgua)}</div><div class="stat-lbl">Pendente</div></div>
-    </div>
-    ${idsAgua.map(id => `
-      <div class="card" style="margin-bottom:8px;padding:12px">
-        <div class="card-sub" style="font-weight:700;margin-bottom:8px">${porMarcaAgua[id].label}</div>
-        <div class="stats" style="grid-template-columns:repeat(3,1fr);margin-bottom:0">
-          <div class="stat-card" style="padding:8px 4px"><div class="stat-val" style="font-size:1.05rem">${porMarcaAgua[id].vendidos}</div><div class="stat-lbl">Vendidos</div></div>
-          <div class="stat-card" style="padding:8px 4px"><div class="stat-val text-green" style="font-size:1.05rem">${fmtMoeda(porMarcaAgua[id].recebido || 0)}</div><div class="stat-lbl">Recebido</div></div>
-          <div class="stat-card" style="padding:8px 4px"><div class="stat-val text-red" style="font-size:1.05rem">${fmtMoeda(porMarcaAgua[id].pendente || 0)}</div><div class="stat-lbl">Pendente</div></div>
+    <div class="card-sub" style="margin-bottom:12px">${totalVendidosAgua} vendidos no período · <span class="text-green">${fmtMoeda(totalRecebidoAgua)}</span> recebido · <span class="text-red">${fmtMoeda(totalPendenteAgua)}</span> pendente</div>
+    ${idsAgua.map(id => {
+      const m = porMarcaAgua[id];
+      const totalDinheiro = roundMoeda(m.recebido + m.pendente);
+      const pctRecebido = totalDinheiro > 0 ? Math.round((m.recebido / totalDinheiro) * 100) : null;
+      return `
+      <div style="margin-bottom:14px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">
+          <div class="item-name">${m.label}</div>
+          <div class="item-detail">${m.vendidos} vendidos</div>
+        </div>
+        <div style="height:8px;border-radius:4px;background:var(--border);overflow:hidden;display:flex">
+          ${pctRecebido != null && pctRecebido > 0 ? `<div style="width:${pctRecebido}%;background:var(--green)"></div>` : ''}
+          ${pctRecebido != null && pctRecebido < 100 ? `<div style="width:${100 - pctRecebido}%;background:var(--red)"></div>` : ''}
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:.72rem;margin-top:5px">
+          <span class="text-green">${fmtMoeda(m.recebido)} recebido</span>
+          <span class="text-red">${fmtMoeda(m.pendente)} pendente</span>
         </div>
       </div>
-    `).join('')}
+    `;
+    }).join('')}
   ` : '<div class="empty-state">Nenhum movimento de cheios no período</div>';
 
   // Vazios: devoluções registradas no período, por tamanho + ano de
@@ -3869,34 +3947,6 @@ async function calcularPendentesPorClientePeriodo(inicioISO, fimISO) {
     if (pendente > 0) mapa[p.cliente_id] = roundMoeda((mapa[p.cliente_id] || 0) + pendente);
   });
   return mapa;
-}
-
-async function loadDashboardCaixaKPIs() {
-  await carregarCaixaSessaoAtual();
-  document.getElementById('dash-caixa-status').textContent = caixaSessaoAtual ? 'Caixa Aberto' : 'Caixa Fechado';
-
-  if (!caixaSessaoAtual) {
-    ['dash-caixa-troco-inicial', 'dash-caixa-dinheiro-recebido', 'dash-caixa-suprimentos', 'dash-caixa-sangrias', 'dash-caixa-esperado']
-      .forEach(id => document.getElementById(id).textContent = '—');
-    return;
-  }
-
-  const sessaoId = caixaSessaoAtual.id;
-  const { data: pagamentos } = await sb.from('pagamentos_pedido').select('valor, pedidos(status)').eq('caixa_sessao_id', sessaoId).eq('forma', 'dinheiro');
-  const dinheiroRecebido = roundMoeda((pagamentos || []).filter(p => p.pedidos?.status !== 'cancelado').reduce((s, p) => s + parseFloat(p.valor), 0));
-
-  const { data: movimentos } = await sb.from('caixa_movimentos').select('tipo, valor').eq('caixa_sessao_id', sessaoId);
-  const suprimentos = roundMoeda((movimentos || []).filter(m => m.tipo === 'suprimento').reduce((s, m) => s + parseFloat(m.valor), 0));
-  const sangrias = roundMoeda((movimentos || []).filter(m => m.tipo === 'sangria').reduce((s, m) => s + parseFloat(m.valor), 0));
-
-  const trocoInicial = parseFloat(caixaSessaoAtual.troco_inicial);
-  const esperado = roundMoeda(trocoInicial + dinheiroRecebido + suprimentos - sangrias);
-
-  document.getElementById('dash-caixa-troco-inicial').textContent = fmtMoeda(trocoInicial);
-  document.getElementById('dash-caixa-dinheiro-recebido').textContent = fmtMoeda(dinheiroRecebido);
-  document.getElementById('dash-caixa-suprimentos').textContent = fmtMoeda(suprimentos);
-  document.getElementById('dash-caixa-sangrias').textContent = fmtMoeda(sangrias);
-  document.getElementById('dash-caixa-esperado').textContent = fmtMoeda(esperado);
 }
 
 // ============================================================
