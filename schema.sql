@@ -239,6 +239,13 @@ CREATE TABLE IF NOT EXISTS caixa_sessoes (
   observacao_abertura   TEXT,
   observacao_fechamento TEXT,
   forma_fechamento      TEXT CHECK (forma_fechamento IN ('manual','automatico')), -- preenchido só no fechamento
+  -- Retrato do estoque de cheios (por marca + ano de validade) no instante
+  -- da abertura/fechamento — array de {marca_id, label, ano_validade,
+  -- qtd_cheios}. É só pra exibição histórica (comparar "começou com X,
+  -- terminou com Y"), por isso JSONB em vez de tabela relacional: nunca é
+  -- filtrado/agregado por query, só lido de volta inteiro.
+  estoque_abertura      JSONB,
+  estoque_fechamento    JSONB,
   aberto_em             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   aberto_por            UUID REFERENCES usuarios(id),
   fechado_em            TIMESTAMPTZ,
@@ -1432,6 +1439,14 @@ ON CONFLICT (chave) DO NOTHING;
 -- "IF EXISTS", então é seguro rodar de novo mesmo que parte já tenha
 -- sido aplicada.
 -- ============================================================
+
+-- ============================================================
+-- MIGRAÇÃO: retrato do estoque de cheios (por marca + ano de validade) na
+-- abertura/fechamento de cada sessão de caixa, pra dar pra comparar
+-- "começou com X, terminou com Y" depois.
+-- ============================================================
+-- ALTER TABLE caixa_sessoes ADD COLUMN IF NOT EXISTS estoque_abertura JSONB;
+-- ALTER TABLE caixa_sessoes ADD COLUMN IF NOT EXISTS estoque_fechamento JSONB;
 
 -- Após rodar este script, crie o primeiro usuário em:
 -- Authentication > Users > Add user (email + senha)

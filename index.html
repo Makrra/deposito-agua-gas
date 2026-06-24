@@ -433,6 +433,11 @@ select.form-control option { background: var(--surface); }
     <div id="caixa-resumo-periodo"></div>
 
     <div class="card">
+      <div class="card-title" style="margin-bottom:10px">Estoque Cheios na Abertura</div>
+      <div id="caixa-estoque-abertura"></div>
+    </div>
+
+    <div class="card">
       <div class="card-title" style="margin-bottom:10px">Extrato</div>
       <div id="caixa-extrato-list" class="loading"><div class="spinner"></div>Carregando...</div>
       <button class="btn btn-outline btn-sm btn-block" id="caixa-extrato-ver-todas" style="display:none;margin-top:8px" onclick="verTodoExtratoCaixa()">Ver Todas</button>
@@ -718,6 +723,11 @@ select.form-control option { background: var(--surface); }
     <div class="card">
       <div class="card-title" style="margin-bottom:10px">Movimentos da Sessão</div>
       <div id="rc-movimentos-list"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title" style="margin-bottom:10px">Estoque Cheios: Abertura → Fechamento</div>
+      <div id="rc-estoque-comparativo"></div>
     </div>
 
     <!-- Caixa ainda aberto: atalhos pra página live, filtrada pelo período -->
@@ -3483,6 +3493,72 @@ async function carregarCaixaSessaoAtual() {
   return caixaSessaoAtual;
 }
 
+// Retrato do estoque de cheios (por marca + ano de validade) num instante —
+// usado na abertura/fechamento da sessão de caixa pra depois dar pra
+// comparar "começou com X, terminou com Y". É só pra exibição, por isso
+// retorna um array simples (vai direto pra uma coluna JSONB).
+async function snapshotEstoqueCheios() {
+  const { data } = await sb.from('lotes_garrafao').select('marca_id, ano_validade, qtd_cheios, marcas(nome, tipo, tamanho_litros)');
+  return (data || []).map(l => ({
+    marca_id: l.marca_id,
+    label: l.marcas ? nomeMarcaComTamanho(l.marcas) : '—',
+    ano_validade: l.ano_validade,
+    qtd_cheios: l.qtd_cheios,
+  }));
+}
+
+function linhasEstoqueSnapshot(snapshot) {
+  if (!snapshot || !snapshot.length) return '<div class="empty-state">Sem retrato registrado</div>';
+  const porMarca = {};
+  snapshot.forEach(s => {
+    if (!porMarca[s.marca_id]) porMarca[s.marca_id] = { label: s.label, porAno: {} };
+    porMarca[s.marca_id].porAno[s.ano_validade] = (porMarca[s.marca_id].porAno[s.ano_validade] || 0) + s.qtd_cheios;
+  });
+  const ids = Object.keys(porMarca);
+  const total = snapshot.reduce((s, x) => s + x.qtd_cheios, 0);
+  return `
+    <div class="list-item"><div class="item-info"><div class="item-name">Total</div></div><div class="item-value">${total}</div></div>
+    ${ids.map(id => {
+      const anos = Object.keys(porMarca[id].porAno).sort((a, b) => a - b);
+      const subtotal = Object.values(porMarca[id].porAno).reduce((a, b) => a + b, 0);
+      return `
+        <div class="list-item"><div class="item-info"><div class="item-name">${porMarca[id].label}</div></div><div class="item-value">${subtotal}</div></div>
+        ${anos.map(ano => `<div class="list-item" style="padding-left:16px"><div class="item-info"><div class="item-detail">Validade ${ano}</div></div><div class="item-detail">${porMarca[id].porAno[ano]}</div></div>`).join('')}
+      `;
+    }).join('')}
+  `;
+}
+
+// Casa o retrato de abertura com o de fechamento por marca+ano, pra dar
+// pra ver "começou com X, terminou com Y" de cada um. Sessão ainda aberta
+// não tem estoque_fechamento — mostra só o que tem.
+function htmlComparativoEstoqueSessao(sessao) {
+  const abertura = sessao.estoque_abertura || [];
+  const fechamento = sessao.estoque_fechamento || [];
+  if (!abertura.length && !fechamento.length) return '<div class="empty-state">Sem retrato de estoque registrado</div>';
+  const chaves = {};
+  abertura.forEach(s => {
+    const k = `${s.marca_id}-${s.ano_validade}`;
+    chaves[k] = { label: s.label, ano: s.ano_validade, abertura: s.qtd_cheios, fechamento: null };
+  });
+  fechamento.forEach(s => {
+    const k = `${s.marca_id}-${s.ano_validade}`;
+    if (!chaves[k]) chaves[k] = { label: s.label, ano: s.ano_validade, abertura: null, fechamento: s.qtd_cheios };
+    else chaves[k].fechamento = s.qtd_cheios;
+  });
+  const porMarca = {};
+  Object.values(chaves).forEach(c => { (porMarca[c.label] || (porMarca[c.label] = [])).push(c); });
+  return Object.keys(porMarca).map(label => `
+    <div class="card-sub" style="font-weight:600;margin:10px 0 4px">${label}</div>
+    ${porMarca[label].sort((a, b) => a.ano - b.ano).map(c => `
+      <div class="list-item">
+        <div class="item-info"><div class="item-detail">Validade ${c.ano}</div></div>
+        <div class="item-value">${c.abertura ?? '—'} → ${c.fechamento ?? (sessao.status === 'aberto' ? 'em aberto' : '—')}</div>
+      </div>
+    `).join('')}
+  `).join('');
+}
+
 // Não há servidor/cron próprio (app estático + Supabase) pra fechar o caixa
 // no instante exato da meia-noite. Em vez disso, qualquer carregamento do
 // app (login, troca de página, ou o timer periódico abaixo) detecta uma
@@ -3498,6 +3574,7 @@ async function verificarFechamentoAutomaticoCaixa() {
 
   const meiaNoiteSeguinte = new Date(abertoEm.getFullYear(), abertoEm.getMonth(), abertoEm.getDate() + 1, 0, 0, 0, 0);
   const totais = await calcularTotaisSessaoAtual();
+  const estoqueFechamento = await snapshotEstoqueCheios();
 
   const { error } = await sb.from('caixa_sessoes').update({
     status: 'fechado',
@@ -3507,6 +3584,7 @@ async function verificarFechamentoAutomaticoCaixa() {
     forma_fechamento: 'automatico',
     fechado_em: meiaNoiteSeguinte.toISOString(),
     fechado_por: null,
+    estoque_fechamento: estoqueFechamento,
   }).eq('id', caixaSessaoAtual.id).eq('status', 'aberto');
   if (error) { console.error('Erro ao fechar caixa automaticamente:', error); return false; }
   logAtividade('caixa_fechado', `Automático (virada do dia) · Esperado: ${fmtMoeda(totais.esperado)}`);
@@ -3548,6 +3626,7 @@ async function loadCaixa() {
     const nomeAbertura = caixaSessaoAtual.aberto_por_usuario?.nome || '—';
     document.getElementById('caixa-info-abertura').textContent =
       `Aberto por ${nomeAbertura} em ${fmtDataHora(caixaSessaoAtual.aberto_em)}`;
+    document.getElementById('caixa-estoque-abertura').innerHTML = linhasEstoqueSnapshot(caixaSessaoAtual.estoque_abertura);
     await calcularTotaisSessaoAtual();
     await renderExtratoCaixa();
     const resumo = await calcularResumoPeriodoCaixa(caixaSessaoAtual.aberto_em, new Date().toISOString());
@@ -3621,13 +3700,43 @@ async function calcularResumoPeriodoCaixa(inicio, fim) {
     });
     return { porMarca, semMarca };
   };
+  // Vazios devolvidos: sempre do pool (sem marca/lote), só tamanho + ano.
+  const agruparPorTamanhoAno = tipo => {
+    const porTamanho = {};
+    movs.filter(m => m.tipo === tipo).forEach(m => {
+      if (m.ano_validade == null || m.tamanho_litros == null) return;
+      const chave = `${m.tamanho_litros}L`;
+      if (!porTamanho[chave]) porTamanho[chave] = {};
+      porTamanho[chave][m.ano_validade] = (porTamanho[chave][m.ano_validade] || 0) + Math.abs(m.quantidade);
+    });
+    return porTamanho;
+  };
+
   const estoqueResumo = {
     recebidosPorMarca: agruparPorMarcaAno('entrada_fabrica'),
     vendidosPorMarca: agruparPorMarcaAno('saida_venda'),
     avariasPorMarca: agruparPorMarcaAno('avaria'),
+    vaziosDevolvidos: agruparPorTamanhoAno('retorno_vazio'),
   };
 
   return { pedidosResumo, estoqueResumo };
+}
+
+function linhasVaziosPorTamanhoAno(porTamanho) {
+  const tamanhos = Object.keys(porTamanho);
+  const total = tamanhos.reduce((s, t) => s + Object.values(porTamanho[t]).reduce((a, b) => a + b, 0), 0);
+  if (!total) return '<div class="empty-state">Nenhum no período</div>';
+  return `
+    <div class="list-item"><div class="item-info"><div class="item-name">Total</div></div><div class="item-value">${total}</div></div>
+    ${tamanhos.map(t => {
+      const anos = Object.keys(porTamanho[t]).sort((a, b) => a - b);
+      const subtotal = Object.values(porTamanho[t]).reduce((a, b) => a + b, 0);
+      return `
+        <div class="list-item"><div class="item-info"><div class="item-name">${t}</div></div><div class="item-value">${subtotal}</div></div>
+        ${anos.map(ano => `<div class="list-item" style="padding-left:16px"><div class="item-info"><div class="item-detail">Validade ${ano}</div></div><div class="item-detail">${porTamanho[t][ano]}</div></div>`).join('')}
+      `;
+    }).join('')}
+  `;
 }
 
 function linhasGarrafaoPorMarcaAno({ porMarca, semMarca }) {
@@ -3687,13 +3796,32 @@ function htmlResumoPeriodoCaixa({ pedidosResumo, estoqueResumo }) {
     </div>
     <div class="card">
       <div class="card-title" style="margin-bottom:10px">Garrafões no Período</div>
-      <div class="card-sub" style="margin-bottom:6px;font-weight:600">Vendidos por Marca e Validade</div>
-      ${linhasGarrafaoPorMarcaAno(estoqueResumo.vendidosPorMarca)}
-      <div class="card-sub" style="margin:14px 0 6px;font-weight:600">Recebidos por Marca e Validade</div>
-      ${linhasGarrafaoPorMarcaAno(estoqueResumo.recebidosPorMarca)}
-      <div class="card-sub" style="margin:14px 0 6px;font-weight:600">Avarias por Marca e Validade</div>
-      ${linhasGarrafaoPorMarcaAno(estoqueResumo.avariasPorMarca)}
+      <div class="stat-card" style="margin-bottom:12px">
+        <div class="stat-val" style="font-size:1.8rem">${somaTotalGarrafao(estoqueResumo.vendidosPorMarca)}</div>
+        <div class="stat-lbl">Garrafões Cheios Vendidos no Período</div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div class="card" style="margin-bottom:0;padding:12px">
+          <div class="card-sub" style="font-weight:700;letter-spacing:.5px;text-transform:uppercase;margin-bottom:8px">Cheio</div>
+          <div class="card-sub" style="font-weight:600;font-size:.78rem;margin-bottom:4px">Vendidos</div>
+          ${linhasGarrafaoPorMarcaAno(estoqueResumo.vendidosPorMarca)}
+          <div class="card-sub" style="font-weight:600;font-size:.78rem;margin:10px 0 4px">Recebidos</div>
+          ${linhasGarrafaoPorMarcaAno(estoqueResumo.recebidosPorMarca)}
+          <div class="card-sub" style="font-weight:600;font-size:.78rem;margin:10px 0 4px">Avarias</div>
+          ${linhasGarrafaoPorMarcaAno(estoqueResumo.avariasPorMarca)}
+        </div>
+        <div class="card" style="margin-bottom:0;padding:12px">
+          <div class="card-sub" style="font-weight:700;letter-spacing:.5px;text-transform:uppercase;margin-bottom:8px">Vazio</div>
+          <div class="card-sub" style="font-weight:600;font-size:.78rem;margin-bottom:4px">Devolvidos</div>
+          ${linhasVaziosPorTamanhoAno(estoqueResumo.vaziosDevolvidos)}
+        </div>
+      </div>
     </div>`;
+}
+
+function somaTotalGarrafao({ porMarca, semMarca }) {
+  return Object.values(porMarca).reduce((s, m) => s + Object.values(m.porAno).reduce((a, b) => a + b, 0), 0)
+    + Object.values(semMarca).reduce((s, t) => s + Object.values(t).reduce((a, b) => a + b, 0), 0);
 }
 
 async function calcularTotaisSessaoAtual() {
@@ -3787,7 +3915,8 @@ async function salvarAberturaCaixa() {
   const observacao_abertura = document.getElementById('caixa-abertura-obs').value.trim() || null;
   if (!(troco_inicial >= 0)) { toast('Informe o troco inicial', true); return; }
 
-  const { error } = await sb.from('caixa_sessoes').insert({ troco_inicial, observacao_abertura, aberto_por: currentUserId });
+  const estoque_abertura = await snapshotEstoqueCheios();
+  const { error } = await sb.from('caixa_sessoes').insert({ troco_inicial, observacao_abertura, aberto_por: currentUserId, estoque_abertura });
   if (error) {
     if (error.code === '23505') toast('Já existe um caixa aberto. Feche-o antes de abrir um novo.', true);
     else toastErro('abrir caixa', error);
@@ -3861,6 +3990,7 @@ async function salvarFechamentoCaixa() {
 
   const totais = await calcularTotaisSessaoAtual();
   const diferenca = roundMoeda(valor_contado - totais.esperado);
+  const estoque_fechamento = await snapshotEstoqueCheios();
 
   const { error } = await sb.from('caixa_sessoes').update({
     status: 'fechado',
@@ -3871,6 +4001,7 @@ async function salvarFechamentoCaixa() {
     observacao_fechamento,
     fechado_em: new Date().toISOString(),
     fechado_por: currentUserId,
+    estoque_fechamento,
   }).eq('id', caixaSessaoAtual.id);
   if (error) { toastErro('fechar caixa', error); return; }
   logAtividade('caixa_fechado', `Manual · Esperado: ${fmtMoeda(totais.esperado)} · Contado: ${fmtMoeda(valor_contado)} · Diferença: ${fmtMoeda(diferenca)}`);
@@ -3977,6 +4108,8 @@ async function abrirRelatorioCaixa(sessaoId) {
         <div class="item-value ${m.tipo === 'sangria' ? 'text-red' : 'text-green'}">${sinal}${fmtMoeda(m.valor)}</div>
       </div>`;
   }).join('') || '<div class="empty-state">Nenhum movimento nesta sessão</div>';
+
+  document.getElementById('rc-estoque-comparativo').innerHTML = htmlComparativoEstoqueSessao(sessao);
 
   // Sessão aberta: atalhos pra página live (dado muda em tempo real).
   // Sessão fechada: período é fixo, mostra o resumo dentro do próprio relatório.
@@ -4175,6 +4308,13 @@ async function loadDashboard() {
     });
   }
 
+  // Estoque atual (agora, não do período) por marca — soma de qtd_cheios
+  // de todos os lotes daquela marca, pra contextualizar o vendido do
+  // período com o que ainda tem na prateleira.
+  const { data: lotesAtuais } = await sb.from('lotes_garrafao').select('marca_id, qtd_cheios');
+  const estoqueAtualPorMarca = {};
+  (lotesAtuais || []).forEach(l => { estoqueAtualPorMarca[l.marca_id] = (estoqueAtualPorMarca[l.marca_id] || 0) + l.qtd_cheios; });
+
   // Barra multi-segmentada por marca (dinheiro/pix/cartão/pendente), com
   // legenda de cores — junta a info de forma de pagamento direto na marca,
   // sem precisar de um card de dinheiro separado.
@@ -4199,7 +4339,7 @@ async function loadDashboard() {
       <div style="margin-bottom:14px">
         <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">
           <div class="item-name">${m.label}</div>
-          <div class="item-detail">${m.vendidos} vendidos</div>
+          <div class="item-detail">${m.vendidos} vendidos / ${estoqueAtualPorMarca[id] || 0} estoque</div>
         </div>
         <div style="height:10px;border-radius:5px;background:var(--border);overflow:hidden;display:flex">
           ${partes.map(p => p.pct > 0 ? `<div style="width:${p.pct}%;background:${p.cor}"></div>` : '').join('')}
