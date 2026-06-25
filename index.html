@@ -3650,7 +3650,7 @@ async function loadCaixa() {
       `Aberto por ${nomeAbertura} em ${fmtDataHora(caixaSessaoAtual.aberto_em)}`;
     await calcularTotaisSessaoAtual();
     await renderExtratoCaixa();
-    const resumo = await calcularResumoPeriodoCaixa(caixaSessaoAtual.aberto_em, new Date().toISOString());
+    const resumo = await calcularResumoPeriodoCaixa(caixaSessaoAtual.aberto_em, new Date().toISOString(), caixaSessaoAtual.id);
     document.getElementById('caixa-resumo-periodo').innerHTML = htmlResumoPeriodoCaixa(resumo, caixaSessaoAtual, 'caixa');
   }
 
@@ -3661,25 +3661,30 @@ async function loadCaixa() {
 // (vendidos/recebidos/devolvidos/avariados) dentro de uma janela de tempo —
 // usado tanto no card "ao vivo" do caixa aberto quanto no relatório de uma
 // sessão já fechada.
-async function calcularResumoPeriodoCaixa(inicio, fim) {
+async function calcularResumoPeriodoCaixa(inicio, fim, sessaoId = null) {
   const { data: pedidos } = await sb.from('pedidos').select('id, total, status, status_entrega').gte('data', inicio).lte('data', fim);
   const lista = pedidos || [];
   const naoCancelados = lista.filter(p => p.status !== 'cancelado');
   const idsNaoCancelados = naoCancelados.map(p => p.id);
 
-  // pagoPorPedido decide se o PEDIDO está pago/pendente pro cliente — conta
-  // qualquer confirmação, não importa quem confirmou (o cliente pagou ou
-  // não, independente disso). recebidoPorForma é a contabilidade do
-  // CAIXA — só conta o que foi confirmado por quem estava logado como
-  // "caixa" (admin/desenvolvedor podem confirmar pra quitar o pedido, sem
-  // que isso entre na gaveta da sessão).
+  // pagoPorPedido: qualquer confirmação (de qualquer perfil) — determina se
+  // o pedido está pago/pendente do ponto de vista do cliente.
   let pagoPorPedido = {};
-  const recebidoPorForma = { dinheiro: 0, pix: 0, cartao_credito: 0 };
   if (idsNaoCancelados.length) {
-    const { data: pagamentos } = await sb.from('pagamentos_pedido').select('pedido_id, valor, forma, usuarios(role)').in('pedido_id', idsNaoCancelados);
+    const { data: pagamentos } = await sb.from('pagamentos_pedido').select('pedido_id, valor').in('pedido_id', idsNaoCancelados);
     (pagamentos || []).forEach(pg => {
       pagoPorPedido[pg.pedido_id] = roundMoeda((pagoPorPedido[pg.pedido_id] || 0) + parseFloat(pg.valor));
-      if (pg.usuarios?.role === 'caixa' && recebidoPorForma[pg.forma] != null) {
+    });
+  }
+
+  // recebidoPorForma: mesma régua do "Dinheiro Recebido" na gaveta — só o
+  // que foi confirmado pelo perfil "caixa" nesta sessão (caixa_sessao_id),
+  // mas contando todas as formas (dinheiro, pix, cartão).
+  const recebidoPorForma = { dinheiro: 0, pix: 0, cartao_credito: 0 };
+  if (sessaoId) {
+    const { data: pgSessao } = await sb.from('pagamentos_pedido').select('valor, forma, pedidos(status), usuarios(role)').eq('caixa_sessao_id', sessaoId);
+    (pgSessao || []).filter(p => p.pedidos?.status !== 'cancelado' && p.usuarios?.role === 'caixa').forEach(pg => {
+      if (recebidoPorForma[pg.forma] != null) {
         recebidoPorForma[pg.forma] = roundMoeda(recebidoPorForma[pg.forma] + parseFloat(pg.valor));
       }
     });
@@ -4260,7 +4265,7 @@ async function abrirRelatorioCaixa(sessaoId) {
   const resumoEl = document.getElementById('rc-resumo-periodo');
   resumoEl.style.display = fechada ? 'block' : 'none';
   if (fechada) {
-    const resumo = await calcularResumoPeriodoCaixa(sessao.aberto_em, sessao.fechado_em);
+    const resumo = await calcularResumoPeriodoCaixa(sessao.aberto_em, sessao.fechado_em, sessao.id);
     resumoEl.innerHTML = htmlResumoPeriodoCaixa(resumo, sessao, 'rc');
   }
 
