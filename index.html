@@ -2962,55 +2962,74 @@ async function abrirPedidoDetalhe(id) {
   openModal('modal-pedido-detalhe');
 }
 
+// Trava simples contra duplo clique/duplo toque: sem isso, dois cliques em
+// menos de 1s (impaciência, ou um toque que dispara dois eventos no
+// celular) inseriam dois pagamentos iguais — foi exatamente a causa de uma
+// divergência real de caixa. Compartilhada entre as duas funções porque as
+// duas escrevem na mesma tabela.
+let confirmandoPagamento = false;
+
 async function confirmarPagamentoPedido() {
-  const id = currentPedidoDetalheId;
-  const p = allPedidos.find(x => x.id === id);
-  if (!p) return;
-  const valor = parseFloat(document.getElementById('pd-pagamento-valor').value || 0);
-  if (valor <= 0) { toast('Informe um valor válido', true); return; }
-  const forma = document.getElementById('pd-pagamento-forma').value;
+  if (confirmandoPagamento) return;
+  confirmandoPagamento = true;
+  try {
+    const id = currentPedidoDetalheId;
+    const p = allPedidos.find(x => x.id === id);
+    if (!p) return;
+    const valor = parseFloat(document.getElementById('pd-pagamento-valor').value || 0);
+    if (valor <= 0) { toast('Informe um valor válido', true); return; }
+    const forma = document.getElementById('pd-pagamento-forma').value;
 
-  if (forma === 'dinheiro') {
-    await carregarCaixaSessaoAtual();
-    if (!caixaSessaoAtual) { toast('Não há caixa aberto. Abra o caixa antes de confirmar pagamentos em dinheiro.', true); return; }
+    if (forma === 'dinheiro') {
+      await carregarCaixaSessaoAtual();
+      if (!caixaSessaoAtual) { toast('Não há caixa aberto. Abra o caixa antes de confirmar pagamentos em dinheiro.', true); return; }
+    }
+
+    const { error } = await sb.from('pagamentos_pedido').insert({
+      cliente_id: p.cliente_id, pedido_id: id, valor, forma, criado_por: currentUserId,
+      caixa_sessao_id: caixaSessaoAtual ? caixaSessaoAtual.id : null,
+    });
+    if (error) { toastErro('confirmar pagamento', error); return; }
+    logAtividade('pagamento_confirmado', `Pedido #${p.numero} · ${p.clientes ? p.clientes.nome : '—'} · ${fmtMoeda(valor)} (${forma})`);
+
+    toast('Pagamento confirmado!');
+    await loadPedidos();
+    await loadClientes();
+    abrirPedidoDetalhe(id);
+  } finally {
+    confirmandoPagamento = false;
   }
-
-  const { error } = await sb.from('pagamentos_pedido').insert({
-    cliente_id: p.cliente_id, pedido_id: id, valor, forma, criado_por: currentUserId,
-    caixa_sessao_id: caixaSessaoAtual ? caixaSessaoAtual.id : null,
-  });
-  if (error) { toastErro('confirmar pagamento', error); return; }
-  logAtividade('pagamento_confirmado', `Pedido #${p.numero} · ${p.clientes ? p.clientes.nome : '—'} · ${fmtMoeda(valor)} (${forma})`);
-
-  toast('Pagamento confirmado!');
-  await loadPedidos();
-  await loadClientes();
-  abrirPedidoDetalhe(id);
 }
 
 async function confirmarPagamentoMistoParte(tipo) {
-  const id = currentPedidoDetalheId;
-  const p = allPedidos.find(x => x.id === id);
-  if (!p) return;
-  const valor = parseFloat(tipo === 'dinheiro' ? p.valor_dinheiro_misto : p.valor_pix_misto);
-  if (!(valor > 0)) return;
+  if (confirmandoPagamento) return;
+  confirmandoPagamento = true;
+  try {
+    const id = currentPedidoDetalheId;
+    const p = allPedidos.find(x => x.id === id);
+    if (!p) return;
+    const valor = parseFloat(tipo === 'dinheiro' ? p.valor_dinheiro_misto : p.valor_pix_misto);
+    if (!(valor > 0)) return;
 
-  if (tipo === 'dinheiro') {
-    await carregarCaixaSessaoAtual();
-    if (!caixaSessaoAtual) { toast('Não há caixa aberto. Abra o caixa antes de confirmar pagamentos em dinheiro.', true); return; }
+    if (tipo === 'dinheiro') {
+      await carregarCaixaSessaoAtual();
+      if (!caixaSessaoAtual) { toast('Não há caixa aberto. Abra o caixa antes de confirmar pagamentos em dinheiro.', true); return; }
+    }
+
+    const { error } = await sb.from('pagamentos_pedido').insert({
+      cliente_id: p.cliente_id, pedido_id: id, valor, forma: tipo, criado_por: currentUserId,
+      caixa_sessao_id: caixaSessaoAtual ? caixaSessaoAtual.id : null,
+    });
+    if (error) { toastErro('confirmar pagamento', error); return; }
+    logAtividade('pagamento_confirmado', `Pedido #${p.numero} · ${p.clientes ? p.clientes.nome : '—'} · ${fmtMoeda(valor)} (${tipo})`);
+
+    toast(`${tipo === 'dinheiro' ? 'Dinheiro' : 'Pix'} confirmado!`);
+    await loadPedidos();
+    await loadClientes();
+    abrirPedidoDetalhe(id);
+  } finally {
+    confirmandoPagamento = false;
   }
-
-  const { error } = await sb.from('pagamentos_pedido').insert({
-    cliente_id: p.cliente_id, pedido_id: id, valor, forma: tipo, criado_por: currentUserId,
-    caixa_sessao_id: caixaSessaoAtual ? caixaSessaoAtual.id : null,
-  });
-  if (error) { toastErro('confirmar pagamento', error); return; }
-  logAtividade('pagamento_confirmado', `Pedido #${p.numero} · ${p.clientes ? p.clientes.nome : '—'} · ${fmtMoeda(valor)} (${tipo})`);
-
-  toast(`${tipo === 'dinheiro' ? 'Dinheiro' : 'Pix'} confirmado!`);
-  await loadPedidos();
-  await loadClientes();
-  abrirPedidoDetalhe(id);
 }
 
 // Desfaz um pagamento confirmado errado (ex: registrado como dinheiro, mas
