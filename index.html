@@ -3538,15 +3538,20 @@ function linhasEstoqueSnapshot(snapshot) {
   const ids = Object.keys(porMarca);
   const total = snapshot.reduce((s, x) => s + x.qtd_cheios, 0);
   return `
-    <div class="list-item"><div class="item-info"><div class="item-name">Total</div></div><div class="item-value">${total}</div></div>
-    ${ids.map(id => {
-      const anos = Object.keys(porMarca[id].porAno).sort((a, b) => a - b);
-      const subtotal = Object.values(porMarca[id].porAno).reduce((a, b) => a + b, 0);
-      return `
-        <div class="list-item"><div class="item-info"><div class="item-name">${porMarca[id].label}</div></div><div class="item-value">${subtotal}</div></div>
-        ${anos.map(ano => `<div class="list-item" style="padding-left:16px"><div class="item-info"><div class="item-detail">Validade ${ano}</div></div><div class="item-detail">${porMarca[id].porAno[ano]}</div></div>`).join('')}
-      `;
-    }).join('')}
+    <div class="stat-card" style="margin-bottom:12px">
+      <div class="stat-val" style="font-size:1.8rem">${total}</div>
+      <div class="stat-lbl">Garrafões Cheios na Abertura do Caixa</div>
+    </div>
+    <div class="card" style="margin-bottom:0;padding:12px">
+      ${ids.map(id => {
+        const anos = Object.keys(porMarca[id].porAno).sort((a, b) => a - b);
+        const subtotal = Object.values(porMarca[id].porAno).reduce((a, b) => a + b, 0);
+        return `
+          <div class="list-item"><div class="item-info"><div class="item-name">${porMarca[id].label}</div></div><div class="item-value">${subtotal}</div></div>
+          ${anos.map(ano => `<div class="list-item" style="padding-left:16px"><div class="item-info"><div class="item-detail">Validade ${ano}</div></div><div class="item-detail">${porMarca[id].porAno[ano]}</div></div>`).join('')}
+        `;
+      }).join('')}
+    </div>
   `;
 }
 
@@ -3843,15 +3848,20 @@ function linhasEstoqueAtual(estoqueAbertura, vendidosPorMarca) {
   if (!labels.length) return '<div class="empty-state">Sem retrato registrado</div>';
   const total = labels.reduce((s, l) => s + porMarca[l].reduce((a, b) => a + b.atual, 0), 0);
   return `
-    <div class="list-item"><div class="item-info"><div class="item-name">Total</div></div><div class="item-value">${total}</div></div>
-    ${labels.map(label => {
-      const anos = porMarca[label].sort((a, b) => a.ano - b.ano);
-      const subtotal = anos.reduce((s, a) => s + a.atual, 0);
-      return `
-        <div class="list-item"><div class="item-info"><div class="item-name">${label}</div></div><div class="item-value">${subtotal}</div></div>
-        ${anos.map(a => `<div class="list-item" style="padding-left:16px"><div class="item-info"><div class="item-detail">Validade ${a.ano}</div></div><div class="item-detail">${a.atual}</div></div>`).join('')}
-      `;
-    }).join('')}
+    <div class="stat-card" style="margin-bottom:12px">
+      <div class="stat-val" style="font-size:1.8rem">${total}</div>
+      <div class="stat-lbl">Garrafões Cheios Disponíveis Agora</div>
+    </div>
+    <div class="card" style="margin-bottom:0;padding:12px">
+      ${labels.map(label => {
+        const anos = porMarca[label].sort((a, b) => a.ano - b.ano);
+        const subtotal = anos.reduce((s, a) => s + a.atual, 0);
+        return `
+          <div class="list-item"><div class="item-info"><div class="item-name">${label}</div></div><div class="item-value">${subtotal}</div></div>
+          ${anos.map(a => `<div class="list-item" style="padding-left:16px"><div class="item-info"><div class="item-detail">Validade ${a.ano}</div></div><div class="item-detail">${a.atual}</div></div>`).join('')}
+        `;
+      }).join('')}
+    </div>
   `;
 }
 
