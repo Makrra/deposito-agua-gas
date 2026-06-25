@@ -3996,14 +3996,15 @@ async function calcularTotaisSessaoAtual() {
   return { trocoInicial, dinheiroRecebido, suprimentos, sangrias, esperado };
 }
 
-// Extrato da sessão: sangria/suprimento + entradas de dinheiro (pagamentos
-// confirmados em dinheiro, com referência ao pedido de origem), tudo numa
-// linha do tempo só, mais recente primeiro.
+// Extrato da sessão: sangria/suprimento + todos os pagamentos confirmados
+// pelo caixa nesta sessão (dinheiro, pix, cartão), numa linha do tempo só,
+// mais recente primeiro.
 async function carregarExtratoCaixa(sessaoId) {
   const [{ data: movimentos }, { data: pagamentos }] = await Promise.all([
     sb.from('caixa_movimentos').select('tipo, valor, motivo, data, usuarios(nome)').eq('caixa_sessao_id', sessaoId),
-    sb.from('pagamentos_pedido').select('valor, data, pedidos(numero, status, clientes(nome)), usuarios(role)').eq('caixa_sessao_id', sessaoId).eq('forma', 'dinheiro'),
+    sb.from('pagamentos_pedido').select('valor, forma, data, pedidos(numero, status, clientes(nome)), usuarios(role)').eq('caixa_sessao_id', sessaoId),
   ]);
+  const labelForma = { dinheiro: 'Pagamento em Dinheiro', pix: 'Pagamento via Pix', cartao_credito: 'Pagamento com Cartão' };
   const entradas = [];
   (movimentos || []).forEach(m => {
     entradas.push({
@@ -4014,14 +4015,13 @@ async function carregarExtratoCaixa(sessaoId) {
       detalhe: `${m.motivo || ''}${m.usuarios?.nome ? ' · ' + m.usuarios.nome : ''}`,
     });
   });
-  // Só entra no extrato o que foi confirmado por quem estava logado como
-  // "caixa" — mesma régua de calcularTotaisSessaoAtual().
+  // Só entra no extrato o que foi confirmado por quem estava logado como "caixa".
   (pagamentos || []).filter(p => p.pedidos?.status !== 'cancelado' && p.usuarios?.role === 'caixa').forEach(p => {
     entradas.push({
       data: p.data,
       sinal: 1,
       valor: parseFloat(p.valor),
-      label: 'Pagamento em Dinheiro',
+      label: labelForma[p.forma] || 'Pagamento',
       detalhe: p.pedidos ? `Pedido #${p.pedidos.numero}${p.pedidos.clientes?.nome ? ' · ' + p.pedidos.clientes.nome : ''}` : '—',
     });
   });
