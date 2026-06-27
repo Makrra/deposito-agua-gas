@@ -1174,6 +1174,7 @@ let reservasLotePendentes = {}; // lote_id -> quantidade já comprometida em ped
 let reservasGasPendentes = {}; // marca_id (gás) -> quantidade já comprometida em pedidos com entrega pendente
 let reservasVazioPendentes = {}; // `${tamanho}_${ano}` -> quantidade já comprometida em pedidos pendentes
 let pedidoItemVazioSeq = 0;
+const _emAndamento = new Set();
 
 // O estoque só é baixado quando o pedido é marcado como entregue, então um
 // lote pode ser "vendido" em vários pedidos pendentes ao mesmo tempo sem que
@@ -1479,6 +1480,12 @@ function abrirEditarMarca(id) {
 }
 
 async function salvarMarca() {
+  if (_emAndamento.has('salvarMarca')) return;
+  _emAndamento.add('salvarMarca');
+  const _btn = document.querySelector('.modal-overlay.open .btn-primary');
+  const _btnOrig = _btn?.textContent;
+  if (_btn) { _btn.disabled = true; _btn.textContent = 'Aguarde...'; }
+  try {
   const id = document.getElementById('marca-id').value;
   const tipo = document.getElementById('marca-tipo').value;
   const nome = document.getElementById('marca-nome').value.trim();
@@ -1505,6 +1512,10 @@ async function salvarMarca() {
   closeModal('modal-marca');
   toast('Marca salva!');
   loadEstoque();
+  } finally {
+    _emAndamento.delete('salvarMarca');
+    if (_btn) { _btn.disabled = false; if (_btnOrig) _btn.textContent = _btnOrig; }
+  }
 }
 
 // ============================================================
@@ -1535,6 +1546,12 @@ function abrirEntradaGas() {
 }
 
 async function salvarEntradaGas() {
+  if (_emAndamento.has('salvarEntradaGas')) return;
+  _emAndamento.add('salvarEntradaGas');
+  const _btn = document.querySelector('.modal-overlay.open .btn-primary');
+  const _btnOrig = _btn?.textContent;
+  if (_btn) { _btn.disabled = true; _btn.textContent = 'Aguarde...'; }
+  try {
   const marca_id = document.getElementById('gas-marca').value;
   const quantidade = parseInt(document.getElementById('gas-quantidade').value || 0, 10);
   if (!marca_id || quantidade <= 0) { toast('Selecione a marca e a quantidade', true); return; }
@@ -1549,6 +1566,10 @@ async function salvarEntradaGas() {
   closeModal('modal-entrada-gas');
   toast('Entrada de gás registrada!');
   loadEstoque();
+  } finally {
+    _emAndamento.delete('salvarEntradaGas');
+    if (_btn) { _btn.disabled = false; if (_btnOrig) _btn.textContent = _btnOrig; }
+  }
 }
 
 // ============================================================
@@ -1700,6 +1721,12 @@ async function abrirAjusteVazios() {
 }
 
 async function salvarAjusteVazios() {
+  if (_emAndamento.has('salvarAjusteVazios')) return;
+  _emAndamento.add('salvarAjusteVazios');
+  const _btn = document.querySelector('.modal-overlay.open .btn-primary');
+  const _btnOrig = _btn?.textContent;
+  if (_btn) { _btn.disabled = true; _btn.textContent = 'Aguarde...'; }
+  try {
   const tamanho_litros = parseInt(document.getElementById('vazios-tamanho').value, 10);
   const ano = parseInt(document.getElementById('vazios-ano').value || 0, 10);
   const quantidade = parseInt(document.getElementById('vazios-quantidade').value || 0, 10);
@@ -1719,6 +1746,10 @@ async function salvarAjusteVazios() {
   closeModal('modal-ajuste-vazios');
   toast('Vazios ajustados!');
   loadEstoque();
+  } finally {
+    _emAndamento.delete('salvarAjusteVazios');
+    if (_btn) { _btn.disabled = false; if (_btnOrig) _btn.textContent = _btnOrig; }
+  }
 }
 
 function preencherSelectLotes(selectEl, { somenteComCheios = false } = {}) {
@@ -1758,6 +1789,12 @@ function atualizarOrigemLote() {
 }
 
 async function salvarLote() {
+  if (_emAndamento.has('salvarLote')) return;
+  _emAndamento.add('salvarLote');
+  const _btn = document.querySelector('.modal-overlay.open .btn-primary');
+  const _btnOrig = _btn?.textContent;
+  if (_btn) { _btn.disabled = true; _btn.textContent = 'Aguarde...'; }
+  try {
   const origem = document.getElementById('lote-origem').value;
   const marca_id = document.getElementById('lote-marca').value;
   const qtd_recebida = parseInt(document.getElementById('lote-qtd-cheios').value || 0, 10);
@@ -1817,6 +1854,10 @@ async function salvarLote() {
   closeModal('modal-lote');
   toast(existente ? 'Entrada somada ao lote existente!' : 'Lote criado!');
   loadEstoque();
+  } finally {
+    _emAndamento.delete('salvarLote');
+    if (_btn) { _btn.disabled = false; if (_btnOrig) _btn.textContent = _btnOrig; }
+  }
 }
 
 function abrirAvaria() {
@@ -1827,6 +1868,12 @@ function abrirAvaria() {
 }
 
 async function salvarAvaria() {
+  if (_emAndamento.has('salvarAvaria')) return;
+  _emAndamento.add('salvarAvaria');
+  const _btn = document.querySelector('.modal-overlay.open .btn-primary');
+  const _btnOrig = _btn?.textContent;
+  if (_btn) { _btn.disabled = true; _btn.textContent = 'Aguarde...'; }
+  try {
   const lote_id = document.getElementById('avaria-lote').value;
   const quantidade = parseInt(document.getElementById('avaria-quantidade').value || 0, 10);
   const motivo = document.getElementById('avaria-motivo').value.trim();
@@ -1845,6 +1892,10 @@ async function salvarAvaria() {
   closeModal('modal-avaria');
   toast('Avaria registrada!');
   loadEstoque();
+  } finally {
+    _emAndamento.delete('salvarAvaria');
+    if (_btn) { _btn.disabled = false; if (_btnOrig) _btn.textContent = _btnOrig; }
+  }
 }
 
 function abrirAvariaVazio() {
@@ -1870,6 +1921,12 @@ function atualizarAnosAvariaVazio() {
 }
 
 async function salvarAvariaVazio() {
+  if (_emAndamento.has('salvarAvariaVazio')) return;
+  _emAndamento.add('salvarAvariaVazio');
+  const _btn = document.querySelector('.modal-overlay.open .btn-primary');
+  const _btnOrig = _btn?.textContent;
+  if (_btn) { _btn.disabled = true; _btn.textContent = 'Aguarde...'; }
+  try {
   const tamanho_litros = parseInt(document.getElementById('avaria-vazio-tamanho').value, 10);
   const ano_validade = parseInt(document.getElementById('avaria-vazio-ano').value || 0, 10);
   const quantidade = parseInt(document.getElementById('avaria-vazio-quantidade').value || 0, 10);
@@ -1891,6 +1948,10 @@ async function salvarAvariaVazio() {
   closeModal('modal-avaria-vazio');
   toast('Avaria registrada!');
   loadEstoque();
+  } finally {
+    _emAndamento.delete('salvarAvariaVazio');
+    if (_btn) { _btn.disabled = false; if (_btnOrig) _btn.textContent = _btnOrig; }
+  }
 }
 
 function abrirEntradaVazios() {
@@ -1902,6 +1963,12 @@ function abrirEntradaVazios() {
 }
 
 async function salvarEntradaVazios() {
+  if (_emAndamento.has('salvarEntradaVazios')) return;
+  _emAndamento.add('salvarEntradaVazios');
+  const _btn = document.querySelector('.modal-overlay.open .btn-primary');
+  const _btnOrig = _btn?.textContent;
+  if (_btn) { _btn.disabled = true; _btn.textContent = 'Aguarde...'; }
+  try {
   const tamanho_litros = parseInt(document.getElementById('ev-tamanho').value, 10);
   const ano_validade = parseInt(document.getElementById('ev-ano').value || 0, 10);
   const quantidade = parseInt(document.getElementById('ev-quantidade').value || 0, 10);
@@ -1925,6 +1992,10 @@ async function salvarEntradaVazios() {
   closeModal('modal-entrada-vazio');
   toast(existente ? 'Entrada somada ao estoque!' : 'Estoque iniciado!');
   loadEstoque();
+  } finally {
+    _emAndamento.delete('salvarEntradaVazios');
+    if (_btn) { _btn.disabled = false; if (_btnOrig) _btn.textContent = _btnOrig; }
+  }
 }
 
 // ============================================================
@@ -2124,6 +2195,12 @@ async function confirmarTransferenciaCliente(destinoId) {
 }
 
 async function salvarCliente() {
+  if (_emAndamento.has('salvarCliente')) return;
+  _emAndamento.add('salvarCliente');
+  const _btn = document.querySelector('.modal-overlay.open .btn-primary');
+  const _btnOrig = _btn?.textContent;
+  if (_btn) { _btn.disabled = true; _btn.textContent = 'Aguarde...'; }
+  try {
   const id = document.getElementById('cliente-id').value;
   const nome = document.getElementById('cliente-nome').value.trim();
   if (!nome) { toast('Informe o nome do cliente', true); return; }
@@ -2171,6 +2248,10 @@ async function salvarCliente() {
     vindoDoNovoPedido = false;
     openModal('modal-novo-pedido');
     if (salvo) await selecionarClientePedido(salvo.id);
+  }
+  } finally {
+    _emAndamento.delete('salvarCliente');
+    if (_btn) { _btn.disabled = false; if (_btnOrig) _btn.textContent = _btnOrig; }
   }
 }
 
@@ -2886,6 +2967,12 @@ async function abrirEditarPedido(id) {
 }
 
 async function salvarPedido() {
+  if (_emAndamento.has('salvarPedido')) return;
+  _emAndamento.add('salvarPedido');
+  const _btn = document.getElementById('np-btn-salvar');
+  const _btnOrig = _btn?.textContent;
+  if (_btn) { _btn.disabled = true; _btn.textContent = 'Aguarde...'; }
+  try {
   const editId = document.getElementById('np-pedido-id').value || null;
 
   if (currentUserRole === 'caixa') {
@@ -3020,6 +3107,10 @@ async function salvarPedido() {
     ? `Pedido criado! Combinado Dinheiro ${fmtMoeda(valorDinheiroMisto)} + Pix ${fmtMoeda(valorPixMisto)} — ambos ficam pendentes até o caixa confirmar o recebimento de cada um.`
     : 'Pedido criado! Pagamento e entrega ficam pendentes até a confirmação.'));
   await loadPedidos();
+  } finally {
+    _emAndamento.delete('salvarPedido');
+    if (_btn) { _btn.disabled = false; if (_btnOrig) _btn.textContent = _btnOrig; }
+  }
 }
 
 // ============================================================
@@ -3387,14 +3478,23 @@ async function estornarPagamento(pagamentoId) {
 }
 
 async function marcarPedidoEntregue() {
-  const id = currentPedidoDetalheId;
-  await iniciarConfirmacaoEntrega(id, async () => {
-    toast('Pedido marcado como entregue! Estoque e saldos atualizados.');
-    await loadClientes();
-    await loadEstoque();
-    await loadPedidos();
-    abrirPedidoDetalhe(id);
-  });
+  if (_emAndamento.has('marcarEntregue')) return;
+  _emAndamento.add('marcarEntregue');
+  const _btn = document.getElementById('pd-btn-entregar');
+  if (_btn) _btn.disabled = true;
+  try {
+    const id = currentPedidoDetalheId;
+    await iniciarConfirmacaoEntrega(id, async () => {
+      toast('Pedido marcado como entregue! Estoque e saldos atualizados.');
+      await loadClientes();
+      await loadEstoque();
+      await loadPedidos();
+      abrirPedidoDetalhe(id);
+    });
+  } finally {
+    _emAndamento.delete('marcarEntregue');
+    if (_btn) _btn.disabled = false;
+  }
 }
 
 async function cancelarPedido() {
