@@ -100,6 +100,7 @@ body {
 }
 .stat-val { font-size: 1.3rem; font-weight: 800; color: var(--accent2); }
 .stat-lbl { font-size: 0.72rem; color: var(--muted); margin-top: 3px; }
+.stat-icon { display: block; width: 22px; height: 22px; margin: 0 auto 6px; opacity: .4; stroke: currentColor; }
 /* BUTTONS */
 .btn {
   border: none; border-radius: 8px; padding: 10px 18px;
@@ -220,7 +221,7 @@ select.form-control option { background: var(--surface); }
 }
 .card-esgotado { animation: pulseEsgotado 1s ease-in-out 2; border-color: var(--red); }
 .lote-chegada { font-weight: 600; color: var(--accent2); }
-.empty-state { text-align: center; padding: 40px 20px; color: var(--muted); font-size: 0.85rem; }
+.empty-state { text-align: center; padding: 40px 20px; color: var(--muted); font-size: 0.85rem; line-height: 1.5; }
 /* SALDO */
 .saldo-positive { color: var(--green); font-weight: 800; font-size: 1.1rem; }
 .saldo-negative { color: var(--red); font-weight: 800; font-size: 1.1rem; }
@@ -249,6 +250,23 @@ select.form-control option { background: var(--surface); }
 @media (min-width: 520px) {
   body { max-width: 520px; margin: 0 auto; }
   .modal { border-radius: 20px; margin-bottom: 20px; }
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:      #0f172a;
+    --surface: #1e293b;
+    --card:    #1e293b;
+    --text:    #f1f5f9;
+    --muted:   #94a3b8;
+    --border:  #334155;
+  }
+  .form-control { background: #0f172a; }
+  .header { box-shadow: 0 1px 8px rgba(0,0,0,.4); }
+  .card   { box-shadow: 0 1px 3px rgba(0,0,0,.2); }
+  .login-card { box-shadow: 0 4px 24px rgba(0,0,0,.4); }
+  .nav    { box-shadow: 0 -2px 10px rgba(0,0,0,.3); }
+  .search-box { background: #0f172a; }
+  .tab-btn { background: transparent; }
 }
 </style>
 </head>
@@ -309,12 +327,30 @@ select.form-control option { background: var(--surface); }
   </div>
 
   <div class="stats" id="dash-stats">
-    <div class="stat-card"><div class="stat-val" id="dash-vendas-hoje">—</div><div class="stat-lbl">Vendas no Período</div></div>
-    <div class="stat-card"><div class="stat-val text-green" id="dash-pagamentos-efetuados">—</div><div class="stat-lbl">Pagamentos Efetuados</div></div>
-    <div class="stat-card" style="cursor:pointer" onclick="irParaPedidosPagamentoPendente()"><div class="stat-val text-red" id="dash-pagamentos-pendentes">—</div><div class="stat-lbl">Pagamentos Pendentes</div></div>
-    <div class="stat-card"><div class="stat-val" id="dash-entregas-total">—</div><div class="stat-lbl">Qtd. de Entregas</div></div>
-    <div class="stat-card"><div class="stat-val text-green" id="dash-entregas-efetuadas">—</div><div class="stat-lbl">Entregas Efetuadas</div></div>
-    <div class="stat-card"><div class="stat-val text-red" id="dash-entregas-pendentes">—</div><div class="stat-lbl">Entregas Pendentes</div></div>
+    <div class="stat-card">
+      <svg class="stat-icon" viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M9 2h6l1 4H8l1-4z"/><path d="M5 6h14l-1.5 14a2 2 0 0 1-2 2h-7a2 2 0 0 1-2-2L5 6z"/></svg>
+      <div class="stat-val" id="dash-vendas-hoje">—</div><div class="stat-lbl">Vendas no Período</div>
+    </div>
+    <div class="stat-card">
+      <svg class="stat-icon text-green" viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+      <div class="stat-val text-green" id="dash-pagamentos-efetuados">—</div><div class="stat-lbl">Pagamentos Efetuados</div>
+    </div>
+    <div class="stat-card" style="cursor:pointer" onclick="irParaPedidosPagamentoPendente()">
+      <svg class="stat-icon text-red" viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      <div class="stat-val text-red" id="dash-pagamentos-pendentes">—</div><div class="stat-lbl">Pagamentos Pendentes</div>
+    </div>
+    <div class="stat-card">
+      <svg class="stat-icon" viewBox="0 0 24 24" fill="none" stroke-width="2"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+      <div class="stat-val" id="dash-entregas-total">—</div><div class="stat-lbl">Qtd. de Entregas</div>
+    </div>
+    <div class="stat-card">
+      <svg class="stat-icon text-green" viewBox="0 0 24 24" fill="none" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+      <div class="stat-val text-green" id="dash-entregas-efetuadas">—</div><div class="stat-lbl">Entregas Efetuadas</div>
+    </div>
+    <div class="stat-card">
+      <svg class="stat-icon text-red" viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      <div class="stat-val text-red" id="dash-entregas-pendentes">—</div><div class="stat-lbl">Entregas Pendentes</div>
+    </div>
   </div>
 
   <div class="card">
@@ -436,10 +472,22 @@ select.form-control option { background: var(--surface); }
     </div>
 
     <div class="stats" style="grid-template-columns:repeat(2,1fr)">
-      <div class="stat-card"><div class="stat-val" id="caixa-troco-inicial">—</div><div class="stat-lbl">Troco Inicial</div></div>
-      <div class="stat-card"><div class="stat-val text-green" id="caixa-dinheiro-recebido">—</div><div class="stat-lbl">Dinheiro Recebido</div></div>
-      <div class="stat-card"><div class="stat-val text-green" id="caixa-suprimentos">—</div><div class="stat-lbl">Suprimentos</div></div>
-      <div class="stat-card"><div class="stat-val text-red" id="caixa-sangrias">—</div><div class="stat-lbl">Sangrias</div></div>
+      <div class="stat-card">
+        <svg class="stat-icon" viewBox="0 0 24 24" fill="none" stroke-width="2"><rect x="2" y="6" width="20" height="13" rx="2"/><line x1="2" y1="11" x2="22" y2="11"/><line x1="6" y1="15" x2="10" y2="15"/></svg>
+        <div class="stat-val" id="caixa-troco-inicial">—</div><div class="stat-lbl">Troco Inicial</div>
+      </div>
+      <div class="stat-card">
+        <svg class="stat-icon text-green" viewBox="0 0 24 24" fill="none" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
+        <div class="stat-val text-green" id="caixa-dinheiro-recebido">—</div><div class="stat-lbl">Dinheiro Recebido</div>
+      </div>
+      <div class="stat-card">
+        <svg class="stat-icon text-green" viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+        <div class="stat-val text-green" id="caixa-suprimentos">—</div><div class="stat-lbl">Suprimentos</div>
+      </div>
+      <div class="stat-card">
+        <svg class="stat-icon text-red" viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+        <div class="stat-val text-red" id="caixa-sangrias">—</div><div class="stat-lbl">Sangrias</div>
+      </div>
     </div>
     <div class="card">
       <div class="card-title">Valor Esperado na Gaveta</div>
@@ -1292,6 +1340,25 @@ async function logAtividade(acao, detalhe) {
 // ============================================================
 // HELPERS
 // ============================================================
+function emptyStateHTML(svgInner, msg) {
+  return `<div class="empty-state">
+    <svg viewBox="0 0 24 24" width="44" height="44" fill="none" stroke="currentColor" stroke-width="1.5" style="display:block;margin:0 auto 12px;opacity:.3">${svgInner}</svg>
+    <div>${msg}</div>
+  </div>`;
+}
+
+const SVG = {
+  pedido:   '<path d="M9 2h6l1 4H8l1-4z"/><path d="M5 6h14l-1.5 14a2 2 0 0 1-2 2h-7a2 2 0 0 1-2-2L5 6z"/>',
+  cliente:  '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  estoque:  '<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>',
+  vazio:    '<polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/>',
+  gas:      '<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>',
+  marca:    '<path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/>',
+  entrega:  '<rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/>',
+  historico:'<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+  vazio2:   '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
+};
+
 const fmtMoeda = v => 'R$ ' + parseFloat(v || 0).toFixed(2).replace('.', ',');
 // O banco guarda dinheiro em NUMERIC exato, mas somar vários valores em JS
 // (reduce/+=) usa float — erro mínimo (ex: 0.1+0.2 !== 0.3) pode acumular
@@ -1368,7 +1435,7 @@ async function loadEstoque() {
 
 function renderMarcasList() {
   const el = document.getElementById('marcas-list');
-  if (!allMarcas.length) { el.innerHTML = '<div class="empty-state">Nenhuma marca cadastrada</div>'; return; }
+  if (!allMarcas.length) { el.innerHTML = emptyStateHTML(SVG.marca, 'Nenhuma marca cadastrada'); return; }
   const podeEditar = isAdminLevel();
   el.innerHTML = allMarcas.map(m => `
     <div class="list-item">
@@ -1445,7 +1512,7 @@ async function salvarMarca() {
 // ============================================================
 function renderGasList() {
   const el = document.getElementById('gas-list');
-  if (!allEstoqueGas.length) { el.innerHTML = '<div class="empty-state">Nenhuma marca de gás com estoque ainda</div>'; return; }
+  if (!allEstoqueGas.length) { el.innerHTML = emptyStateHTML(SVG.gas, 'Nenhuma marca de gás com estoque ainda'); return; }
   el.innerHTML = allEstoqueGas.map(g => `
     <div class="card">
       <div class="card-header">
@@ -1506,12 +1573,12 @@ function filterLotesPorTamanho(tamanho) {
 
 function renderLotesList() {
   const el = document.getElementById('lotes-list');
-  if (!allLotes.length) { el.innerHTML = '<div class="empty-state">Nenhum lote cadastrado</div>'; return; }
+  if (!allLotes.length) { el.innerHTML = emptyStateHTML(SVG.estoque, 'Nenhum lote cadastrado'); return; }
   const podeExcluir = isAdminLevel();
   const filtrados = currentLoteFiltroTamanho === 'todos'
     ? allLotes
     : allLotes.filter(l => l.marcas && l.marcas.tamanho_litros === currentLoteFiltroTamanho);
-  if (!filtrados.length) { el.innerHTML = '<div class="empty-state">Nenhum lote desse tamanho</div>'; return; }
+  if (!filtrados.length) { el.innerHTML = emptyStateHTML(SVG.estoque, 'Nenhum lote desse tamanho'); return; }
   const lotesOrdenados = [...filtrados].sort((a, b) => {
     const aEsgotado = a.qtd_cheios === 0 ? 1 : 0;
     const bEsgotado = b.qtd_cheios === 0 ? 1 : 0;
@@ -1581,7 +1648,7 @@ async function excluirLote(id) {
 
 function renderVaziosList() {
   const el = document.getElementById('vazios-list');
-  if (!allEstoqueVazios.length) { el.innerHTML = '<div class="empty-state">Nenhum vazio em estoque ainda</div>'; return; }
+  if (!allEstoqueVazios.length) { el.innerHTML = emptyStateHTML(SVG.vazio, 'Nenhum vazio em estoque ainda'); return; }
   const ordenados = [...allEstoqueVazios].sort((a, b) => a.tamanho_litros - b.tamanho_litros || a.ano_validade - b.ano_validade);
   el.innerHTML = ordenados.map(v => `
     <div class="card">
@@ -1880,7 +1947,7 @@ function filterClientes() {
 
 function renderClientesList(lista) {
   const el = document.getElementById('clientes-list');
-  if (!lista.length) { el.innerHTML = '<div class="empty-state">Nenhum cliente encontrado</div>'; return; }
+  if (!lista.length) { el.innerHTML = emptyStateHTML(SVG.cliente, 'Nenhum cliente encontrado'); return; }
   // Caixa só visualiza nome, apelido e endereço na listagem — sem telefone,
   // saldo pendente ou comodato (esses seguem visíveis no extrato do cliente).
   const isCaixa = currentUserRole === 'caixa';
@@ -3057,7 +3124,7 @@ function renderPedidosList() {
       (p.clientes?.nome || '').toLowerCase().includes(termoBusca) || String(p.numero).includes(termoBusca)
     );
   }
-  if (!lista.length) { el.innerHTML = '<div class="empty-state">Nenhum pedido encontrado</div>'; return; }
+  if (!lista.length) { el.innerHTML = emptyStateHTML(SVG.pedido, 'Nenhum pedido encontrado'); return; }
   el.innerHTML = lista.map(p => {
     const itensResumo = (p.itens_pedido || [])
       .map(it => `${it.quantidade}x ${it.marcas ? nomeMarcaComTamanho(it.marcas) : '—'}`)
@@ -3478,7 +3545,7 @@ async function loadEntregas() {
   const pedidos = data || [];
 
   const el = document.getElementById('entregas-list');
-  if (!pedidos.length) { el.innerHTML = '<div class="empty-state">Nenhuma entrega para hoje</div>'; return; }
+  if (!pedidos.length) { el.innerHTML = emptyStateHTML(SVG.entrega, 'Nenhuma entrega para hoje'); return; }
 
   const cards = await Promise.all(pedidos.map(async p => {
     const { data: itens } = await sb.from('itens_pedido')
