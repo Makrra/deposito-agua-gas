@@ -378,7 +378,10 @@ select.form-control option { background: var(--surface); }
 
   <div id="estoque-view-vazios" style="display:none">
     <div class="card-sub" style="margin-bottom:14px">Vasilhames vazios não pertencem a uma marca — o mesmo garrafão pode ser enchido por qualquer marca depois.</div>
-    <button class="btn btn-primary btn-sm btn-block" style="margin-bottom:14px" onclick="abrirAjusteVazios()">+ Ajuste Manual</button>
+    <div style="display:flex;gap:8px;margin-bottom:14px">
+      <button class="btn btn-primary btn-sm" style="flex:1" onclick="abrirEntradaVazios()">+ Registrar Entrada</button>
+      <button class="btn btn-outline btn-sm" style="flex:1" onclick="abrirAvariaVazio()">Registrar Avaria</button>
+    </div>
     <div id="vazios-list" class="loading"><div class="spinner"></div>Carregando...</div>
   </div>
 
@@ -596,6 +599,33 @@ select.form-control option { background: var(--surface); }
   </div>
 </div>
 
+<!-- ===== MODAL: Registrar Entrada de Vazios ===== -->
+<div class="modal-overlay" id="modal-entrada-vazio">
+  <div class="modal">
+    <div class="modal-title">Registrar Entrada de Vazios</div>
+    <div class="form-group">
+      <label class="form-label">Tamanho</label>
+      <select class="form-control" id="ev-tamanho">
+        <option value="20">20L</option>
+        <option value="10">10L</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Ano de Validade</label>
+      <input class="form-control" id="ev-ano" type="number" inputmode="numeric" min="2000" max="2100" maxlength="4" placeholder="2027">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Quantidade Recebida</label>
+      <input class="form-control" id="ev-quantidade" type="number" min="1" placeholder="0">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Observação (opcional)</label>
+      <input class="form-control" id="ev-observacao" type="text" placeholder="Ex: compra avulsa, doação...">
+    </div>
+    <button class="btn btn-primary btn-block" onclick="salvarEntradaVazios()">Salvar</button>
+  </div>
+</div>
+
 <!-- ===== MODAL: Entrada de Gás ===== -->
 <div class="modal-overlay" id="modal-entrada-gas">
   <div class="modal">
@@ -612,29 +642,13 @@ select.form-control option { background: var(--surface); }
   </div>
 </div>
 
-<!-- ===== MODAL: Registrar Avaria ===== -->
+<!-- ===== MODAL: Registrar Avaria (Cheios) ===== -->
 <div class="modal-overlay" id="modal-avaria">
   <div class="modal">
-    <div class="modal-title">Registrar Avaria</div>
+    <div class="modal-title">Registrar Avaria — Cheios</div>
     <div class="form-group">
-      <label class="form-label">Tipo</label>
-      <select class="form-control" id="avaria-tipo" onchange="atualizarCampoAvaria()">
-        <option value="cheio">Cheio</option>
-        <option value="vazio">Vazio</option>
-      </select>
-    </div>
-    <div class="form-group" id="avaria-lote-wrap">
       <label class="form-label">Lote</label>
       <select class="form-control" id="avaria-lote"></select>
-    </div>
-    <div class="form-group" id="avaria-ano-wrap" style="display:none">
-      <label class="form-label">Tamanho (litros)</label>
-      <select class="form-control" id="avaria-tamanho">
-        <option value="20">20L</option>
-        <option value="10">10L</option>
-      </select>
-      <label class="form-label" style="margin-top:8px">Ano de Validade do Vazio</label>
-      <input class="form-control" id="avaria-ano" type="number" inputmode="numeric" min="2000" max="2100" maxlength="4" placeholder="2027">
     </div>
     <div class="form-group">
       <label class="form-label">Quantidade</label>
@@ -645,6 +659,33 @@ select.form-control option { background: var(--surface); }
       <textarea class="form-control" id="avaria-motivo" rows="2" placeholder="Ex: rachado, vazando..."></textarea>
     </div>
     <button class="btn btn-primary btn-block" onclick="salvarAvaria()">Registrar</button>
+  </div>
+</div>
+
+<!-- ===== MODAL: Registrar Avaria (Vazios) ===== -->
+<div class="modal-overlay" id="modal-avaria-vazio">
+  <div class="modal">
+    <div class="modal-title">Registrar Avaria — Vazios</div>
+    <div class="form-group">
+      <label class="form-label">Tamanho</label>
+      <select class="form-control" id="avaria-vazio-tamanho" onchange="atualizarAnosAvariaVazio()">
+        <option value="20">20L</option>
+        <option value="10">10L</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Ano de Validade</label>
+      <select class="form-control" id="avaria-vazio-ano"></select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Quantidade</label>
+      <input class="form-control" id="avaria-vazio-quantidade" type="number" min="1" placeholder="1">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Motivo</label>
+      <textarea class="form-control" id="avaria-vazio-motivo" rows="2" placeholder="Ex: rachado, vazando..."></textarea>
+    </div>
+    <button class="btn btn-primary btn-block" onclick="salvarAvariaVazio()">Registrar</button>
   </div>
 </div>
 
@@ -920,6 +961,12 @@ select.form-control option { background: var(--surface); }
     </div>
 
     <div class="form-group">
+      <label class="form-label">Vasilhames Vazios (Venda Avulsa)</label>
+      <div id="np-vazios-container"></div>
+      <button class="btn btn-outline btn-sm btn-block" onclick="adicionarItemVazioNP()">+ Vasilhame Vazio</button>
+    </div>
+
+    <div class="form-group">
       <label class="form-label">Forma de Pagamento</label>
       <select class="form-control" id="np-forma-pagamento" onchange="onFormaPagamentoChangeNP()">
         <option value="dinheiro">Dinheiro</option>
@@ -1065,6 +1112,8 @@ let pedidoClienteDescontos = [];
 let precoVasilhameAvulso = 0;
 let reservasLotePendentes = {}; // lote_id -> quantidade já comprometida em pedidos com entrega pendente
 let reservasGasPendentes = {}; // marca_id (gás) -> quantidade já comprometida em pedidos com entrega pendente
+let reservasVazioPendentes = {}; // `${tamanho}_${ano}` -> quantidade já comprometida em pedidos pendentes
+let pedidoItemVazioSeq = 0;
 
 // O estoque só é baixado quando o pedido é marcado como entregue, então um
 // lote pode ser "vendido" em vários pedidos pendentes ao mesmo tempo sem que
@@ -1074,7 +1123,7 @@ let reservasGasPendentes = {}; // marca_id (gás) -> quantidade já comprometida
 // físico antes de validar.
 async function loadReservasPendentes(excludePedidoId) {
   let query = sb.from('itens_pedido')
-    .select('lote_id, marca_id, quantidade, pedidos!inner(status_entrega)')
+    .select('lote_id, marca_id, quantidade, tipo_vasilhame, tamanho_litros_vazio, ano_validade_vazio, pedidos!inner(status_entrega)')
     .eq('pedidos.status_entrega', 'pendente');
   // Editando um pedido pendente: ele mesmo já está contado aqui (ainda não
   // foi entregue), e os itens dele vão ser recolocados no formulário — sem
@@ -1084,9 +1133,16 @@ async function loadReservasPendentes(excludePedidoId) {
   if (error) toastErro('carregar reservas de estoque', error);
   reservasLotePendentes = {};
   reservasGasPendentes = {};
+  reservasVazioPendentes = {};
   (data || []).forEach(it => {
-    if (it.lote_id) reservasLotePendentes[it.lote_id] = (reservasLotePendentes[it.lote_id] || 0) + it.quantidade;
-    else reservasGasPendentes[it.marca_id] = (reservasGasPendentes[it.marca_id] || 0) + it.quantidade;
+    if (it.lote_id) {
+      reservasLotePendentes[it.lote_id] = (reservasLotePendentes[it.lote_id] || 0) + it.quantidade;
+    } else if (it.tipo_vasilhame === 'vazio_avulso' && it.tamanho_litros_vazio && it.ano_validade_vazio) {
+      const key = `${it.tamanho_litros_vazio}_${it.ano_validade_vazio}`;
+      reservasVazioPendentes[key] = (reservasVazioPendentes[key] || 0) + it.quantidade;
+    } else if (it.marca_id) {
+      reservasGasPendentes[it.marca_id] = (reservasGasPendentes[it.marca_id] || 0) + it.quantidade;
+    }
   });
 }
 
@@ -1529,7 +1585,7 @@ function renderVaziosList() {
   `).join('');
 }
 
-const TIPO_MOVIMENTO_LABEL = { entrada_fabrica: 'Entrada', saida_venda: 'Saída (venda)', ajuste: 'Ajuste', avaria: 'Avaria', retorno_vazio: 'Retorno de Vazio', reaproveitamento: 'Reaproveitamento' };
+const TIPO_MOVIMENTO_LABEL = { entrada_fabrica: 'Entrada', saida_venda: 'Saída (venda)', saida_vazio_venda: 'Saída (venda vazio)', ajuste: 'Ajuste', avaria: 'Avaria', retorno_vazio: 'Retorno de Vazio', reaproveitamento: 'Reaproveitamento' };
 
 function renderHistoricoMovimentos(data, titulo) {
   document.getElementById('historico-completo-titulo').textContent = titulo;
@@ -1668,13 +1724,13 @@ async function salvarLote() {
     await sb.from('movimentos_estoque').insert({
       lote_id: loteId, tamanho_litros: marcaSelecionada.tamanho_litros, tipo: 'reaproveitamento', quantidade: qtd_recebida,
       observacao: 'Reaproveitado do estoque de vazios',
-      data: data_entrada ? new Date(data_entrada).toISOString() : undefined,
+      data: data_entrada ? data_entrada + 'T12:00:00' : undefined,
       criado_por: currentUserId,
     });
   } else {
     await sb.from('movimentos_estoque').insert({
       lote_id: loteId, tamanho_litros: marcaSelecionada.tamanho_litros, tipo: 'entrada_fabrica', quantidade: qtd_recebida,
-      data: data_entrada ? new Date(data_entrada).toISOString() : undefined,
+      data: data_entrada ? data_entrada + 'T12:00:00' : undefined,
       criado_por: currentUserId,
     });
   }
@@ -1685,57 +1741,110 @@ async function salvarLote() {
 }
 
 function abrirAvaria() {
-  document.getElementById('avaria-tipo').value = 'cheio';
-  document.getElementById('avaria-tamanho').value = '20';
   document.getElementById('avaria-quantidade').value = '';
   document.getElementById('avaria-motivo').value = '';
-  atualizarCampoAvaria();
+  preencherSelectLotes(document.getElementById('avaria-lote'), { somenteComCheios: true });
   openModal('modal-avaria');
 }
 
-function atualizarCampoAvaria() {
-  const tipo = document.getElementById('avaria-tipo').value;
-  document.getElementById('avaria-lote-wrap').style.display = tipo === 'cheio' ? 'block' : 'none';
-  document.getElementById('avaria-ano-wrap').style.display = tipo === 'vazio' ? 'block' : 'none';
-  if (tipo === 'cheio') preencherSelectLotes(document.getElementById('avaria-lote'), { somenteComCheios: true });
-}
-
 async function salvarAvaria() {
-  const tipo = document.getElementById('avaria-tipo').value;
+  const lote_id = document.getElementById('avaria-lote').value;
   const quantidade = parseInt(document.getElementById('avaria-quantidade').value || 0, 10);
   const motivo = document.getElementById('avaria-motivo').value.trim();
+  if (!lote_id) { toast('Selecione o lote', true); return; }
   if (quantidade <= 0) { toast('Informe a quantidade', true); return; }
 
-  if (tipo === 'cheio') {
-    const lote_id = document.getElementById('avaria-lote').value;
-    if (!lote_id) { toast('Selecione o lote', true); return; }
-    const lote = allLotes.find(l => l.id === lote_id);
-    const novaQtd = Math.max(0, (lote ? lote.qtd_cheios : 0) - quantidade);
+  const lote = allLotes.find(l => l.id === lote_id);
+  const novaQtd = Math.max(0, (lote ? lote.qtd_cheios : 0) - quantidade);
+  const { error: errUpd } = await sb.from('lotes_garrafao').update({ qtd_cheios: novaQtd }).eq('id', lote_id);
+  if (errUpd) { toastErro('atualizar estoque', errUpd); return; }
 
-    const { error: errUpd } = await sb.from('lotes_garrafao').update({ qtd_cheios: novaQtd }).eq('id', lote_id);
-    if (errUpd) { toastErro('atualizar estoque', errUpd); return; }
-
-    const tamanho_litros = lote?.marcas?.tamanho_litros ?? null;
-    await sb.from('avarias').insert({ lote_id, tamanho_litros, tipo, quantidade, motivo, criado_por: currentUserId });
-    await sb.from('movimentos_estoque').insert({ lote_id, tamanho_litros, tipo: 'avaria', quantidade: -quantidade, observacao: motivo, criado_por: currentUserId });
-  } else {
-    const tamanho_litros = parseInt(document.getElementById('avaria-tamanho').value, 10);
-    const ano_validade = parseInt(document.getElementById('avaria-ano').value || 0, 10);
-    if (String(ano_validade).length !== 4) { toast('Informe o ano de validade', true); return; }
-    const vazio = allEstoqueVazios.find(v => v.ano_validade === ano_validade && v.tamanho_litros === tamanho_litros);
-    const novaQtd = Math.max(0, (vazio ? vazio.quantidade : 0) - quantidade);
-
-    if (vazio) {
-      const { error: errUpd } = await sb.from('estoque_vazios').update({ quantidade: novaQtd }).eq('id', vazio.id);
-      if (errUpd) { toastErro('atualizar estoque', errUpd); return; }
-    }
-
-    await sb.from('avarias').insert({ ano_validade, tamanho_litros, tipo, quantidade, motivo, criado_por: currentUserId });
-    await sb.from('movimentos_estoque').insert({ ano_validade, tamanho_litros, tipo: 'avaria', quantidade: -quantidade, observacao: motivo, criado_por: currentUserId });
-  }
+  const tamanho_litros = lote?.marcas?.tamanho_litros ?? null;
+  await sb.from('avarias').insert({ lote_id, tamanho_litros, tipo: 'cheio', quantidade, motivo, criado_por: currentUserId });
+  await sb.from('movimentos_estoque').insert({ lote_id, tamanho_litros, tipo: 'avaria', quantidade: -quantidade, observacao: motivo, criado_por: currentUserId });
 
   closeModal('modal-avaria');
   toast('Avaria registrada!');
+  loadEstoque();
+}
+
+function abrirAvariaVazio() {
+  const tamanhos = [...new Set(allEstoqueVazios.map(v => v.tamanho_litros))].sort((a, b) => a - b);
+  const sel = document.getElementById('avaria-vazio-tamanho');
+  if (tamanhos.length) {
+    sel.innerHTML = tamanhos.map(t => `<option value="${t}">${t}L</option>`).join('');
+    sel.value = tamanhos[0];
+  }
+  document.getElementById('avaria-vazio-quantidade').value = '';
+  document.getElementById('avaria-vazio-motivo').value = '';
+  atualizarAnosAvariaVazio();
+  openModal('modal-avaria-vazio');
+}
+
+function atualizarAnosAvariaVazio() {
+  const tamanho = parseInt(document.getElementById('avaria-vazio-tamanho').value, 10);
+  const anoSel = document.getElementById('avaria-vazio-ano');
+  const disponiveis = allEstoqueVazios.filter(v => v.tamanho_litros === tamanho && v.quantidade > 0).sort((a, b) => a.ano_validade - b.ano_validade);
+  anoSel.innerHTML = disponiveis.length
+    ? disponiveis.map(v => `<option value="${v.ano_validade}">Val. ${v.ano_validade} (${v.quantidade} disponíveis)</option>`).join('')
+    : '<option value="">Sem vazios desse tamanho</option>';
+}
+
+async function salvarAvariaVazio() {
+  const tamanho_litros = parseInt(document.getElementById('avaria-vazio-tamanho').value, 10);
+  const ano_validade = parseInt(document.getElementById('avaria-vazio-ano').value || 0, 10);
+  const quantidade = parseInt(document.getElementById('avaria-vazio-quantidade').value || 0, 10);
+  const motivo = document.getElementById('avaria-vazio-motivo').value.trim();
+  if (!ano_validade) { toast('Nenhum ano de validade disponível', true); return; }
+  if (quantidade <= 0) { toast('Informe a quantidade', true); return; }
+
+  const vazio = allEstoqueVazios.find(v => v.ano_validade === ano_validade && v.tamanho_litros === tamanho_litros);
+  if (!vazio || vazio.quantidade < quantidade) {
+    toast(`Só há ${vazio ? vazio.quantidade : 0} vazios ${tamanho_litros}L val. ${ano_validade} disponíveis`, true); return;
+  }
+
+  const { error: errUpd } = await sb.from('estoque_vazios').update({ quantidade: vazio.quantidade - quantidade }).eq('id', vazio.id);
+  if (errUpd) { toastErro('atualizar estoque', errUpd); return; }
+
+  await sb.from('avarias').insert({ ano_validade, tamanho_litros, tipo: 'vazio', quantidade, motivo, criado_por: currentUserId });
+  await sb.from('movimentos_estoque').insert({ ano_validade, tamanho_litros, tipo: 'avaria', quantidade: -quantidade, observacao: motivo, criado_por: currentUserId });
+
+  closeModal('modal-avaria-vazio');
+  toast('Avaria registrada!');
+  loadEstoque();
+}
+
+function abrirEntradaVazios() {
+  document.getElementById('ev-tamanho').value = '20';
+  document.getElementById('ev-ano').value = '';
+  document.getElementById('ev-quantidade').value = '';
+  document.getElementById('ev-observacao').value = '';
+  openModal('modal-entrada-vazio');
+}
+
+async function salvarEntradaVazios() {
+  const tamanho_litros = parseInt(document.getElementById('ev-tamanho').value, 10);
+  const ano_validade = parseInt(document.getElementById('ev-ano').value || 0, 10);
+  const quantidade = parseInt(document.getElementById('ev-quantidade').value || 0, 10);
+  const observacao = document.getElementById('ev-observacao').value.trim();
+  if (String(ano_validade).length !== 4 || quantidade <= 0) { toast('Informe um ano de validade e uma quantidade válidos', true); return; }
+
+  const existente = allEstoqueVazios.find(v => v.ano_validade === ano_validade && v.tamanho_litros === tamanho_litros);
+  let error;
+  if (existente) {
+    ({ error } = await sb.from('estoque_vazios').update({ quantidade: existente.quantidade + quantidade }).eq('id', existente.id));
+  } else {
+    ({ error } = await sb.from('estoque_vazios').insert({ tamanho_litros, ano_validade, quantidade }));
+  }
+  if (error) { toastErro('registrar entrada de vazios', error); return; }
+
+  await sb.from('movimentos_estoque').insert({
+    ano_validade, tamanho_litros, tipo: 'ajuste', quantidade,
+    observacao: observacao || 'Entrada de vasilhames vazios', criado_por: currentUserId,
+  });
+
+  closeModal('modal-entrada-vazio');
+  toast(existente ? 'Entrada somada ao estoque!' : 'Estoque iniciado!');
   loadEstoque();
 }
 
@@ -2351,6 +2460,91 @@ function removerItemPedido(idx) {
   recalcularTotalPedido();
 }
 
+// ============================================================
+// PEDIDOS: ITENS VAZIO AVULSO
+// ============================================================
+function itemPedidoVazioRowHTML(idx) {
+  const disponiveis = allEstoqueVazios.filter(v => v.quantidade > 0).sort((a, b) => a.tamanho_litros - b.tamanho_litros || a.ano_validade - b.ano_validade);
+  const tamanhos = [...new Set(disponiveis.map(v => v.tamanho_litros))];
+  const tamanhoOpts = tamanhos.map(t => `<option value="${t}">${t}L</option>`).join('');
+  const primeiroTamanho = tamanhos[0] || 20;
+  const anosParaTamanho = disponiveis.filter(v => v.tamanho_litros === primeiroTamanho);
+  const anoOpts = anosParaTamanho.map(v => {
+    const reservado = reservasVazioPendentes[`${v.tamanho_litros}_${v.ano_validade}`] || 0;
+    const disponivel = Math.max(0, v.quantidade - reservado);
+    return `<option value="${v.ano_validade}">Val. ${v.ano_validade} (${disponivel} disp.)</option>`;
+  }).join('') || '<option value="">Sem estoque</option>';
+  return `
+    <div class="pedido-item-vazio-row" data-idx="${idx}" style="border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;margin-bottom:8px">
+        <span class="card-sub">Vasilhame Vazio</span>
+        <button class="btn btn-outline btn-sm" style="padding:2px 8px;color:var(--red);border-color:var(--red)" onclick="removerItemVazioNP(${idx})">✕</button>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+        <div>
+          <label class="form-label">Tamanho</label>
+          <select class="form-control vazio-tamanho" onchange="onTamanhoVazioNPChange(${idx})">${tamanhoOpts}</select>
+        </div>
+        <div>
+          <label class="form-label">Ano de Validade</label>
+          <select class="form-control vazio-ano" onchange="recalcularTotalPedido()">${anoOpts}</select>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div>
+          <label class="form-label">Quantidade</label>
+          <input class="form-control vazio-qtd" type="number" min="1" value="1" oninput="recalcularTotalPedido()">
+        </div>
+        <div>
+          <label class="form-label">Preço Unit. (R$)</label>
+          <input class="form-control vazio-preco" type="number" step="0.01" min="0" placeholder="0,00" oninput="recalcularTotalPedido()">
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function adicionarItemVazioNP() {
+  const temEstoque = allEstoqueVazios.some(v => v.quantidade > 0);
+  if (!temEstoque) { toast('Sem vasilhames vazios em estoque', true); return; }
+  const idx = pedidoItemVazioSeq++;
+  document.getElementById('np-vazios-container').insertAdjacentHTML('beforeend', itemPedidoVazioRowHTML(idx));
+  recalcularTotalPedido();
+}
+
+function onTamanhoVazioNPChange(idx) {
+  const row = document.querySelector(`.pedido-item-vazio-row[data-idx="${idx}"]`);
+  if (!row) return;
+  const tamanho = parseInt(row.querySelector('.vazio-tamanho').value, 10);
+  const anoSel = row.querySelector('.vazio-ano');
+  const disponiveis = allEstoqueVazios.filter(v => v.tamanho_litros === tamanho && v.quantidade > 0).sort((a, b) => a.ano_validade - b.ano_validade);
+  anoSel.innerHTML = disponiveis.map(v => {
+    const reservado = reservasVazioPendentes[`${v.tamanho_litros}_${v.ano_validade}`] || 0;
+    const disponivel = Math.max(0, v.quantidade - reservado);
+    return `<option value="${v.ano_validade}">Val. ${v.ano_validade} (${disponivel} disp.)</option>`;
+  }).join('') || '<option value="">Sem estoque</option>';
+  recalcularTotalPedido();
+}
+
+function removerItemVazioNP(idx) {
+  const row = document.querySelector(`.pedido-item-vazio-row[data-idx="${idx}"]`);
+  if (row) row.remove();
+  recalcularTotalPedido();
+}
+
+function preencherItemVazioRow(idx, item) {
+  const row = document.querySelector(`.pedido-item-vazio-row[data-idx="${idx}"]`);
+  if (!row) return;
+  const tamanhoSel = row.querySelector('.vazio-tamanho');
+  if (tamanhoSel) tamanhoSel.value = item.tamanho_litros_vazio;
+  onTamanhoVazioNPChange(idx);
+  const anoSel = row.querySelector('.vazio-ano');
+  if (anoSel) anoSel.value = item.ano_validade_vazio;
+  row.querySelector('.vazio-qtd').value = item.quantidade;
+  row.querySelector('.vazio-preco').value = parseFloat(item.preco_unitario).toFixed(2);
+  recalcularTotalPedido();
+}
+
 function onMarcaChangeItemPedido(idx) {
   const row = document.querySelector(`.pedido-item-row[data-idx="${idx}"]`);
   if (!row) return;
@@ -2455,6 +2649,11 @@ function lerTotalPedidoAtual() {
     if (!marcaId) return;
     total = roundMoeda(total + (precoUnitario + precoVasilhame) * quantidade);
   });
+  document.querySelectorAll('.pedido-item-vazio-row').forEach(row => {
+    const quantidade = parseInt(row.querySelector('.vazio-qtd').value || 0, 10);
+    const preco = parseFloat(row.querySelector('.vazio-preco').value || 0);
+    if (quantidade > 0 && preco > 0) total = roundMoeda(total + preco * quantidade);
+  });
   return total;
 }
 
@@ -2502,12 +2701,14 @@ async function abrirNovoPedido() {
   document.getElementById('np-busca-cliente').value = '';
   document.getElementById('np-cliente-picker').innerHTML = '';
   document.getElementById('np-itens-container').innerHTML = '';
+  document.getElementById('np-vazios-container').innerHTML = '';
   document.getElementById('np-forma-pagamento').value = 'dinheiro';
   document.getElementById('np-misto-container').style.display = 'none';
   document.getElementById('np-misto-dinheiro').value = '';
   document.getElementById('np-observacao').value = '';
   pedidoClienteDescontos = [];
   pedidoItemSeq = 0;
+  pedidoItemVazioSeq = 0;
 
   await Promise.all([loadEstoque(), loadClientes(), loadReservasPendentes()]);
 
@@ -2557,8 +2758,10 @@ async function abrirEditarPedido(id) {
   document.getElementById('np-modal-titulo').textContent = 'Editar Pedido';
   document.getElementById('np-btn-salvar').textContent = 'Salvar Alterações';
   document.getElementById('np-itens-container').innerHTML = '';
+  document.getElementById('np-vazios-container').innerHTML = '';
   pedidoClienteDescontos = [];
   pedidoItemSeq = 0;
+  pedidoItemVazioSeq = 0;
 
   await Promise.all([loadEstoque(), loadClientes(), loadReservasPendentes(id)]);
 
@@ -2574,12 +2777,19 @@ async function abrirEditarPedido(id) {
 
   await selecionarClientePedido(pedido.cliente_id);
 
-  (itens || []).forEach(it => {
+  const itensNormais = (itens || []).filter(it => it.tipo_vasilhame !== 'vazio_avulso');
+  const itensVazios = (itens || []).filter(it => it.tipo_vasilhame === 'vazio_avulso');
+  itensNormais.forEach(it => {
     const idx = pedidoItemSeq++;
     document.getElementById('np-itens-container').insertAdjacentHTML('beforeend', itemPedidoRowHTML(idx));
     preencherItemPedidoRow(idx, it);
   });
-  if (!itens || !itens.length) adicionarItemPedido();
+  if (!itensNormais.length) adicionarItemPedido();
+  itensVazios.forEach(it => {
+    const idx = pedidoItemVazioSeq++;
+    document.getElementById('np-vazios-container').insertAdjacentHTML('beforeend', itemPedidoVazioRowHTML(idx));
+    preencherItemVazioRow(idx, it);
+  });
 
   document.getElementById('np-forma-pagamento').value = pedido.forma_pagamento;
   onFormaPagamentoChangeNP();
@@ -2624,9 +2834,33 @@ async function salvarPedido() {
     const preco_base = marca.preco_venda_atual;
     itens.push({ marca_id: marcaId, lote_id: marca.tipo === 'agua' ? loteId : null, quantidade, tipo_vasilhame: tipoVasilhame, preco_base, preco_unitario: precoUnitario, preco_vasilhame: precoVasilhame });
   }
-  if (!itens.length) { toast('Adicione pelo menos um item válido', true); return; }
+  const itensVazio = [];
+  const vazioRows = [...document.querySelectorAll('.pedido-item-vazio-row')];
+  for (const row of vazioRows) {
+    const tamanho_litros_vazio = parseInt(row.querySelector('.vazio-tamanho').value, 10);
+    const ano_validade_vazio = parseInt(row.querySelector('.vazio-ano').value || 0, 10);
+    const quantidade = parseInt(row.querySelector('.vazio-qtd').value || 0, 10);
+    const preco_unitario = parseFloat(row.querySelector('.vazio-preco').value || 0);
+    if (!ano_validade_vazio || quantidade <= 0) continue;
+    if (preco_unitario <= 0) { toast(`Informe o preço para o vasilhame ${tamanho_litros_vazio}L val. ${ano_validade_vazio}`, true); return; }
+    const key = `${tamanho_litros_vazio}_${ano_validade_vazio}`;
+    const vazio = allEstoqueVazios.find(v => v.tamanho_litros === tamanho_litros_vazio && v.ano_validade === ano_validade_vazio);
+    const estoqueFisico = vazio ? vazio.quantidade : 0;
+    const reservadoPendentes = reservasVazioPendentes[key] || 0;
+    const reservadoNP = itensVazio.filter(i => i.tamanho_litros_vazio === tamanho_litros_vazio && i.ano_validade_vazio === ano_validade_vazio).reduce((s, i) => s + i.quantidade, 0);
+    const disponivel = Math.max(0, estoqueFisico - reservadoPendentes - reservadoNP);
+    if (quantidade > disponivel) {
+      toast(`Estoque insuficiente: só há ${disponivel} vasilhame${disponivel !== 1 ? 's' : ''} ${tamanho_litros_vazio}L val. ${ano_validade_vazio} disponível`, true); return;
+    }
+    itensVazio.push({ tamanho_litros_vazio, ano_validade_vazio, quantidade, preco_unitario });
+  }
 
-  const total = roundMoeda(itens.reduce((s, it) => s + (it.preco_unitario + it.preco_vasilhame) * it.quantidade, 0));
+  if (!itens.length && !itensVazio.length) { toast('Adicione pelo menos um item válido', true); return; }
+
+  const total = roundMoeda(
+    itens.reduce((s, it) => s + (it.preco_unitario + it.preco_vasilhame) * it.quantidade, 0) +
+    itensVazio.reduce((s, it) => s + it.preco_unitario * it.quantidade, 0)
+  );
   const forma_pagamento = document.getElementById('np-forma-pagamento').value;
   const entregador_id = document.getElementById('np-entregador').value || null;
   let observacao = document.getElementById('np-observacao').value.trim();
@@ -2688,6 +2922,15 @@ async function salvarPedido() {
       tipo_vasilhame: it.tipo_vasilhame, preco_vasilhame: it.preco_vasilhame,
     });
     if (errItem) toastErro('salvar item do pedido', errItem);
+  }
+  for (const it of itensVazio) {
+    const { error: errItem } = await sb.from('itens_pedido').insert({
+      pedido_id: pedido.id, lote_id: null, marca_id: null,
+      quantidade: it.quantidade, preco_base: 0, preco_unitario: it.preco_unitario,
+      tipo_vasilhame: 'vazio_avulso', preco_vasilhame: 0,
+      tamanho_litros_vazio: it.tamanho_litros_vazio, ano_validade_vazio: it.ano_validade_vazio,
+    });
+    if (errItem) toastErro('salvar item vazio do pedido', errItem);
   }
 
   const clienteNome = allClientes.find(c => c.id === cliente_id)?.nome || '—';
@@ -2850,7 +3093,7 @@ async function abrirPedidoDetalhe(id) {
     ? await sb.from('vazios_devolvidos_pedido').select('*').in('item_pedido_id', itemIds)
     : { data: [] };
 
-  const tipoLabel = { troca: 'Troca', venda: 'Venda do Vasilhame', comodato: 'Comodato' };
+  const tipoLabel = { troca: 'Troca', venda: 'Venda do Vasilhame', comodato: 'Comodato', vazio_avulso: 'Venda de Vazio' };
   document.getElementById('pd-itens').innerHTML = (itens || []).map(it => {
     const temDesconto = it.preco_base > it.preco_unitario;
     const descontoLinha = temDesconto
@@ -2860,12 +3103,15 @@ async function abrirPedidoDetalhe(id) {
     const devolvidoLinha = splitsItem.length
       ? `<div class="card-sub">Vazio devolvido: ${splitsItem.map(s => `${s.quantidade}x val. ${s.ano_validade}`).join(', ')}</div>`
       : '';
+    const nomeItem = it.tipo_vasilhame === 'vazio_avulso'
+      ? `Vasilhame ${it.tamanho_litros_vazio}L · Val. ${it.ano_validade_vazio}`
+      : `${it.marcas ? nomeMarcaComTamanho(it.marcas) : '—'} ${it.lotes_garrafao ? '· val. ' + it.lotes_garrafao.ano_validade : ''}`;
     return `
       <div class="list-item" style="flex-direction:column;align-items:stretch">
         <div style="display:flex;justify-content:space-between">
           <div class="item-info">
-            <div class="item-name">${it.marcas ? nomeMarcaComTamanho(it.marcas) : '—'} ${it.lotes_garrafao ? '· val. ' + it.lotes_garrafao.ano_validade : ''}</div>
-            <div class="item-detail">${it.quantidade}x · ${tipoLabel[it.tipo_vasilhame]}</div>
+            <div class="item-name">${nomeItem}</div>
+            <div class="item-detail">${it.quantidade}x · ${tipoLabel[it.tipo_vasilhame] || it.tipo_vasilhame}</div>
           </div>
           <div class="item-value">${fmtMoeda((it.preco_unitario + it.preco_vasilhame) * it.quantidade)}</div>
         </div>
@@ -3103,6 +3349,16 @@ async function cancelarPedido() {
           }
         }
         await sb.from('movimentos_estoque').insert({ lote_id: it.lote_id, tamanho_litros, tipo: 'ajuste', quantidade: it.quantidade, referencia_pedido_id: id, observacao: 'Cancelamento de pedido entregue', criado_por: currentUserId });
+      } else if (it.tipo_vasilhame === 'vazio_avulso') {
+        const vazio = allEstoqueVazios.find(v => v.tamanho_litros === it.tamanho_litros_vazio && v.ano_validade === it.ano_validade_vazio);
+        if (vazio) {
+          await sb.from('estoque_vazios').update({ quantidade: vazio.quantidade + it.quantidade }).eq('id', vazio.id);
+        }
+        await sb.from('movimentos_estoque').insert({
+          tamanho_litros: it.tamanho_litros_vazio, ano_validade: it.ano_validade_vazio,
+          tipo: 'ajuste', quantidade: it.quantidade, referencia_pedido_id: id,
+          observacao: 'Cancelamento de pedido entregue', criado_por: currentUserId,
+        });
       } else {
         const { data: estoque } = await sb.from('estoque_gas').select('*').eq('marca_id', it.marca_id).single();
         if (estoque) {
@@ -3166,6 +3422,11 @@ async function estornarEntrega() {
         await sb.from('vazios_devolvidos_pedido').delete().eq('item_pedido_id', it.id);
       }
       await sb.from('movimentos_estoque').delete().eq('referencia_pedido_id', id).in('tipo', ['saida_venda', 'retorno_vazio']);
+    } else if (it.tipo_vasilhame === 'vazio_avulso') {
+      const vazio = allEstoqueVazios.find(v => v.tamanho_litros === it.tamanho_litros_vazio && v.ano_validade === it.ano_validade_vazio);
+      if (vazio) {
+        await sb.from('estoque_vazios').update({ quantidade: vazio.quantidade + it.quantidade }).eq('id', vazio.id);
+      }
     } else {
       const { data: estoque } = await sb.from('estoque_gas').select('*').eq('marca_id', it.marca_id).single();
       if (estoque) {
@@ -3174,6 +3435,7 @@ async function estornarEntrega() {
       }
     }
   }
+  await sb.from('movimentos_estoque').delete().eq('referencia_pedido_id', id).eq('tipo', 'saida_vazio_venda');
 
   const { data: emprestimos } = await sb.from('movimentos_comodato').select('quantidade').eq('referencia_pedido_id', id).eq('tipo', 'emprestimo');
   const totalEmprestado = (emprestimos || []).reduce((s, x) => s + x.quantidade, 0);
@@ -3498,6 +3760,24 @@ async function confirmarAnoVazioEEntregar() {
 async function efetivarEntrega(pedidoId, onConcluido) {
   const { error } = await sb.from('pedidos').update({ status_entrega: 'entregue', data_entrega: new Date().toISOString() }).eq('id', pedidoId);
   if (error) { toastErro('marcar entregue', error); return; }
+
+  // Decrementa estoque de vazios vendidos (o trigger DB só lida com cheios/gás)
+  const { data: itensVazio } = await sb.from('itens_pedido')
+    .select('tamanho_litros_vazio, ano_validade_vazio, quantidade')
+    .eq('pedido_id', pedidoId).eq('tipo_vasilhame', 'vazio_avulso');
+  for (const it of (itensVazio || [])) {
+    const { data: vazio } = await sb.from('estoque_vazios')
+      .select('id, quantidade').eq('tamanho_litros', it.tamanho_litros_vazio).eq('ano_validade', it.ano_validade_vazio).maybeSingle();
+    if (vazio) {
+      await sb.from('estoque_vazios').update({ quantidade: Math.max(0, vazio.quantidade - it.quantidade) }).eq('id', vazio.id);
+    }
+    await sb.from('movimentos_estoque').insert({
+      tamanho_litros: it.tamanho_litros_vazio, ano_validade: it.ano_validade_vazio,
+      tipo: 'saida_vazio_venda', quantidade: -it.quantidade,
+      referencia_pedido_id: pedidoId, criado_por: currentUserId,
+    });
+  }
+
   const pedidoRef = allPedidos.find(x => x.id === pedidoId);
   logAtividade('entrega_confirmada', `Pedido #${pedidoRef?.numero ?? '—'} · ${pedidoRef?.clientes?.nome || '—'}`);
   if (onConcluido) await onConcluido();
