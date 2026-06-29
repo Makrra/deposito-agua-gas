@@ -4431,6 +4431,16 @@ function htmlEstoqueLiveCaixa(lotes, vazios, gas) {
   const gasVaziosCards = gas.map(g => _ecCard(escapeHtml(g.marcas?.nome || '—'), g.qtd_vazios || 0, [], !g.qtd_vazios)).join('');
 
   return `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
+      <div class="stat-card" style="margin-bottom:0">
+        <div class="stat-val" style="font-size:1.8rem">${totalCheios}</div>
+        <div class="stat-lbl">Garrafões Cheios</div>
+      </div>
+      <div class="stat-card" style="margin-bottom:0">
+        <div class="stat-val" style="font-size:1.8rem">${totalVazios}</div>
+        <div class="stat-lbl">Vasilhames Vazios</div>
+      </div>
+    </div>
     ${_ecSecao('Garrafões Cheios', totalCheios, cheiosCards ? _ecGrid(cheiosCards) : '')}
     ${gas.length ? `${_ecDivider}${_ecSecao('Gás Cheio', totalGasCheios, gasCheiosCards ? _ecGrid(gasCheiosCards) : '')}` : ''}
     ${_ecDivider}
@@ -4473,9 +4483,15 @@ function htmlAberturaSnapshot(snapshot) {
   const gasVaziosCards = gas.map(g => _ecCard(escapeHtml(g.nome), g.qtd_vazios || 0, [], !g.qtd_vazios)).join('');
 
   return `
-    <div class="stat-card" style="margin-bottom:12px">
-      <div class="stat-val" style="font-size:1.8rem">${totalCheios}</div>
-      <div class="stat-lbl">Garrafões Cheios na Abertura</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
+      <div class="stat-card" style="margin-bottom:0">
+        <div class="stat-val" style="font-size:1.8rem">${totalCheios}</div>
+        <div class="stat-lbl">Garrafões Cheios</div>
+      </div>
+      <div class="stat-card" style="margin-bottom:0">
+        <div class="stat-val" style="font-size:1.8rem">${totalVazios}</div>
+        <div class="stat-lbl">Vasilhames Vazios</div>
+      </div>
     </div>
     ${_ecSecao('Garrafões Cheios', totalCheios, cheiosCards ? _ecGrid(cheiosCards) : '', 'Não registrado')}
     ${gas.length ? `${_ecDivider}${_ecSecao('Gás Cheio', totalGasCheios, gasCheiosCards ? _ecGrid(gasCheiosCards) : '', 'Não registrado')}` : ''}
