@@ -1064,14 +1064,33 @@ select.form-control option { background: var(--surface); }
         <option value="dinheiro">Dinheiro</option>
         <option value="pix">Pix</option>
         <option value="cartao_credito">Cartão de Crédito</option>
-        <option value="misto">Dinheiro + Pix</option>
+        <option value="multiplo">Múltiplas formas</option>
       </select>
     </div>
 
-    <div class="form-group" id="np-misto-container" style="display:none">
-      <label class="form-label">Valor recebido em Dinheiro agora (o restante fica em Pix, pendente)</label>
-      <input class="form-control" id="np-misto-dinheiro" type="number" step="0.01" min="0" oninput="atualizarSplitPagamentoNP()">
-      <div class="card-sub" id="np-misto-pix-info" style="margin-top:6px"></div>
+    <div class="form-group" id="np-multiplo-container" style="display:none">
+      <label class="form-label">Formas de pagamento</label>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <label style="display:flex;align-items:center;gap:6px;min-width:140px;cursor:pointer">
+            <input type="checkbox" id="np-mul-chk-dinheiro" onchange="onMultiploCheckChange()"> Dinheiro
+          </label>
+          <input class="form-control" id="np-mul-val-dinheiro" type="number" step="0.01" min="0" placeholder="R$ 0,00" style="display:none;flex:1" oninput="atualizarMultiploRestante()">
+        </div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <label style="display:flex;align-items:center;gap:6px;min-width:140px;cursor:pointer">
+            <input type="checkbox" id="np-mul-chk-pix" onchange="onMultiploCheckChange()"> Pix
+          </label>
+          <input class="form-control" id="np-mul-val-pix" type="number" step="0.01" min="0" placeholder="R$ 0,00" style="display:none;flex:1" oninput="atualizarMultiploRestante()">
+        </div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <label style="display:flex;align-items:center;gap:6px;min-width:140px;cursor:pointer">
+            <input type="checkbox" id="np-mul-chk-cartao" onchange="onMultiploCheckChange()"> Cartão de Crédito
+          </label>
+          <input class="form-control" id="np-mul-val-cartao" type="number" step="0.01" min="0" placeholder="R$ 0,00" style="display:none;flex:1" oninput="atualizarMultiploRestante()">
+        </div>
+      </div>
+      <div class="card-sub" id="np-multiplo-restante" style="margin-top:8px"></div>
     </div>
 
     <div class="form-group">
@@ -2881,7 +2900,7 @@ function atualizarItemPedido(idx) {
 function recalcularTotalPedido() {
   const total = lerTotalPedidoAtual();
   document.getElementById('np-total').textContent = fmtMoeda(total);
-  if (document.getElementById('np-forma-pagamento').value === 'misto') atualizarSplitPagamentoNP();
+  if (document.getElementById('np-forma-pagamento').value === 'multiplo') atualizarMultiploRestante();
 }
 
 function lerTotalPedidoAtual() {
@@ -2901,24 +2920,38 @@ function lerTotalPedidoAtual() {
 
 function onFormaPagamentoChangeNP() {
   const forma = document.getElementById('np-forma-pagamento').value;
-  document.getElementById('np-misto-container').style.display = forma === 'misto' ? 'block' : 'none';
-  if (forma === 'misto') {
-    // só preenche um valor inicial ao abrir a seção — não fazer isso a
-    // cada tecla digitada, senão sobrescreve o que a pessoa está digitando
-    // (ex: input type=number reporta value="" no instante entre "12" e "12.5")
-    const dinheiroInput = document.getElementById('np-misto-dinheiro');
-    if (!dinheiroInput.value) dinheiroInput.value = lerTotalPedidoAtual().toFixed(2);
-    atualizarSplitPagamentoNP();
-  }
+  document.getElementById('np-multiplo-container').style.display = forma === 'multiplo' ? 'block' : 'none';
+  if (forma === 'multiplo') atualizarMultiploRestante();
 }
 
-function atualizarSplitPagamentoNP() {
+function onMultiploCheckChange() {
+  const ids = ['dinheiro', 'pix', 'cartao'];
+  ids.forEach(f => {
+    const chk = document.getElementById(`np-mul-chk-${f}`);
+    const inp = document.getElementById(`np-mul-val-${f}`);
+    inp.style.display = chk.checked ? 'block' : 'none';
+    if (!chk.checked) inp.value = '';
+  });
+  atualizarMultiploRestante();
+}
+
+function atualizarMultiploRestante() {
   const total = lerTotalPedidoAtual();
-  const dinheiro = parseFloat(document.getElementById('np-misto-dinheiro').value || 0);
-  const pix = total - dinheiro;
-  document.getElementById('np-misto-pix-info').innerHTML = pix >= 0
-    ? `Pix (fica pendente até confirmação): ${fmtMoeda(pix)}`
-    : `<span class="text-red">Valor em dinheiro maior que o total do pedido</span>`;
+  const soma = roundMoeda(['dinheiro', 'pix', 'cartao'].reduce((s, f) => {
+    const chk = document.getElementById(`np-mul-chk-${f}`);
+    return chk.checked ? s + parseFloat(document.getElementById(`np-mul-val-${f}`).value || 0) : s;
+  }, 0));
+  const restante = roundMoeda(total - soma);
+  const el = document.getElementById('np-multiplo-restante');
+  if (restante === 0 && soma > 0) {
+    el.innerHTML = '<span class="text-green">✓ Distribuído corretamente</span>';
+  } else if (restante > 0) {
+    el.innerHTML = `Restante a distribuir: <strong>${fmtMoeda(restante)}</strong>`;
+  } else if (soma === 0) {
+    el.innerHTML = '';
+  } else {
+    el.innerHTML = `<span class="text-red">Soma excede o total em ${fmtMoeda(-restante)}</span>`;
+  }
 }
 
 // ============================================================
@@ -2945,8 +2978,13 @@ async function abrirNovoPedido() {
   document.getElementById('np-itens-container').innerHTML = '';
   document.getElementById('np-vazios-container').innerHTML = '';
   document.getElementById('np-forma-pagamento').value = 'dinheiro';
-  document.getElementById('np-misto-container').style.display = 'none';
-  document.getElementById('np-misto-dinheiro').value = '';
+  document.getElementById('np-multiplo-container').style.display = 'none';
+  ['dinheiro', 'pix', 'cartao'].forEach(f => {
+    document.getElementById(`np-mul-chk-${f}`).checked = false;
+    document.getElementById(`np-mul-val-${f}`).value = '';
+    document.getElementById(`np-mul-val-${f}`).style.display = 'none';
+  });
+  document.getElementById('np-multiplo-restante').innerHTML = '';
   document.getElementById('np-observacao').value = '';
   pedidoClienteDescontos = [];
   pedidoItemSeq = 0;
@@ -3033,16 +3071,24 @@ async function abrirEditarPedido(id) {
     preencherItemVazioRow(idx, it);
   });
 
-  document.getElementById('np-forma-pagamento').value = pedido.forma_pagamento;
+  const formaExibir = pedido.forma_pagamento === 'misto' ? 'multiplo' : pedido.forma_pagamento;
+  document.getElementById('np-forma-pagamento').value = formaExibir;
   onFormaPagamentoChangeNP();
-  if (pedido.forma_pagamento === 'misto') {
-    document.getElementById('np-misto-dinheiro').value = parseFloat(pedido.valor_dinheiro_misto || 0).toFixed(2);
-    atualizarSplitPagamentoNP();
+  if (formaExibir === 'multiplo') {
+    const parcelas = getParcelasEsperadas(pedido) || [];
+    const fmKey = { dinheiro: 'dinheiro', pix: 'pix', cartao_credito: 'cartao' };
+    parcelas.forEach(parc => {
+      const k = fmKey[parc.forma];
+      if (k) {
+        document.getElementById(`np-mul-chk-${k}`).checked = true;
+        document.getElementById(`np-mul-val-${k}`).value = parseFloat(parc.valor).toFixed(2);
+        document.getElementById(`np-mul-val-${k}`).style.display = 'block';
+      }
+    });
+    atualizarMultiploRestante();
   }
-  // remove a observação automática de "Combinado: ..." gerada na criação
-  // original — salvarPedido() regenera a linha certa se continuar misto.
   document.getElementById('np-observacao').value = (pedido.observacao || '')
-    .split('\n').filter(linha => !linha.startsWith('Combinado: Dinheiro')).join('\n');
+    .split('\n').filter(l => !l.startsWith('Combinado:') && !l.startsWith('Múltiplo:')).join('\n');
 
   recalcularTotalPedido();
   openModal('modal-novo-pedido');
@@ -3113,24 +3159,35 @@ async function salvarPedido() {
   const entregador_id = document.getElementById('np-entregador').value || null;
   let observacao = document.getElementById('np-observacao').value.trim();
 
-  let valorDinheiroMisto = 0, valorPixMisto = 0;
-  if (forma_pagamento === 'misto') {
-    valorDinheiroMisto = parseFloat(document.getElementById('np-misto-dinheiro').value || 0);
-    if (valorDinheiroMisto <= 0 || valorDinheiroMisto >= total) {
-      toast('Para Dinheiro + Pix, informe um valor em dinheiro maior que zero e menor que o total do pedido', true);
-      return;
+  let parcelasEsperadas = null;
+  if (forma_pagamento === 'multiplo') {
+    const fmKey = { dinheiro: 'dinheiro', pix: 'pix', cartao: 'cartao_credito' };
+    const parcelas = ['dinheiro', 'pix', 'cartao'].reduce((acc, f) => {
+      if (document.getElementById(`np-mul-chk-${f}`).checked) {
+        const valor = roundMoeda(parseFloat(document.getElementById(`np-mul-val-${f}`).value || 0));
+        if (valor > 0) acc.push({ forma: fmKey[f], valor });
+      }
+      return acc;
+    }, []);
+    if (parcelas.length < 2) {
+      toast('Selecione pelo menos duas formas para o pagamento múltiplo', true); return;
     }
-    valorPixMisto = roundMoeda(total - valorDinheiroMisto);
-    // só registra o combinado como referência pro caixa — não confirma
-    // nenhum pagamento ainda, a baixa de cada parte é feita à parte
-    const combinado = `Combinado: Dinheiro ${fmtMoeda(valorDinheiroMisto)} + Pix ${fmtMoeda(valorPixMisto)} (ambos pendentes até confirmação)`;
-    observacao = observacao ? `${observacao}\n${combinado}` : combinado;
+    const soma = roundMoeda(parcelas.reduce((s, p) => s + p.valor, 0));
+    if (Math.abs(soma - total) > 0.01) {
+      toast(`A soma das formas (${fmtMoeda(soma)}) deve ser igual ao total do pedido (${fmtMoeda(total)})`, true); return;
+    }
+    parcelasEsperadas = parcelas;
+    const labelForma = { dinheiro: 'Dinheiro', pix: 'Pix', cartao_credito: 'Cartão' };
+    const resumo = parcelas.map(p => `${labelForma[p.forma]} ${fmtMoeda(p.valor)}`).join(' + ');
+    const nota = `Múltiplo: ${resumo} (cada forma confirmada individualmente)`;
+    observacao = observacao ? `${observacao}\n${nota}` : nota;
   }
 
   const payloadPedido = {
     cliente_id, forma_pagamento, total, entregador_id, observacao,
-    valor_dinheiro_misto: forma_pagamento === 'misto' ? valorDinheiroMisto : null,
-    valor_pix_misto: forma_pagamento === 'misto' ? valorPixMisto : null,
+    valor_dinheiro_misto: null,
+    valor_pix_misto: null,
+    parcelas_esperadas: parcelasEsperadas,
   };
 
   let pedido;
@@ -3185,8 +3242,8 @@ async function salvarPedido() {
   logAtividade(editId ? 'pedido_editado' : 'pedido_criado', `Pedido #${pedido.numero} · ${clienteNome} · ${fmtMoeda(total)}`);
 
   closeModal('modal-novo-pedido');
-  toast(editId ? 'Pedido atualizado!' : (forma_pagamento === 'misto'
-    ? `Pedido criado! Combinado Dinheiro ${fmtMoeda(valorDinheiroMisto)} + Pix ${fmtMoeda(valorPixMisto)} — ambos ficam pendentes até o caixa confirmar o recebimento de cada um.`
+  toast(editId ? 'Pedido atualizado!' : (forma_pagamento === 'multiplo'
+    ? 'Pedido criado! Cada forma de pagamento fica pendente até o caixa confirmar individualmente.'
     : 'Pedido criado! Pagamento e entrega ficam pendentes até a confirmação.'));
   await loadPedidos();
   } finally {
@@ -3256,8 +3313,19 @@ async function irParaPedidosPagamentoPendente() {
 }
 
 function badgePagamento(forma) {
-  const labels = { dinheiro: 'Dinheiro', pix: 'Pix', cartao_credito: 'Cartão de Crédito', misto: 'Dinheiro + Pix' };
+  const labels = { dinheiro: 'Dinheiro', pix: 'Pix', cartao_credito: 'Cartão de Crédito', misto: 'Dinheiro + Pix', multiplo: 'Múltiplo' };
   return `<span class="badge badge-blue">${labels[forma] || forma}</span>`;
+}
+
+function getParcelasEsperadas(pedido) {
+  if (pedido.parcelas_esperadas) return pedido.parcelas_esperadas;
+  if (pedido.forma_pagamento === 'misto') {
+    const parcelas = [];
+    if (parseFloat(pedido.valor_dinheiro_misto || 0) > 0) parcelas.push({ forma: 'dinheiro', valor: parseFloat(pedido.valor_dinheiro_misto) });
+    if (parseFloat(pedido.valor_pix_misto || 0) > 0) parcelas.push({ forma: 'pix', valor: parseFloat(pedido.valor_pix_misto) });
+    return parcelas.length > 1 ? parcelas : null;
+  }
+  return null;
 }
 
 function badgeStatusPagamento(pedido) {
@@ -3410,24 +3478,17 @@ async function abrirPedidoDetalhe(id) {
       pagamentoCard.style.display = 'block';
       document.getElementById('pd-pagamento-info').textContent = `Pago até agora: ${fmtMoeda(totalPago)} · Pendente: ${fmtMoeda(pendente)}`;
 
-      if (p.forma_pagamento === 'misto' && p.valor_dinheiro_misto != null) {
-        // dinheiro e Pix são confirmados de forma independente: o que for
-        // confirmado já entra em pagamentos_pedido; enquanto a outra parte
-        // não for confirmada, o pedido continua com pendência (> 0 acima).
-        const dinheiroPago = roundMoeda((pagamentos || []).filter(x => x.forma === 'dinheiro').reduce((s, x) => s + parseFloat(x.valor), 0));
-        const pixPago = roundMoeda((pagamentos || []).filter(x => x.forma === 'pix').reduce((s, x) => s + parseFloat(x.valor), 0));
-        const dinheiroOk = dinheiroPago >= parseFloat(p.valor_dinheiro_misto);
-        const pixOk = pixPago >= parseFloat(p.valor_pix_misto);
-        conteudoEl.innerHTML = `
-          <div class="list-item">
-            <div class="item-info"><div class="item-name">Dinheiro</div><div class="item-detail">${fmtMoeda(p.valor_dinheiro_misto)}</div></div>
-            ${dinheiroOk ? '<span class="badge badge-green">Confirmado</span>' : `<button class="btn btn-success btn-sm" onclick="confirmarPagamentoMistoParte('dinheiro')">Confirmar</button>`}
-          </div>
-          <div class="list-item">
-            <div class="item-info"><div class="item-name">Pix</div><div class="item-detail">${fmtMoeda(p.valor_pix_misto)}</div></div>
-            ${pixOk ? '<span class="badge badge-green">Confirmado</span>' : `<button class="btn btn-success btn-sm" onclick="confirmarPagamentoMistoParte('pix')">Confirmar</button>`}
-          </div>
-        `;
+      const parcelas = getParcelasEsperadas(p);
+      if (parcelas && parcelas.length > 1) {
+        const labelsForma = { dinheiro: 'Dinheiro', pix: 'Pix', cartao_credito: 'Cartão de Crédito' };
+        conteudoEl.innerHTML = parcelas.map(parc => {
+          const pagoParcela = roundMoeda((pagamentos || []).filter(x => x.forma === parc.forma).reduce((s, x) => s + parseFloat(x.valor), 0));
+          const ok = pagoParcela >= parc.valor;
+          return `<div class="list-item">
+            <div class="item-info"><div class="item-name">${labelsForma[parc.forma] || parc.forma}</div><div class="item-detail">${fmtMoeda(parc.valor)}</div></div>
+            ${ok ? '<span class="badge badge-green">Confirmado</span>' : `<button class="btn btn-success btn-sm" onclick="confirmarPagamentoParcela('${parc.forma}', ${parc.valor})">Confirmar</button>`}
+          </div>`;
+        }).join('');
       } else {
         conteudoEl.innerHTML = `
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
@@ -3440,7 +3501,7 @@ async function abrirPedidoDetalhe(id) {
           </div>
           <button class="btn btn-success btn-block btn-sm" style="margin-top:8px" onclick="confirmarPagamentoPedido()">Confirmar Pagamento</button>
         `;
-        document.getElementById('pd-pagamento-forma').value = p.forma_pagamento === 'misto' ? 'dinheiro' : p.forma_pagamento;
+        document.getElementById('pd-pagamento-forma').value = (p.forma_pagamento === 'misto' || p.forma_pagamento === 'multiplo') ? 'dinheiro' : p.forma_pagamento;
       }
     } else {
       pagamentoCard.style.display = 'none';
@@ -3500,30 +3561,29 @@ async function confirmarPagamentoPedido() {
   }
 }
 
-async function confirmarPagamentoMistoParte(tipo) {
+async function confirmarPagamentoParcela(forma, valor) {
   if (confirmandoPagamento) return;
   confirmandoPagamento = true;
   try {
     const id = currentPedidoDetalheId;
     const p = allPedidos.find(x => x.id === id);
-    if (!p) return;
-    const valor = parseFloat(tipo === 'dinheiro' ? p.valor_dinheiro_misto : p.valor_pix_misto);
-    if (!(valor > 0)) return;
+    if (!p || !(valor > 0)) return;
 
-    if (tipo === 'dinheiro') {
+    if (forma === 'dinheiro') {
       await carregarCaixaSessaoAtual();
       if (!caixaSessaoAtual) { toast('Não há caixa aberto. Abra o caixa antes de confirmar pagamentos em dinheiro.', true); return; }
     }
 
     const { error } = await sb.from('pagamentos_pedido').insert({
-      cliente_id: p.cliente_id, pedido_id: id, valor, forma: tipo, criado_por: currentUserId,
+      cliente_id: p.cliente_id, pedido_id: id, valor, forma, criado_por: currentUserId,
       caixa_sessao_id: caixaSessaoAtual ? caixaSessaoAtual.id : null,
     });
     if (error) { toastErro('confirmar pagamento', error); return; }
-    logAtividade('pagamento_confirmado', `Pedido #${p.numero} · ${p.clientes ? p.clientes.nome : '—'} · ${fmtMoeda(valor)} (${tipo})`);
 
-    const baseMsg = `${tipo === 'dinheiro' ? 'Dinheiro' : 'Pix'} confirmado!`;
-    toast(currentUserRole === 'caixa' ? baseMsg : `${baseMsg} (não soma na gaveta do caixa, já que não foi confirmado pelo caixa)`);
+    const labelsForma = { dinheiro: 'Dinheiro', pix: 'Pix', cartao_credito: 'Cartão de Crédito' };
+    const baseMsg = `${labelsForma[forma] || forma} confirmado!`;
+    logAtividade('pagamento_confirmado', `Pedido #${p.numero} · ${p.clientes ? p.clientes.nome : '—'} · ${fmtMoeda(valor)} (${forma})`);
+    toast(currentUserRole === 'caixa' ? baseMsg : `${baseMsg} (não soma na gaveta do caixa)`);
     await loadPedidos();
     await loadClientes();
     abrirPedidoDetalhe(id);
@@ -5032,7 +5092,7 @@ async function loadDashboard() {
   // entrega), não no dia em que o pedido foi criado. Um pedido criado
   // ontem e pago/entregue hoje entra nos números de hoje, não de ontem.
   const { data: pedidosHojeRaw } = await sb.from('pedidos')
-    .select('id, total, status, status_entrega, forma_pagamento, valor_dinheiro_misto, valor_pix_misto')
+    .select('id, total, status, status_entrega, forma_pagamento, valor_dinheiro_misto, valor_pix_misto, parcelas_esperadas')
     .gte('data', inicioISO)
     .lt('data', fimISO);
   const pedidosHoje = (pedidosHojeRaw || []).filter(p => p.status !== 'cancelado');
@@ -5083,9 +5143,13 @@ async function loadDashboard() {
   }
   pedidosHoje.forEach(p => {
     const pago = pagoPorPedidoForma[p.id] || {};
-    if (p.forma_pagamento === 'misto') {
-      pendentePorForma.dinheiro = roundMoeda(pendentePorForma.dinheiro + Math.max(0, roundMoeda(parseFloat(p.valor_dinheiro_misto || 0) - (pago.dinheiro || 0))));
-      pendentePorForma.pix = roundMoeda(pendentePorForma.pix + Math.max(0, roundMoeda(parseFloat(p.valor_pix_misto || 0) - (pago.pix || 0))));
+    const parcelas = getParcelasEsperadas(p);
+    if (parcelas) {
+      parcelas.forEach(parc => {
+        if (pendentePorForma[parc.forma] != null) {
+          pendentePorForma[parc.forma] = roundMoeda(pendentePorForma[parc.forma] + Math.max(0, roundMoeda(parc.valor - (pago[parc.forma] || 0))));
+        }
+      });
     } else if (pendentePorForma[p.forma_pagamento] != null) {
       const totalPagoPedido = FORMAS.reduce((s, f) => s + (pago[f] || 0), 0);
       const pendente = Math.max(0, roundMoeda(parseFloat(p.total) - totalPagoPedido));
