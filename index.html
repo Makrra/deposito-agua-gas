@@ -4980,16 +4980,13 @@ async function loadDashboard() {
     .select('forma, valor, pedidos(status), usuarios(role)')
     .gte('data', inicioISO).lt('data', fimISO);
   (pagamentosPeriodo || []).filter(p => p.pedidos?.status !== 'cancelado').forEach(p => {
-    // Visão completa, por perfil de quem confirmou — pra transparência,
-    // mesmo o que não conta na gaveta (admin/desenvolvedor) fica visível
-    // aqui em vez de simplesmente desaparecer dos números.
     const perfil = p.usuarios?.role;
+    // Detalhamento por perfil — para transparência na visão de quem confirmou.
     if (efetuadoPorPerfil[perfil] && efetuadoPorPerfil[perfil][p.forma] != null) {
       efetuadoPorPerfil[perfil][p.forma] = roundMoeda(efetuadoPorPerfil[perfil][p.forma] + parseFloat(p.valor));
     }
-    // Pagamentos Efetuados (contabilidade do caixa): só o que foi
-    // confirmado por quem estava logado como "caixa".
-    if (perfil === 'caixa' && efetuadoPorForma[p.forma] != null) {
+    // Pagamentos Efetuados: todos os perfis contam (caixa, admin, desenvolvedor).
+    if (efetuadoPorForma[p.forma] != null) {
       efetuadoPorForma[p.forma] = roundMoeda(efetuadoPorForma[p.forma] + parseFloat(p.valor));
     }
   });
@@ -5002,19 +4999,11 @@ async function loadDashboard() {
   // ou não, isso não depende de quem bateu a confirmação.
   const pendentePorForma = { dinheiro: 0, pix: 0, cartao_credito: 0 };
   const pagoPorPedidoForma = {};
-  // Versão só do que foi confirmado pelo caixa — usada no detalhamento por
-  // marca (barra de pagamento), pra ficar consistente com Pagamentos
-  // Efetuados acima.
-  const pagoPorPedidoFormaCaixa = {};
   if (idsHoje.length) {
-    const { data: pagamentosCohorte } = await sb.from('pagamentos_pedido').select('pedido_id, forma, valor, usuarios(role)').in('pedido_id', idsHoje);
+    const { data: pagamentosCohorte } = await sb.from('pagamentos_pedido').select('pedido_id, forma, valor').in('pedido_id', idsHoje);
     (pagamentosCohorte || []).forEach(pg => {
       if (!pagoPorPedidoForma[pg.pedido_id]) pagoPorPedidoForma[pg.pedido_id] = {};
       pagoPorPedidoForma[pg.pedido_id][pg.forma] = roundMoeda((pagoPorPedidoForma[pg.pedido_id][pg.forma] || 0) + parseFloat(pg.valor));
-      if (pg.usuarios?.role === 'caixa') {
-        if (!pagoPorPedidoFormaCaixa[pg.pedido_id]) pagoPorPedidoFormaCaixa[pg.pedido_id] = {};
-        pagoPorPedidoFormaCaixa[pg.pedido_id][pg.forma] = roundMoeda((pagoPorPedidoFormaCaixa[pg.pedido_id][pg.forma] || 0) + parseFloat(pg.valor));
-      }
     });
   }
   pedidosHoje.forEach(p => {
@@ -5087,8 +5076,7 @@ async function loadDashboard() {
   });
 
   // Recebido (por forma) / pendente por marca: pagamento é só por pedido,
-  // não por item, então rateia o pago de cada forma (só o que foi
-  // confirmado pelo caixa, em pagoPorPedidoFormaCaixa) proporcionalmente ao
+  // não por item, então rateia o pago de cada forma proporcionalmente ao
   // subtotal de cada item de água dentro do pedido.
   if (idsHoje.length) {
     const { data: itensAgua } = await sb.from('itens_pedido')
@@ -5100,7 +5088,7 @@ async function loadDashboard() {
       const subtotal = roundMoeda((parseFloat(it.preco_unitario) + parseFloat(it.preco_vasilhame)) * it.quantidade);
       const totalPedido = totalPedidoPorId[it.pedido_id] || 0;
       const ratioItem = totalPedido > 0 ? Math.min(1, subtotal / totalPedido) : 0;
-      const pagoPedidoForma = pagoPorPedidoFormaCaixa[it.pedido_id] || {};
+      const pagoPedidoForma = pagoPorPedidoForma[it.pedido_id] || {};
       const marcaId = it.marca_id;
       if (!porMarcaAgua[marcaId]) { porMarcaAgua[marcaId] = novaMarcaAgua(); porMarcaAgua[marcaId].label = it.marcas ? nomeMarcaComTamanho(it.marcas) : '—'; }
       let recebidoItem = 0;
