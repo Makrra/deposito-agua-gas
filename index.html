@@ -4356,55 +4356,63 @@ function linhasEstoqueAtual(estoqueAbertura, vendidosPorMarca) {
 }
 
 function htmlEstoqueLiveCaixa(lotes, vazios, gas) {
+  const miniCard = (titulo, total, anos, esgotado) => `
+    <div class="card" style="margin-bottom:0;padding:12px${esgotado ? ';opacity:.45' : ''}">
+      <div style="font-size:.7rem;font-weight:600;color:var(--muted);line-height:1.3;margin-bottom:6px">${titulo}</div>
+      <div style="font-size:1.6rem;font-weight:700;line-height:1">${total}</div>
+      ${anos.length ? `<div style="margin-top:8px;padding-top:6px;border-top:1px solid var(--border)">
+        ${anos.map(a => `<div style="display:flex;justify-content:space-between;font-size:.75rem;color:var(--muted);margin-top:3px"><span>val. ${a.ano}</span><span style="font-weight:600;color:var(--text)">${a.qtd}</span></div>`).join('')}
+      </div>` : ''}
+    </div>`;
+
+  const secao = (label, total, cardsHtml) => `
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
+      <span style="font-size:.7rem;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--muted)">${label}</span>
+      <span style="font-size:.85rem;font-weight:700">${total}</span>
+    </div>
+    ${cardsHtml || `<div style="color:var(--muted);font-size:.82rem;padding:2px 0">Nenhum em estoque</div>`}`;
+
+  const grid = cards => `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">${cards}</div>`;
+  const divider = `<div style="height:1px;background:var(--border);margin:14px 0"></div>`;
+
+  // CHEIOS de água: um card por marca
   const porMarca = {};
-  [...lotes].sort((a, b) => (a.marcas?.nome || '').localeCompare(b.marcas?.nome || '', 'pt-BR') || a.ano_validade - b.ano_validade).forEach(l => {
-    const nome = l.marcas ? nomeMarcaComTamanho(l.marcas) : '—';
-    if (!porMarca[nome]) porMarca[nome] = [];
-    porMarca[nome].push({ ano: l.ano_validade, qtd: l.qtd_cheios });
-  });
+  [...lotes].sort((a, b) => (a.marcas?.nome || '').localeCompare(b.marcas?.nome || '', 'pt-BR') || a.ano_validade - b.ano_validade)
+    .forEach(l => {
+      const k = l.marcas ? nomeMarcaComTamanho(l.marcas) : '—';
+      if (!porMarca[k]) porMarca[k] = { total: 0, anos: [] };
+      porMarca[k].total += l.qtd_cheios;
+      porMarca[k].anos.push({ ano: l.ano_validade, qtd: l.qtd_cheios });
+    });
   const totalCheios = lotes.reduce((s, l) => s + l.qtd_cheios, 0);
-  const cheiosHtml = Object.keys(porMarca).length
-    ? `<div class="list-item"><div class="item-info"><div class="item-name">Total</div></div><div class="item-value">${totalCheios}</div></div>
-       ${Object.entries(porMarca).map(([nome, anos]) => {
-         const sub = anos.reduce((s, a) => s + a.qtd, 0);
-         return `<div class="list-item"><div class="item-info"><div class="item-name">${nome}</div></div><div class="item-value">${sub}</div></div>
-           ${anos.map(a => `<div class="list-item" style="padding-left:16px"><div class="item-info"><div class="item-detail">Val. ${a.ano}</div></div><div class="item-detail">${a.qtd}</div></div>`).join('')}`;
-       }).join('')}`
-    : '<div style="color:var(--muted);font-size:.85rem;padding:4px 0">Nenhum cheio em estoque</div>';
+  const cheiosCards = Object.entries(porMarca).map(([nome, d]) => miniCard(nome, d.total, d.anos, d.total === 0)).join('');
 
-  const gasCheiosHtml = gas.some(g => g.qtd_cheios > 0)
-    ? gas.map(g => `<div class="list-item"><div class="item-info"><div class="item-name">${escapeHtml(g.marcas?.nome || '—')}</div></div><div class="item-value">${g.qtd_cheios}</div></div>`).join('')
-    : '<div style="color:var(--muted);font-size:.85rem;padding:4px 0">Nenhum</div>';
+  // GÁS cheio: um card por marca de gás
+  const totalGasCheios = gas.reduce((s, g) => s + (g.qtd_cheios || 0), 0);
+  const gasCheiosCards = gas.map(g => miniCard(escapeHtml(g.marcas?.nome || '—'), g.qtd_cheios || 0, [], !g.qtd_cheios)).join('');
 
-  const porTamanhoV = {};
-  [...vazios].sort((a, b) => a.tamanho_litros - b.tamanho_litros || a.ano_validade - b.ano_validade).forEach(v => {
-    const t = `${v.tamanho_litros}L`;
-    if (!porTamanhoV[t]) porTamanhoV[t] = [];
-    porTamanhoV[t].push({ ano: v.ano_validade, qtd: v.quantidade });
-  });
+  // VAZIOS de água: um card por tamanho
+  const porTamanho = {};
+  [...vazios].sort((a, b) => b.tamanho_litros - a.tamanho_litros || a.ano_validade - b.ano_validade)
+    .forEach(v => {
+      const k = `${v.tamanho_litros}L`;
+      if (!porTamanho[k]) porTamanho[k] = { total: 0, anos: [] };
+      porTamanho[k].total += v.quantidade;
+      porTamanho[k].anos.push({ ano: v.ano_validade, qtd: v.quantidade });
+    });
   const totalVazios = vazios.reduce((s, v) => s + v.quantidade, 0);
-  const vaziosHtml = totalVazios > 0
-    ? `<div class="list-item"><div class="item-info"><div class="item-name">Total</div></div><div class="item-value">${totalVazios}</div></div>
-       ${Object.entries(porTamanhoV).map(([t, anos]) => {
-         const sub = anos.reduce((s, a) => s + a.qtd, 0);
-         return `<div class="list-item"><div class="item-info"><div class="item-name">${t}</div></div><div class="item-value">${sub}</div></div>
-           ${anos.map(a => `<div class="list-item" style="padding-left:16px"><div class="item-info"><div class="item-detail">Val. ${a.ano}</div></div><div class="item-detail">${a.qtd}</div></div>`).join('')}`;
-       }).join('')}`
-    : '<div style="color:var(--muted);font-size:.85rem;padding:4px 0">Nenhum vazio em estoque</div>';
+  const vaziosCards = Object.entries(porTamanho).map(([t, d]) => miniCard(t, d.total, d.anos, d.total === 0)).join('');
 
-  const gasVaziosHtml = gas.some(g => g.qtd_vazios > 0)
-    ? gas.map(g => `<div class="list-item"><div class="item-info"><div class="item-name">${escapeHtml(g.marcas?.nome || '—')}</div></div><div class="item-value">${g.qtd_vazios}</div></div>`).join('')
-    : '<div style="color:var(--muted);font-size:.85rem;padding:4px 0">Nenhum</div>';
+  // GÁS vazio
+  const totalGasVazios = gas.reduce((s, g) => s + (g.qtd_vazios || 0), 0);
+  const gasVaziosCards = gas.map(g => miniCard(escapeHtml(g.marcas?.nome || '—'), g.qtd_vazios || 0, [], !g.qtd_vazios)).join('');
 
   return `
-    <div class="card-sub" style="font-weight:700;letter-spacing:.5px;text-transform:uppercase;margin-bottom:8px">Garrafões Cheios</div>
-    ${cheiosHtml}
-    <div class="card-sub" style="font-weight:700;letter-spacing:.5px;text-transform:uppercase;margin:12px 0 8px">Gás Cheio</div>
-    ${gasCheiosHtml}
-    <div class="card-sub" style="font-weight:700;letter-spacing:.5px;text-transform:uppercase;margin:12px 0 8px">Vasilhames Vazios</div>
-    ${vaziosHtml}
-    <div class="card-sub" style="font-weight:700;letter-spacing:.5px;text-transform:uppercase;margin:12px 0 8px">Gás Vazio</div>
-    ${gasVaziosHtml}
+    ${secao('Garrafões Cheios', totalCheios, cheiosCards ? grid(cheiosCards) : '')}
+    ${gas.length ? `${divider}${secao('Gás Cheio', totalGasCheios, gasCheiosCards ? grid(gasCheiosCards) : '')}` : ''}
+    ${divider}
+    ${secao('Vasilhames Vazios', totalVazios, vaziosCards ? grid(vaziosCards) : '')}
+    ${gas.length ? `${divider}${secao('Gás Vazio', totalGasVazios, gasVaziosCards ? grid(gasVaziosCards) : '')}` : ''}
   `;
 }
 
