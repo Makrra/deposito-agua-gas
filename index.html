@@ -1604,6 +1604,9 @@ function renderLotesList() {
     const aEsgotado = a.qtd_cheios === 0 ? 1 : 0;
     const bEsgotado = b.qtd_cheios === 0 ? 1 : 0;
     if (aEsgotado !== bEsgotado) return aEsgotado - bEsgotado;
+    const nomeA = a.marcas ? a.marcas.nome : '';
+    const nomeB = b.marcas ? b.marcas.nome : '';
+    if (nomeA !== nomeB) return nomeA.localeCompare(nomeB, 'pt-BR');
     return a.ano_validade - b.ano_validade;
   });
   el.innerHTML = lotesOrdenados.map(l => `
@@ -1820,7 +1823,9 @@ async function salvarLote() {
   const existente = allLotes.find(l => l.marca_id === marca_id && l.ano_validade === ano_validade);
   let loteId;
   if (existente) {
-    const { error } = await sb.from('lotes_garrafao').update({ qtd_cheios: existente.qtd_cheios + qtd_recebida }).eq('id', existente.id);
+    const { data: loteAtual, error: errLer } = await sb.from('lotes_garrafao').select('qtd_cheios').eq('id', existente.id).single();
+    if (errLer || !loteAtual) { toastErro('ler lote atual', errLer || { message: 'lote não encontrado' }); return; }
+    const { error } = await sb.from('lotes_garrafao').update({ qtd_cheios: loteAtual.qtd_cheios + qtd_recebida }).eq('id', existente.id);
     if (error) { toastErro('atualizar lote', error); return; }
     loteId = existente.id;
   } else {
