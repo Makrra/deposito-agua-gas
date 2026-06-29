@@ -4567,7 +4567,8 @@ function toggleCardEstoque(idBase) {
 // nova leitura do banco — combina dois dados que já temos.
 function linhasEstoqueAtual(estoqueAbertura, vendidosPorMarca) {
   const chaves = {};
-  (estoqueAbertura || []).forEach(s => {
+  const abertura = Array.isArray(estoqueAbertura) ? estoqueAbertura : (estoqueAbertura?.cheios || []);
+  abertura.forEach(s => {
     const k = `${s.marca_id}-${s.ano_validade}`;
     chaves[k] = { label: s.label, ano: s.ano_validade, abertura: s.qtd_cheios, vendido: 0 };
   });
