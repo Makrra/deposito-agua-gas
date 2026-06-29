@@ -832,6 +832,8 @@ select.form-control option { background: var(--surface); }
       <div id="rc-estoque-comparativo"></div>
     </div>
 
+    <div id="rc-estoque-fechamento"></div>
+
     <!-- Caixa ainda aberto: atalhos pra página live, filtrada pelo período -->
     <div id="rc-acoes-periodo">
       <div class="card-title" style="margin:18px 0 10px">Ver mais sobre o período</div>
@@ -3992,6 +3994,25 @@ async function snapshotEstoqueCheios() {
   }));
 }
 
+async function snapshotEstoqueCompleto() {
+  const [{ data: lotes }, { data: vazios }, { data: gas }] = await Promise.all([
+    sb.from('lotes_garrafao').select('marca_id, ano_validade, qtd_cheios, marcas(nome, tipo, tamanho_litros)'),
+    sb.from('estoque_vazios').select('tamanho_litros, ano_validade, quantidade'),
+    sb.from('estoque_gas').select('qtd_cheios, qtd_vazios, marcas(nome)'),
+  ]);
+  return {
+    v: 2,
+    cheios: (lotes || []).map(l => ({
+      marca_id: l.marca_id,
+      label: l.marcas ? nomeMarcaComTamanho(l.marcas) : '—',
+      ano_validade: l.ano_validade,
+      qtd_cheios: l.qtd_cheios,
+    })),
+    vazios: (vazios || []).map(v => ({ tamanho_litros: v.tamanho_litros, ano_validade: v.ano_validade, quantidade: v.quantidade })),
+    gas: (gas || []).map(g => ({ nome: g.marcas?.nome || '—', qtd_cheios: g.qtd_cheios || 0, qtd_vazios: g.qtd_vazios || 0 })),
+  };
+}
+
 function linhasEstoqueSnapshot(snapshot) {
   if (!snapshot || !snapshot.length) return { total: 0, html: '<div class="empty-state">Sem retrato registrado</div>' };
   const porMarca = {};
@@ -4019,8 +4040,10 @@ function linhasEstoqueSnapshot(snapshot) {
 // pra ver "começou com X, terminou com Y" de cada um. Sessão ainda aberta
 // não tem estoque_fechamento — mostra só o que tem.
 function htmlComparativoEstoqueSessao(sessao) {
-  const abertura = sessao.estoque_abertura || [];
-  const fechamento = sessao.estoque_fechamento || [];
+  const snapAbertura = sessao.estoque_abertura;
+  const abertura = Array.isArray(snapAbertura) ? snapAbertura : (snapAbertura?.cheios || []);
+  const snapFechamento = sessao.estoque_fechamento;
+  const fechamento = Array.isArray(snapFechamento) ? snapFechamento : (snapFechamento?.cheios || []);
   if (!abertura.length && !fechamento.length) return '<div class="empty-state">Sem retrato de estoque registrado</div>';
   const chaves = {};
   abertura.forEach(s => {
@@ -4060,7 +4083,7 @@ async function verificarFechamentoAutomaticoCaixa() {
 
   const meiaNoiteSeguinte = new Date(abertoEm.getFullYear(), abertoEm.getMonth(), abertoEm.getDate() + 1, 0, 0, 0, 0);
   const totais = await calcularTotaisSessaoAtual();
-  const estoqueFechamento = await snapshotEstoqueCheios();
+  const estoqueFechamento = await snapshotEstoqueCompleto();
 
   const { error } = await sb.from('caixa_sessoes').update({
     status: 'fechado',
@@ -4114,8 +4137,14 @@ async function loadCaixa() {
       `Aberto por ${nomeAbertura} em ${fmtDataHora(caixaSessaoAtual.aberto_em)}`;
     await calcularTotaisSessaoAtual();
     await renderExtratoCaixa();
-    const resumo = await calcularResumoPeriodoCaixa(caixaSessaoAtual.aberto_em, new Date().toISOString(), caixaSessaoAtual.id);
-    document.getElementById('caixa-resumo-periodo').innerHTML = htmlResumoPeriodoCaixa(resumo, caixaSessaoAtual, 'caixa');
+    const [resumo, { data: lotesLive }, { data: vaziosLive }, { data: gasLive }] = await Promise.all([
+      calcularResumoPeriodoCaixa(caixaSessaoAtual.aberto_em, new Date().toISOString(), caixaSessaoAtual.id),
+      sb.from('lotes_garrafao').select('*, marcas(nome, tipo, tamanho_litros)').order('ano_validade'),
+      sb.from('estoque_vazios').select('*').order('tamanho_litros').order('ano_validade'),
+      sb.from('estoque_gas').select('qtd_cheios, qtd_vazios, marcas(nome)'),
+    ]);
+    const estoqueLive = { lotes: lotesLive || [], vazios: vaziosLive || [], gas: gasLive || [] };
+    document.getElementById('caixa-resumo-periodo').innerHTML = htmlResumoPeriodoCaixa(resumo, caixaSessaoAtual, 'caixa', estoqueLive);
   }
 
   await loadHistoricoCaixa();
@@ -4269,14 +4298,14 @@ function linhasGarrafaoPorMarcaAno({ porMarca, semMarca }) {
 // Cartão de estoque que pode ser recolhido (clique no título alterna) —
 // abre expandido por padrão; no relatório de sessão fechada isso já
 // satisfaz "tem que aparecer tudo expandido" sem precisar de lógica extra.
-function cardEstoqueColapsavel(idBase, titulo, conteudoHtml) {
+function cardEstoqueColapsavel(idBase, titulo, conteudoHtml, startCollapsed = false) {
   return `
     <div class="card">
       <div class="card-title" style="margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="toggleCardEstoque('${idBase}')">
         <span>${titulo}</span>
-        <span id="${idBase}-seta" style="font-size:.75rem;color:var(--muted)">▾</span>
+        <span id="${idBase}-seta" style="font-size:.75rem;color:var(--muted)">${startCollapsed ? '▸' : '▾'}</span>
       </div>
-      <div id="${idBase}-body">${conteudoHtml}</div>
+      <div id="${idBase}-body" ${startCollapsed ? 'style="display:none"' : ''}>${conteudoHtml}</div>
     </div>
   `;
 }
@@ -4326,32 +4355,129 @@ function linhasEstoqueAtual(estoqueAbertura, vendidosPorMarca) {
   return { total, html };
 }
 
-function htmlResumoPeriodoCaixa({ pedidosResumo, estoqueResumo }, sessao, prefixo) {
-  const { total: dispTotal, html: dispItems } = linhasEstoqueAtual(sessao?.estoque_abertura, estoqueResumo.vendidosPorMarca);
-  const { total: aberTotal, html: aberItems } = linhasEstoqueSnapshot(sessao?.estoque_abertura);
+function htmlEstoqueLiveCaixa(lotes, vazios, gas) {
+  const porMarca = {};
+  [...lotes].sort((a, b) => (a.marcas?.nome || '').localeCompare(b.marcas?.nome || '', 'pt-BR') || a.ano_validade - b.ano_validade).forEach(l => {
+    const nome = l.marcas ? nomeMarcaComTamanho(l.marcas) : '—';
+    if (!porMarca[nome]) porMarca[nome] = [];
+    porMarca[nome].push({ ano: l.ano_validade, qtd: l.qtd_cheios });
+  });
+  const totalCheios = lotes.reduce((s, l) => s + l.qtd_cheios, 0);
+  const cheiosHtml = Object.keys(porMarca).length
+    ? `<div class="list-item"><div class="item-info"><div class="item-name">Total</div></div><div class="item-value">${totalCheios}</div></div>
+       ${Object.entries(porMarca).map(([nome, anos]) => {
+         const sub = anos.reduce((s, a) => s + a.qtd, 0);
+         return `<div class="list-item"><div class="item-info"><div class="item-name">${nome}</div></div><div class="item-value">${sub}</div></div>
+           ${anos.map(a => `<div class="list-item" style="padding-left:16px"><div class="item-info"><div class="item-detail">Val. ${a.ano}</div></div><div class="item-detail">${a.qtd}</div></div>`).join('')}`;
+       }).join('')}`
+    : '<div style="color:var(--muted);font-size:.85rem;padding:4px 0">Nenhum cheio em estoque</div>';
 
-  const estoqueAtualHtml = `
-    <div class="stat-card" style="margin-bottom:12px">
-      <div class="stat-val" style="font-size:1.8rem">${dispTotal}</div>
-      <div class="stat-lbl">Garrafões Cheios Disponíveis Agora</div>
-    </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-      <div class="card" style="margin-bottom:0;padding:12px">
-        <div class="card-sub" style="font-weight:700;letter-spacing:.5px;text-transform:uppercase;margin-bottom:8px">Cheio</div>
-        <div class="card-sub" style="font-weight:600;font-size:.78rem;margin-bottom:4px">Disponíveis</div>
-        ${dispItems}
-        <div class="card-sub" style="font-weight:600;font-size:.78rem;margin:10px 0 4px">Recebidos</div>
-        ${linhasGarrafaoPorMarcaAno(estoqueResumo.recebidosPorMarca)}
-        <div class="card-sub" style="font-weight:600;font-size:.78rem;margin:10px 0 4px">Avarias</div>
-        ${linhasGarrafaoPorMarcaAno(estoqueResumo.avariasPorMarca)}
-      </div>
-      <div class="card" style="margin-bottom:0;padding:12px">
-        <div class="card-sub" style="font-weight:700;letter-spacing:.5px;text-transform:uppercase;margin-bottom:8px">Vazio</div>
-        <div class="card-sub" style="font-weight:600;font-size:.78rem;margin-bottom:4px">Devolvidos</div>
-        ${linhasVaziosPorTamanhoAno(estoqueResumo.vaziosDevolvidos)}
-      </div>
-    </div>
+  const gasCheiosHtml = gas.some(g => g.qtd_cheios > 0)
+    ? gas.map(g => `<div class="list-item"><div class="item-info"><div class="item-name">${escapeHtml(g.marcas?.nome || '—')}</div></div><div class="item-value">${g.qtd_cheios}</div></div>`).join('')
+    : '<div style="color:var(--muted);font-size:.85rem;padding:4px 0">Nenhum</div>';
+
+  const porTamanhoV = {};
+  [...vazios].sort((a, b) => a.tamanho_litros - b.tamanho_litros || a.ano_validade - b.ano_validade).forEach(v => {
+    const t = `${v.tamanho_litros}L`;
+    if (!porTamanhoV[t]) porTamanhoV[t] = [];
+    porTamanhoV[t].push({ ano: v.ano_validade, qtd: v.quantidade });
+  });
+  const totalVazios = vazios.reduce((s, v) => s + v.quantidade, 0);
+  const vaziosHtml = totalVazios > 0
+    ? `<div class="list-item"><div class="item-info"><div class="item-name">Total</div></div><div class="item-value">${totalVazios}</div></div>
+       ${Object.entries(porTamanhoV).map(([t, anos]) => {
+         const sub = anos.reduce((s, a) => s + a.qtd, 0);
+         return `<div class="list-item"><div class="item-info"><div class="item-name">${t}</div></div><div class="item-value">${sub}</div></div>
+           ${anos.map(a => `<div class="list-item" style="padding-left:16px"><div class="item-info"><div class="item-detail">Val. ${a.ano}</div></div><div class="item-detail">${a.qtd}</div></div>`).join('')}`;
+       }).join('')}`
+    : '<div style="color:var(--muted);font-size:.85rem;padding:4px 0">Nenhum vazio em estoque</div>';
+
+  const gasVaziosHtml = gas.some(g => g.qtd_vazios > 0)
+    ? gas.map(g => `<div class="list-item"><div class="item-info"><div class="item-name">${escapeHtml(g.marcas?.nome || '—')}</div></div><div class="item-value">${g.qtd_vazios}</div></div>`).join('')
+    : '<div style="color:var(--muted);font-size:.85rem;padding:4px 0">Nenhum</div>';
+
+  return `
+    <div class="card-sub" style="font-weight:700;letter-spacing:.5px;text-transform:uppercase;margin-bottom:8px">Garrafões Cheios</div>
+    ${cheiosHtml}
+    <div class="card-sub" style="font-weight:700;letter-spacing:.5px;text-transform:uppercase;margin:12px 0 8px">Gás Cheio</div>
+    ${gasCheiosHtml}
+    <div class="card-sub" style="font-weight:700;letter-spacing:.5px;text-transform:uppercase;margin:12px 0 8px">Vasilhames Vazios</div>
+    ${vaziosHtml}
+    <div class="card-sub" style="font-weight:700;letter-spacing:.5px;text-transform:uppercase;margin:12px 0 8px">Gás Vazio</div>
+    ${gasVaziosHtml}
   `;
+}
+
+function htmlAberturaSnapshot(snapshot) {
+  if (!snapshot) return '<div class="empty-state">Sem retrato registrado</div>';
+  const cheios = Array.isArray(snapshot) ? snapshot : (snapshot.cheios || []);
+  const { total: aberTotal, html: aberItems } = linhasEstoqueSnapshot(cheios);
+  const vazios = Array.isArray(snapshot) ? [] : (snapshot.vazios || []);
+  const gas = Array.isArray(snapshot) ? [] : (snapshot.gas || []);
+
+  const porTamanhoV = {};
+  [...vazios].sort((a, b) => a.tamanho_litros - b.tamanho_litros || a.ano_validade - b.ano_validade).forEach(v => {
+    const t = `${v.tamanho_litros}L`;
+    if (!porTamanhoV[t]) porTamanhoV[t] = [];
+    porTamanhoV[t].push({ ano: v.ano_validade, qtd: v.quantidade });
+  });
+  const totalVazios = vazios.reduce((s, v) => s + v.quantidade, 0);
+  const vaziosHtml = totalVazios > 0
+    ? `<div class="list-item"><div class="item-info"><div class="item-name">Total</div></div><div class="item-value">${totalVazios}</div></div>
+       ${Object.entries(porTamanhoV).map(([t, anos]) => {
+         const sub = anos.reduce((s, a) => s + a.qtd, 0);
+         return `<div class="list-item"><div class="item-info"><div class="item-name">${t}</div></div><div class="item-value">${sub}</div></div>
+           ${anos.map(a => `<div class="list-item" style="padding-left:16px"><div class="item-info"><div class="item-detail">Val. ${a.ano}</div></div><div class="item-detail">${a.qtd}</div></div>`).join('')}`;
+       }).join('')}`
+    : '<div style="color:var(--muted);font-size:.85rem;padding:4px 0">Não registrado</div>';
+
+  const gasHtml = gas.length
+    ? gas.map(g => `<div class="list-item"><div class="item-info"><div class="item-name">${escapeHtml(g.nome)}</div></div><div style="font-size:.82rem;color:var(--muted)">${g.qtd_cheios} cheios · ${g.qtd_vazios} vazios</div></div>`).join('')
+    : '<div style="color:var(--muted);font-size:.85rem;padding:4px 0">Não registrado</div>';
+
+  return `
+    <div class="stat-card" style="margin-bottom:12px">
+      <div class="stat-val" style="font-size:1.8rem">${aberTotal}</div>
+      <div class="stat-lbl">Garrafões Cheios na Abertura</div>
+    </div>
+    <div class="card-sub" style="font-weight:700;letter-spacing:.5px;text-transform:uppercase;margin-bottom:8px">Garrafões Cheios</div>
+    ${aberItems}
+    <div class="card-sub" style="font-weight:700;letter-spacing:.5px;text-transform:uppercase;margin:12px 0 8px">Vasilhames Vazios</div>
+    ${vaziosHtml}
+    <div class="card-sub" style="font-weight:700;letter-spacing:.5px;text-transform:uppercase;margin:12px 0 8px">Gás</div>
+    ${gasHtml}
+  `;
+}
+
+function htmlResumoPeriodoCaixa({ pedidosResumo, estoqueResumo }, sessao, prefixo, estoqueLive = null) {
+  let estoqueAtualHtml;
+  if (estoqueLive) {
+    estoqueAtualHtml = htmlEstoqueLiveCaixa(estoqueLive.lotes, estoqueLive.vazios, estoqueLive.gas);
+  } else {
+    const { total: dispTotal, html: dispItems } = linhasEstoqueAtual(sessao?.estoque_abertura, estoqueResumo.vendidosPorMarca);
+    estoqueAtualHtml = `
+      <div class="stat-card" style="margin-bottom:12px">
+        <div class="stat-val" style="font-size:1.8rem">${dispTotal}</div>
+        <div class="stat-lbl">Garrafões Cheios Disponíveis Agora</div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div class="card" style="margin-bottom:0;padding:12px">
+          <div class="card-sub" style="font-weight:700;letter-spacing:.5px;text-transform:uppercase;margin-bottom:8px">Cheio</div>
+          <div class="card-sub" style="font-weight:600;font-size:.78rem;margin-bottom:4px">Disponíveis</div>
+          ${dispItems}
+          <div class="card-sub" style="font-weight:600;font-size:.78rem;margin:10px 0 4px">Recebidos</div>
+          ${linhasGarrafaoPorMarcaAno(estoqueResumo.recebidosPorMarca)}
+          <div class="card-sub" style="font-weight:600;font-size:.78rem;margin:10px 0 4px">Avarias</div>
+          ${linhasGarrafaoPorMarcaAno(estoqueResumo.avariasPorMarca)}
+        </div>
+        <div class="card" style="margin-bottom:0;padding:12px">
+          <div class="card-sub" style="font-weight:700;letter-spacing:.5px;text-transform:uppercase;margin-bottom:8px">Vazio</div>
+          <div class="card-sub" style="font-weight:600;font-size:.78rem;margin-bottom:4px">Devolvidos</div>
+          ${linhasVaziosPorTamanhoAno(estoqueResumo.vaziosDevolvidos)}
+        </div>
+      </div>
+    `;
+  }
 
   const vendasHtml = `
     <div class="stat-card" style="margin-bottom:12px">
@@ -4363,29 +4489,6 @@ function htmlResumoPeriodoCaixa({ pedidosResumo, estoqueResumo }, sessao, prefix
         <div class="card-sub" style="font-weight:700;letter-spacing:.5px;text-transform:uppercase;margin-bottom:8px">Cheio</div>
         <div class="card-sub" style="font-weight:600;font-size:.78rem;margin-bottom:4px">Vendidos</div>
         ${linhasGarrafaoPorMarcaAno(estoqueResumo.vendidosPorMarca)}
-        <div class="card-sub" style="font-weight:600;font-size:.78rem;margin:10px 0 4px">Recebidos</div>
-        ${linhasGarrafaoPorMarcaAno(estoqueResumo.recebidosPorMarca)}
-        <div class="card-sub" style="font-weight:600;font-size:.78rem;margin:10px 0 4px">Avarias</div>
-        ${linhasGarrafaoPorMarcaAno(estoqueResumo.avariasPorMarca)}
-      </div>
-      <div class="card" style="margin-bottom:0;padding:12px">
-        <div class="card-sub" style="font-weight:700;letter-spacing:.5px;text-transform:uppercase;margin-bottom:8px">Vazio</div>
-        <div class="card-sub" style="font-weight:600;font-size:.78rem;margin-bottom:4px">Devolvidos</div>
-        ${linhasVaziosPorTamanhoAno(estoqueResumo.vaziosDevolvidos)}
-      </div>
-    </div>
-  `;
-
-  const aberturaHtml = `
-    <div class="stat-card" style="margin-bottom:12px">
-      <div class="stat-val" style="font-size:1.8rem">${aberTotal}</div>
-      <div class="stat-lbl">Garrafões Cheios na Abertura do Caixa</div>
-    </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-      <div class="card" style="margin-bottom:0;padding:12px">
-        <div class="card-sub" style="font-weight:700;letter-spacing:.5px;text-transform:uppercase;margin-bottom:8px">Cheio</div>
-        <div class="card-sub" style="font-weight:600;font-size:.78rem;margin-bottom:4px">Abertura</div>
-        ${aberItems}
         <div class="card-sub" style="font-weight:600;font-size:.78rem;margin:10px 0 4px">Recebidos</div>
         ${linhasGarrafaoPorMarcaAno(estoqueResumo.recebidosPorMarca)}
         <div class="card-sub" style="font-weight:600;font-size:.78rem;margin:10px 0 4px">Avarias</div>
@@ -4424,9 +4527,9 @@ function htmlResumoPeriodoCaixa({ pedidosResumo, estoqueResumo }, sessao, prefix
         </div>
       </div>
     </div>
-    ${cardEstoqueColapsavel(`${prefixo}-estoque-real`, 'Estoque', estoqueAtualHtml)}
+    ${cardEstoqueColapsavel(`${prefixo}-estoque-real`, 'ESTOQUE', estoqueAtualHtml)}
     ${cardEstoqueColapsavel(`${prefixo}-estoque-vendas`, 'Estoque Movimentação Vendas', vendasHtml)}
-    ${cardEstoqueColapsavel(`${prefixo}-estoque-abertura`, 'Estoque Abertura do Caixa', aberturaHtml)}
+    ${cardEstoqueColapsavel(`${prefixo}-estoque-abertura`, 'Estoque Abertura do Caixa', htmlAberturaSnapshot(sessao?.estoque_abertura), true)}
   `;
 }
 
@@ -4532,7 +4635,7 @@ async function salvarAberturaCaixa() {
   const observacao_abertura = document.getElementById('caixa-abertura-obs').value.trim() || null;
   if (!(troco_inicial >= 0)) { toast('Informe o troco inicial', true); return; }
 
-  const estoque_abertura = await snapshotEstoqueCheios();
+  const estoque_abertura = await snapshotEstoqueCompleto();
   const { error } = await sb.from('caixa_sessoes').insert({ troco_inicial, observacao_abertura, aberto_por: currentUserId, estoque_abertura });
   if (error) {
     if (error.code === '23505') toast('Já existe um caixa aberto. Feche-o antes de abrir um novo.', true);
@@ -4607,7 +4710,7 @@ async function salvarFechamentoCaixa() {
 
   const totais = await calcularTotaisSessaoAtual();
   const diferenca = roundMoeda(valor_contado - totais.esperado);
-  const estoque_fechamento = await snapshotEstoqueCheios();
+  const estoque_fechamento = await snapshotEstoqueCompleto();
 
   const { error } = await sb.from('caixa_sessoes').update({
     status: 'fechado',
@@ -4721,6 +4824,9 @@ async function abrirRelatorioCaixa(sessaoId) {
     : '<div class="empty-state">Nenhuma transação nesta sessão</div>';
 
   document.getElementById('rc-estoque-comparativo').innerHTML = htmlComparativoEstoqueSessao(sessao);
+  document.getElementById('rc-estoque-fechamento').innerHTML = sessao.estoque_fechamento
+    ? cardEstoqueColapsavel('rc-snap-fechamento', 'Estoque no Fechamento', htmlAberturaSnapshot(sessao.estoque_fechamento), true)
+    : '';
 
   // Sessão aberta: atalhos pra página live (dado muda em tempo real).
   // Sessão fechada: período é fixo, mostra o resumo dentro do próprio relatório.
