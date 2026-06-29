@@ -4367,7 +4367,7 @@ const _ecCard = (titulo, total, anos, esgotado) => `
 const _ecSecao = (label, total, cardsHtml, emptyMsg = 'Nenhum em estoque') => `
   <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
     <span style="font-size:.7rem;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--muted)">${label}</span>
-    <span style="font-size:.85rem;font-weight:700">${total}</span>
+    ${total != null ? `<span style="font-size:.85rem;font-weight:700">${total}</span>` : ''}
   </div>
   ${cardsHtml || `<div style="color:var(--muted);font-size:.82rem;padding:2px 0">${emptyMsg}</div>`}`;
 
@@ -4441,11 +4441,10 @@ function htmlEstoqueLiveCaixa(lotes, vazios, gas) {
         <div class="stat-lbl">Vasilhames Vazios</div>
       </div>
     </div>
-    ${_ecSecao('Garrafões Cheios', totalCheios, cheiosCards ? _ecGrid(cheiosCards) : '')}
-    ${gas.length ? `${_ecDivider}${_ecSecao('Gás Cheio', totalGasCheios, gasCheiosCards ? _ecGrid(gasCheiosCards) : '')}` : ''}
+    ${_ecSecao('Garrafões Cheios', null, cheiosCards ? _ecGrid(cheiosCards) : '')}
     ${_ecDivider}
-    ${_ecSecao('Vasilhames Vazios', totalVazios, vaziosCards ? _ecGrid(vaziosCards) : '')}
-    ${gas.length ? `${_ecDivider}${_ecSecao('Gás Vazio', totalGasVazios, gasVaziosCards ? _ecGrid(gasVaziosCards) : '')}` : ''}
+    ${_ecSecao('Vasilhames Vazios', null, vaziosCards ? _ecGrid(vaziosCards) : '')}
+    ${gas.length ? `${_ecDivider}${_ecSecao('Gás Cheio', null, gasCheiosCards ? _ecGrid(gasCheiosCards) : '')}${_ecDivider}${_ecSecao('Gás Vazio', null, gasVaziosCards ? _ecGrid(gasVaziosCards) : '')}` : ''}
   `;
 }
 
@@ -4493,11 +4492,10 @@ function htmlAberturaSnapshot(snapshot) {
         <div class="stat-lbl">Vasilhames Vazios</div>
       </div>
     </div>
-    ${_ecSecao('Garrafões Cheios', totalCheios, cheiosCards ? _ecGrid(cheiosCards) : '', 'Não registrado')}
-    ${gas.length ? `${_ecDivider}${_ecSecao('Gás Cheio', totalGasCheios, gasCheiosCards ? _ecGrid(gasCheiosCards) : '', 'Não registrado')}` : ''}
+    ${_ecSecao('Garrafões Cheios', null, cheiosCards ? _ecGrid(cheiosCards) : '', 'Não registrado')}
     ${_ecDivider}
-    ${_ecSecao('Vasilhames Vazios', totalVazios, vaziosCards ? _ecGrid(vaziosCards) : '', 'Não registrado')}
-    ${gas.length ? `${_ecDivider}${_ecSecao('Gás Vazio', totalGasVazios, gasVaziosCards ? _ecGrid(gasVaziosCards) : '', 'Não registrado')}` : ''}
+    ${_ecSecao('Vasilhames Vazios', null, vaziosCards ? _ecGrid(vaziosCards) : '', 'Não registrado')}
+    ${gas.length ? `${_ecDivider}${_ecSecao('Gás Cheio', null, gasCheiosCards ? _ecGrid(gasCheiosCards) : '', 'Não registrado')}${_ecDivider}${_ecSecao('Gás Vazio', null, gasVaziosCards ? _ecGrid(gasVaziosCards) : '', 'Não registrado')}` : ''}
   `;
 }
 
