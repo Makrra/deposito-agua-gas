@@ -4355,27 +4355,53 @@ function linhasEstoqueAtual(estoqueAbertura, vendidosPorMarca) {
   return { total, html };
 }
 
+const _ecCard = (titulo, total, anos, esgotado) => `
+  <div class="card" style="margin-bottom:0;padding:12px${esgotado ? ';opacity:.45' : ''}">
+    <div style="font-size:.7rem;font-weight:600;color:var(--muted);line-height:1.3;margin-bottom:6px">${titulo}</div>
+    <div style="font-size:1.6rem;font-weight:700;line-height:1">${total}</div>
+    ${anos.length ? `<div style="margin-top:8px;padding-top:6px;border-top:1px solid var(--border)">
+      ${anos.map(a => `<div style="display:flex;justify-content:space-between;font-size:.75rem;color:var(--muted);margin-top:3px"><span>val. ${a.ano}</span><span style="font-weight:600;color:var(--text)">${a.qtd}</span></div>`).join('')}
+    </div>` : ''}
+  </div>`;
+
+const _ecSecao = (label, total, cardsHtml, emptyMsg = 'Nenhum em estoque') => `
+  <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
+    <span style="font-size:.7rem;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--muted)">${label}</span>
+    <span style="font-size:.85rem;font-weight:700">${total}</span>
+  </div>
+  ${cardsHtml || `<div style="color:var(--muted);font-size:.82rem;padding:2px 0">${emptyMsg}</div>`}`;
+
+const _ecGrid = cards => `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">${cards}</div>`;
+const _ecDivider = `<div style="height:1px;background:var(--border);margin:14px 0"></div>`;
+
+function _ecCardsGarrafao({ porMarca, semMarca }) {
+  const cards = [
+    ...Object.values(porMarca || {}).map(m => {
+      const anos = Object.entries(m.porAno).sort(([a], [b]) => a - b).map(([ano, qtd]) => ({ ano, qtd }));
+      const total = anos.reduce((s, a) => s + a.qtd, 0);
+      return _ecCard(m.label, total, anos, total === 0);
+    }),
+    ...Object.entries(semMarca || {}).map(([t, por]) => {
+      const anos = Object.entries(por).sort(([a], [b]) => a - b).map(([ano, qtd]) => ({ ano, qtd }));
+      const total = anos.reduce((s, a) => s + a.qtd, 0);
+      return _ecCard(`Vazio ${t}`, total, anos, total === 0);
+    })
+  ].join('');
+  return cards ? _ecGrid(cards) : '';
+}
+
+function _ecCardsVazios(porTamanho) {
+  const cards = Object.keys(porTamanho || {})
+    .sort((a, b) => parseInt(b) - parseInt(a))
+    .map(t => {
+      const anos = Object.entries(porTamanho[t]).sort(([a], [b]) => a - b).map(([ano, qtd]) => ({ ano, qtd }));
+      const total = anos.reduce((s, a) => s + a.qtd, 0);
+      return _ecCard(t, total, anos, total === 0);
+    }).join('');
+  return cards ? _ecGrid(cards) : '';
+}
+
 function htmlEstoqueLiveCaixa(lotes, vazios, gas) {
-  const miniCard = (titulo, total, anos, esgotado) => `
-    <div class="card" style="margin-bottom:0;padding:12px${esgotado ? ';opacity:.45' : ''}">
-      <div style="font-size:.7rem;font-weight:600;color:var(--muted);line-height:1.3;margin-bottom:6px">${titulo}</div>
-      <div style="font-size:1.6rem;font-weight:700;line-height:1">${total}</div>
-      ${anos.length ? `<div style="margin-top:8px;padding-top:6px;border-top:1px solid var(--border)">
-        ${anos.map(a => `<div style="display:flex;justify-content:space-between;font-size:.75rem;color:var(--muted);margin-top:3px"><span>val. ${a.ano}</span><span style="font-weight:600;color:var(--text)">${a.qtd}</span></div>`).join('')}
-      </div>` : ''}
-    </div>`;
-
-  const secao = (label, total, cardsHtml) => `
-    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
-      <span style="font-size:.7rem;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--muted)">${label}</span>
-      <span style="font-size:.85rem;font-weight:700">${total}</span>
-    </div>
-    ${cardsHtml || `<div style="color:var(--muted);font-size:.82rem;padding:2px 0">Nenhum em estoque</div>`}`;
-
-  const grid = cards => `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">${cards}</div>`;
-  const divider = `<div style="height:1px;background:var(--border);margin:14px 0"></div>`;
-
-  // CHEIOS de água: um card por marca
   const porMarca = {};
   [...lotes].sort((a, b) => (a.marcas?.nome || '').localeCompare(b.marcas?.nome || '', 'pt-BR') || a.ano_validade - b.ano_validade)
     .forEach(l => {
@@ -4385,13 +4411,11 @@ function htmlEstoqueLiveCaixa(lotes, vazios, gas) {
       porMarca[k].anos.push({ ano: l.ano_validade, qtd: l.qtd_cheios });
     });
   const totalCheios = lotes.reduce((s, l) => s + l.qtd_cheios, 0);
-  const cheiosCards = Object.entries(porMarca).map(([nome, d]) => miniCard(nome, d.total, d.anos, d.total === 0)).join('');
+  const cheiosCards = Object.entries(porMarca).map(([nome, d]) => _ecCard(nome, d.total, d.anos, d.total === 0)).join('');
 
-  // GÁS cheio: um card por marca de gás
   const totalGasCheios = gas.reduce((s, g) => s + (g.qtd_cheios || 0), 0);
-  const gasCheiosCards = gas.map(g => miniCard(escapeHtml(g.marcas?.nome || '—'), g.qtd_cheios || 0, [], !g.qtd_cheios)).join('');
+  const gasCheiosCards = gas.map(g => _ecCard(escapeHtml(g.marcas?.nome || '—'), g.qtd_cheios || 0, [], !g.qtd_cheios)).join('');
 
-  // VAZIOS de água: um card por tamanho
   const porTamanho = {};
   [...vazios].sort((a, b) => b.tamanho_litros - a.tamanho_litros || a.ano_validade - b.ano_validade)
     .forEach(v => {
@@ -4401,59 +4425,63 @@ function htmlEstoqueLiveCaixa(lotes, vazios, gas) {
       porTamanho[k].anos.push({ ano: v.ano_validade, qtd: v.quantidade });
     });
   const totalVazios = vazios.reduce((s, v) => s + v.quantidade, 0);
-  const vaziosCards = Object.entries(porTamanho).map(([t, d]) => miniCard(t, d.total, d.anos, d.total === 0)).join('');
+  const vaziosCards = Object.entries(porTamanho).map(([t, d]) => _ecCard(t, d.total, d.anos, d.total === 0)).join('');
 
-  // GÁS vazio
   const totalGasVazios = gas.reduce((s, g) => s + (g.qtd_vazios || 0), 0);
-  const gasVaziosCards = gas.map(g => miniCard(escapeHtml(g.marcas?.nome || '—'), g.qtd_vazios || 0, [], !g.qtd_vazios)).join('');
+  const gasVaziosCards = gas.map(g => _ecCard(escapeHtml(g.marcas?.nome || '—'), g.qtd_vazios || 0, [], !g.qtd_vazios)).join('');
 
   return `
-    ${secao('Garrafões Cheios', totalCheios, cheiosCards ? grid(cheiosCards) : '')}
-    ${gas.length ? `${divider}${secao('Gás Cheio', totalGasCheios, gasCheiosCards ? grid(gasCheiosCards) : '')}` : ''}
-    ${divider}
-    ${secao('Vasilhames Vazios', totalVazios, vaziosCards ? grid(vaziosCards) : '')}
-    ${gas.length ? `${divider}${secao('Gás Vazio', totalGasVazios, gasVaziosCards ? grid(gasVaziosCards) : '')}` : ''}
+    ${_ecSecao('Garrafões Cheios', totalCheios, cheiosCards ? _ecGrid(cheiosCards) : '')}
+    ${gas.length ? `${_ecDivider}${_ecSecao('Gás Cheio', totalGasCheios, gasCheiosCards ? _ecGrid(gasCheiosCards) : '')}` : ''}
+    ${_ecDivider}
+    ${_ecSecao('Vasilhames Vazios', totalVazios, vaziosCards ? _ecGrid(vaziosCards) : '')}
+    ${gas.length ? `${_ecDivider}${_ecSecao('Gás Vazio', totalGasVazios, gasVaziosCards ? _ecGrid(gasVaziosCards) : '')}` : ''}
   `;
 }
 
 function htmlAberturaSnapshot(snapshot) {
   if (!snapshot) return '<div class="empty-state">Sem retrato registrado</div>';
   const cheios = Array.isArray(snapshot) ? snapshot : (snapshot.cheios || []);
-  const { total: aberTotal, html: aberItems } = linhasEstoqueSnapshot(cheios);
   const vazios = Array.isArray(snapshot) ? [] : (snapshot.vazios || []);
   const gas = Array.isArray(snapshot) ? [] : (snapshot.gas || []);
 
-  const porTamanhoV = {};
-  [...vazios].sort((a, b) => a.tamanho_litros - b.tamanho_litros || a.ano_validade - b.ano_validade).forEach(v => {
-    const t = `${v.tamanho_litros}L`;
-    if (!porTamanhoV[t]) porTamanhoV[t] = [];
-    porTamanhoV[t].push({ ano: v.ano_validade, qtd: v.quantidade });
-  });
-  const totalVazios = vazios.reduce((s, v) => s + v.quantidade, 0);
-  const vaziosHtml = totalVazios > 0
-    ? `<div class="list-item"><div class="item-info"><div class="item-name">Total</div></div><div class="item-value">${totalVazios}</div></div>
-       ${Object.entries(porTamanhoV).map(([t, anos]) => {
-         const sub = anos.reduce((s, a) => s + a.qtd, 0);
-         return `<div class="list-item"><div class="item-info"><div class="item-name">${t}</div></div><div class="item-value">${sub}</div></div>
-           ${anos.map(a => `<div class="list-item" style="padding-left:16px"><div class="item-info"><div class="item-detail">Val. ${a.ano}</div></div><div class="item-detail">${a.qtd}</div></div>`).join('')}`;
-       }).join('')}`
-    : '<div style="color:var(--muted);font-size:.85rem;padding:4px 0">Não registrado</div>';
+  const porMarcaMap = {};
+  [...cheios].sort((a, b) => (a.label || '').localeCompare(b.label || '', 'pt-BR') || a.ano_validade - b.ano_validade)
+    .forEach(s => {
+      const k = s.label || '—';
+      if (!porMarcaMap[k]) porMarcaMap[k] = { total: 0, anos: [] };
+      porMarcaMap[k].total += s.qtd_cheios;
+      porMarcaMap[k].anos.push({ ano: s.ano_validade, qtd: s.qtd_cheios });
+    });
+  const totalCheios = cheios.reduce((s, c) => s + c.qtd_cheios, 0);
+  const cheiosCards = Object.entries(porMarcaMap).map(([nome, d]) => _ecCard(nome, d.total, d.anos, d.total === 0)).join('');
 
-  const gasHtml = gas.length
-    ? gas.map(g => `<div class="list-item"><div class="item-info"><div class="item-name">${escapeHtml(g.nome)}</div></div><div style="font-size:.82rem;color:var(--muted)">${g.qtd_cheios} cheios · ${g.qtd_vazios} vazios</div></div>`).join('')
-    : '<div style="color:var(--muted);font-size:.85rem;padding:4px 0">Não registrado</div>';
+  const porTamanhoMap = {};
+  [...vazios].sort((a, b) => b.tamanho_litros - a.tamanho_litros || a.ano_validade - b.ano_validade)
+    .forEach(v => {
+      const k = `${v.tamanho_litros}L`;
+      if (!porTamanhoMap[k]) porTamanhoMap[k] = { total: 0, anos: [] };
+      porTamanhoMap[k].total += v.quantidade;
+      porTamanhoMap[k].anos.push({ ano: v.ano_validade, qtd: v.quantidade });
+    });
+  const totalVazios = vazios.reduce((s, v) => s + v.quantidade, 0);
+  const vaziosCards = Object.entries(porTamanhoMap).map(([t, d]) => _ecCard(t, d.total, d.anos, d.total === 0)).join('');
+
+  const totalGasCheios = gas.reduce((s, g) => s + (g.qtd_cheios || 0), 0);
+  const totalGasVazios = gas.reduce((s, g) => s + (g.qtd_vazios || 0), 0);
+  const gasCheiosCards = gas.map(g => _ecCard(escapeHtml(g.nome), g.qtd_cheios || 0, [], !g.qtd_cheios)).join('');
+  const gasVaziosCards = gas.map(g => _ecCard(escapeHtml(g.nome), g.qtd_vazios || 0, [], !g.qtd_vazios)).join('');
 
   return `
     <div class="stat-card" style="margin-bottom:12px">
-      <div class="stat-val" style="font-size:1.8rem">${aberTotal}</div>
+      <div class="stat-val" style="font-size:1.8rem">${totalCheios}</div>
       <div class="stat-lbl">Garrafões Cheios na Abertura</div>
     </div>
-    <div class="card-sub" style="font-weight:700;letter-spacing:.5px;text-transform:uppercase;margin-bottom:8px">Garrafões Cheios</div>
-    ${aberItems}
-    <div class="card-sub" style="font-weight:700;letter-spacing:.5px;text-transform:uppercase;margin:12px 0 8px">Vasilhames Vazios</div>
-    ${vaziosHtml}
-    <div class="card-sub" style="font-weight:700;letter-spacing:.5px;text-transform:uppercase;margin:12px 0 8px">Gás</div>
-    ${gasHtml}
+    ${_ecSecao('Garrafões Cheios', totalCheios, cheiosCards ? _ecGrid(cheiosCards) : '', 'Não registrado')}
+    ${gas.length ? `${_ecDivider}${_ecSecao('Gás Cheio', totalGasCheios, gasCheiosCards ? _ecGrid(gasCheiosCards) : '', 'Não registrado')}` : ''}
+    ${_ecDivider}
+    ${_ecSecao('Vasilhames Vazios', totalVazios, vaziosCards ? _ecGrid(vaziosCards) : '', 'Não registrado')}
+    ${gas.length ? `${_ecDivider}${_ecSecao('Gás Vazio', totalGasVazios, gasVaziosCards ? _ecGrid(gasVaziosCards) : '', 'Não registrado')}` : ''}
   `;
 }
 
@@ -4487,27 +4515,22 @@ function htmlResumoPeriodoCaixa({ pedidosResumo, estoqueResumo }, sessao, prefix
     `;
   }
 
+  const _vendidosTotal = somaTotalGarrafao(estoqueResumo.vendidosPorMarca);
+  const _recebidosTotal = somaTotalGarrafao(estoqueResumo.recebidosPorMarca);
+  const _avariasTotal = somaTotalGarrafao(estoqueResumo.avariasPorMarca);
+  const _devolvidosTotal = Object.values(estoqueResumo.vaziosDevolvidos).reduce((s, por) => s + Object.values(por).reduce((a, b) => a + b, 0), 0);
   const vendasHtml = `
     <div class="stat-card" style="margin-bottom:12px">
-      <div class="stat-val" style="font-size:1.8rem">${somaTotalGarrafao(estoqueResumo.vendidosPorMarca)}</div>
+      <div class="stat-val" style="font-size:1.8rem">${_vendidosTotal}</div>
       <div class="stat-lbl">Garrafões Cheios Vendidos no Período</div>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-      <div class="card" style="margin-bottom:0;padding:12px">
-        <div class="card-sub" style="font-weight:700;letter-spacing:.5px;text-transform:uppercase;margin-bottom:8px">Cheio</div>
-        <div class="card-sub" style="font-weight:600;font-size:.78rem;margin-bottom:4px">Vendidos</div>
-        ${linhasGarrafaoPorMarcaAno(estoqueResumo.vendidosPorMarca)}
-        <div class="card-sub" style="font-weight:600;font-size:.78rem;margin:10px 0 4px">Recebidos</div>
-        ${linhasGarrafaoPorMarcaAno(estoqueResumo.recebidosPorMarca)}
-        <div class="card-sub" style="font-weight:600;font-size:.78rem;margin:10px 0 4px">Avarias</div>
-        ${linhasGarrafaoPorMarcaAno(estoqueResumo.avariasPorMarca)}
-      </div>
-      <div class="card" style="margin-bottom:0;padding:12px">
-        <div class="card-sub" style="font-weight:700;letter-spacing:.5px;text-transform:uppercase;margin-bottom:8px">Vazio</div>
-        <div class="card-sub" style="font-weight:600;font-size:.78rem;margin-bottom:4px">Devolvidos</div>
-        ${linhasVaziosPorTamanhoAno(estoqueResumo.vaziosDevolvidos)}
-      </div>
-    </div>
+    ${_ecSecao('Vendidos', _vendidosTotal, _ecCardsGarrafao(estoqueResumo.vendidosPorMarca), 'Nenhum no período')}
+    ${_ecDivider}
+    ${_ecSecao('Recebidos', _recebidosTotal, _ecCardsGarrafao(estoqueResumo.recebidosPorMarca), 'Nenhum no período')}
+    ${_ecDivider}
+    ${_ecSecao('Avarias', _avariasTotal, _ecCardsGarrafao(estoqueResumo.avariasPorMarca), 'Nenhuma no período')}
+    ${_ecDivider}
+    ${_ecSecao('Devolvidos (Vazios)', _devolvidosTotal, _ecCardsVazios(estoqueResumo.vaziosDevolvidos), 'Nenhum no período')}
   `;
 
   return `
