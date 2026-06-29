@@ -4581,22 +4581,18 @@ function linhasEstoqueAtual(estoqueAbertura, vendidosPorMarca) {
     });
   });
   const porMarca = {};
-  Object.values(chaves).forEach(c => { (porMarca[c.label] || (porMarca[c.label] = [])).push({ ano: c.ano, atual: Math.max(0, c.abertura - c.vendido) }); });
-  const labels = Object.keys(porMarca);
-  if (!labels.length) return { total: 0, html: '<div class="empty-state">Sem retrato registrado</div>' };
-  const total = labels.reduce((s, l) => s + porMarca[l].reduce((a, b) => a + b.atual, 0), 0);
-  const html = `
-    <div class="list-item"><div class="item-info"><div class="item-name">Total</div></div><div class="item-value">${total}</div></div>
-    ${labels.map(label => {
-      const anos = porMarca[label].sort((a, b) => a.ano - b.ano);
-      const subtotal = anos.reduce((s, a) => s + a.atual, 0);
-      return `
-        <div class="list-item"><div class="item-info"><div class="item-name">${label}</div></div><div class="item-value">${subtotal}</div></div>
-        ${anos.map(a => `<div class="list-item" style="padding-left:16px"><div class="item-info"><div class="item-detail">Validade ${a.ano}</div></div><div class="item-detail">${a.atual}</div></div>`).join('')}
-      `;
-    }).join('')}
-  `;
-  return { total, html };
+  Object.values(chaves).forEach(c => {
+    if (!porMarca[c.label]) porMarca[c.label] = { total: 0, anos: [] };
+    const atual = Math.max(0, c.abertura - c.vendido);
+    porMarca[c.label].total += atual;
+    porMarca[c.label].anos.push({ ano: c.ano, qtd: atual });
+  });
+  const total = Object.values(porMarca).reduce((s, m) => s + m.total, 0);
+  const cards = Object.entries(porMarca)
+    .sort(([a], [b]) => a.localeCompare(b, 'pt-BR'))
+    .map(([label, d]) => _ecCard(label, d.total, d.anos.sort((a, b) => a.ano - b.ano), d.total === 0))
+    .join('');
+  return { total, cards };
 }
 
 const _ecCard = (titulo, total, anos, esgotado) => `
@@ -4748,28 +4744,13 @@ function htmlResumoPeriodoCaixa({ pedidosResumo, estoqueResumo }, sessao, prefix
   if (estoqueLive) {
     estoqueAtualHtml = htmlEstoqueLiveCaixa(estoqueLive.lotes, estoqueLive.vazios, estoqueLive.gas);
   } else {
-    const { total: dispTotal, html: dispItems } = linhasEstoqueAtual(sessao?.estoque_abertura, estoqueResumo.vendidosPorMarca);
+    const { total: dispTotal, cards: dispCards } = linhasEstoqueAtual(sessao?.estoque_abertura, estoqueResumo.vendidosPorMarca);
     estoqueAtualHtml = `
-      <div class="stat-card" style="margin-bottom:12px">
+      <div class="stat-card" style="margin-bottom:14px">
         <div class="stat-val" style="font-size:1.8rem">${dispTotal}</div>
-        <div class="stat-lbl">Garrafões Cheios Disponíveis Agora</div>
+        <div class="stat-lbl">Garrafões Cheios Disponíveis</div>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-        <div class="card" style="margin-bottom:0;padding:12px">
-          <div class="card-sub" style="font-weight:700;letter-spacing:.5px;text-transform:uppercase;margin-bottom:8px">Cheio</div>
-          <div class="card-sub" style="font-weight:600;font-size:.78rem;margin-bottom:4px">Disponíveis</div>
-          ${dispItems}
-          <div class="card-sub" style="font-weight:600;font-size:.78rem;margin:10px 0 4px">Recebidos</div>
-          ${linhasGarrafaoPorMarcaAno(estoqueResumo.recebidosPorMarca)}
-          <div class="card-sub" style="font-weight:600;font-size:.78rem;margin:10px 0 4px">Avarias</div>
-          ${linhasGarrafaoPorMarcaAno(estoqueResumo.avariasPorMarca)}
-        </div>
-        <div class="card" style="margin-bottom:0;padding:12px">
-          <div class="card-sub" style="font-weight:700;letter-spacing:.5px;text-transform:uppercase;margin-bottom:8px">Vazio</div>
-          <div class="card-sub" style="font-weight:600;font-size:.78rem;margin-bottom:4px">Devolvidos</div>
-          ${linhasVaziosPorTamanhoAno(estoqueResumo.vaziosDevolvidos)}
-        </div>
-      </div>
+      ${_ecSecao('Garrafões Cheios Disponíveis', null, dispCards ? _ecGrid(dispCards) : '', 'Sem dados de abertura')}
     `;
   }
 
