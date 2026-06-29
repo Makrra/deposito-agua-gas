@@ -434,7 +434,10 @@ select.form-control option { background: var(--surface); }
   </div>
 
   <div id="estoque-view-gas" style="display:none">
-    <button class="btn btn-primary btn-sm btn-block" style="margin-bottom:14px" onclick="abrirEntradaGas()">+ Entrada de Gás</button>
+    <div style="display:flex;gap:8px;margin-bottom:14px">
+      <button class="btn btn-primary btn-sm" style="flex:1" onclick="abrirEntradaGas()">+ Registrar Entrada</button>
+      <button class="btn btn-outline btn-sm" style="flex:1" onclick="abrirAvariaGas()">Registrar Avaria</button>
+    </div>
     <div id="gas-list" class="loading"><div class="spinner"></div>Carregando...</div>
   </div>
 
@@ -746,6 +749,33 @@ select.form-control option { background: var(--surface); }
       <textarea class="form-control" id="avaria-vazio-motivo" rows="2" placeholder="Ex: rachado, vazando..."></textarea>
     </div>
     <button class="btn btn-primary btn-block" onclick="salvarAvariaVazio()">Registrar</button>
+  </div>
+</div>
+
+<!-- ===== MODAL: Registrar Avaria (Gás) ===== -->
+<div class="modal-overlay" id="modal-avaria-gas">
+  <div class="modal">
+    <div class="modal-title">Registrar Avaria — Gás</div>
+    <div class="form-group">
+      <label class="form-label">Marca</label>
+      <select class="form-control" id="avaria-gas-marca"></select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Tipo</label>
+      <select class="form-control" id="avaria-gas-tipo">
+        <option value="cheio">Cheio</option>
+        <option value="vazio">Vazio</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Quantidade</label>
+      <input class="form-control" id="avaria-gas-quantidade" type="number" min="1" placeholder="Quantas unidades">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Motivo</label>
+      <textarea class="form-control" id="avaria-gas-motivo" rows="2" placeholder="Ex: vazamento, dano no registro..."></textarea>
+    </div>
+    <button class="btn btn-primary btn-block" onclick="salvarAvariaGas()">Registrar</button>
   </div>
 </div>
 
@@ -1957,6 +1987,51 @@ async function salvarAvariaVazio() {
   loadEstoque();
   } finally {
     _emAndamento.delete('salvarAvariaVazio');
+    if (_btn) { _btn.disabled = false; if (_btnOrig) _btn.textContent = _btnOrig; }
+  }
+}
+
+function abrirAvariaGas() {
+  const sel = document.getElementById('avaria-gas-marca');
+  sel.innerHTML = allEstoqueGas.map(g => `<option value="${g.id}">${escapeHtml(g.marcas?.nome || '—')} (${g.qtd_cheios} cheios / ${g.qtd_vazios} vazios)</option>`).join('')
+    || '<option value="">Nenhuma marca de gás cadastrada</option>';
+  document.getElementById('avaria-gas-tipo').value = 'cheio';
+  document.getElementById('avaria-gas-quantidade').value = '';
+  document.getElementById('avaria-gas-motivo').value = '';
+  openModal('modal-avaria-gas');
+}
+
+async function salvarAvariaGas() {
+  if (_emAndamento.has('salvarAvariaGas')) return;
+  _emAndamento.add('salvarAvariaGas');
+  const _btn = document.querySelector('.modal-overlay.open .btn-primary');
+  const _btnOrig = _btn?.textContent;
+  if (_btn) { _btn.disabled = true; _btn.textContent = 'Aguarde...'; }
+  try {
+    const id = document.getElementById('avaria-gas-marca').value;
+    const tipo = document.getElementById('avaria-gas-tipo').value;
+    const quantidade = parseInt(document.getElementById('avaria-gas-quantidade').value || 0, 10);
+    const motivo = document.getElementById('avaria-gas-motivo').value.trim();
+    if (!id) { toast('Selecione a marca', true); return; }
+    if (quantidade <= 0) { toast('Informe a quantidade', true); return; }
+
+    const estoque = allEstoqueGas.find(g => g.id === id);
+    const disponivel = tipo === 'cheio' ? (estoque?.qtd_cheios || 0) : (estoque?.qtd_vazios || 0);
+    if (quantidade > disponivel) {
+      toast(`Só há ${disponivel} ${tipo === 'cheio' ? 'cheios' : 'vazios'} disponíveis`, true); return;
+    }
+
+    const upd = tipo === 'cheio' ? { qtd_cheios: disponivel - quantidade } : { qtd_vazios: disponivel - quantidade };
+    const { error: errUpd } = await sb.from('estoque_gas').update(upd).eq('id', id);
+    if (errUpd) { toastErro('atualizar estoque', errUpd); return; }
+
+    await sb.from('avarias').insert({ tipo: `gas_${tipo}`, quantidade, motivo, criado_por: currentUserId });
+
+    closeModal('modal-avaria-gas');
+    toast('Avaria registrada!');
+    loadEstoque();
+  } finally {
+    _emAndamento.delete('salvarAvariaGas');
     if (_btn) { _btn.disabled = false; if (_btnOrig) _btn.textContent = _btnOrig; }
   }
 }
