@@ -1841,9 +1841,14 @@ const TIPO_MOVIMENTO_LABEL = { entrada_fabrica: 'Entrada', saida_venda: 'Saída 
 
 function renderHistoricoMovimentos(data, titulo) {
   document.getElementById('historico-completo-titulo').textContent = titulo;
-  const linhas = (data || []).map(m => `
+  // data vem em ordem crescente; calcula saldo acumulado cronologicamente
+  let saldo = 0;
+  const comSaldo = (data || []).map(m => { saldo += m.quantidade; return { ...m, saldoApos: saldo }; });
+  const mostrarSaldoTipos = new Set(['entrada_fabrica', 'reaproveitamento']);
+  // exibe do mais recente para o mais antigo
+  const linhas = comSaldo.slice().reverse().map(m => `
     <div class="list-item">
-      <div class="item-info"><div class="item-name">${escapeHtml(TIPO_MOVIMENTO_LABEL[m.tipo] || m.tipo)}</div><div class="item-detail">${fmtData(m.data)}${m.observacao ? ' · ' + escapeHtml(m.observacao) : ''}</div></div>
+      <div class="item-info"><div class="item-name">${escapeHtml(TIPO_MOVIMENTO_LABEL[m.tipo] || m.tipo)}</div><div class="item-detail">${fmtData(m.data)}${m.observacao ? ' · ' + escapeHtml(m.observacao) : ''}${mostrarSaldoTipos.has(m.tipo) ? ' · <span style="font-weight:600;color:var(--accent)">saldo: ' + m.saldoApos + '</span>' : ''}</div></div>
       <div class="item-value ${m.quantidade < 0 ? 'text-red' : 'text-green'}">${m.quantidade > 0 ? '+' : ''}${m.quantidade}</div>
     </div>
   `);
@@ -1856,12 +1861,12 @@ async function abrirHistoricoLote(loteId) {
   const marcaNome = lote?.marcas?.nome || '';
   const tamanho = lote?.marcas?.tamanho_litros ? ` (${lote.marcas.tamanho_litros}L)` : '';
   const anoValidade = lote?.ano_validade || '';
-  const { data } = await sb.from('movimentos_estoque').select('*').eq('lote_id', loteId).order('data', { ascending: false });
+  const { data } = await sb.from('movimentos_estoque').select('*').eq('lote_id', loteId).order('data', { ascending: true });
   renderHistoricoMovimentos(data, `${marcaNome}${tamanho} · validade ${anoValidade}`);
 }
 
 async function abrirHistoricoVazios(tamanhoLitros, anoValidade) {
-  const { data } = await sb.from('movimentos_estoque').select('*').eq('tamanho_litros', tamanhoLitros).eq('ano_validade', anoValidade).is('lote_id', null).order('data', { ascending: false });
+  const { data } = await sb.from('movimentos_estoque').select('*').eq('tamanho_litros', tamanhoLitros).eq('ano_validade', anoValidade).is('lote_id', null).order('data', { ascending: true });
   renderHistoricoMovimentos(data, `Vazios · ${tamanhoLitros}L · validade ${anoValidade}`);
 }
 
