@@ -12,6 +12,7 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <title>Depósito do Mago | Gestão</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
 :root {
   --bg: #f4f7fb;
@@ -353,6 +354,27 @@ select.form-control option { background: var(--surface); }
     </div>
   </div>
 
+  <div class="stats" style="grid-template-columns:repeat(3,1fr)">
+    <div class="stat-card">
+      <div class="stat-val" id="dash-ticket-medio">—</div>
+      <div class="stat-lbl">Ticket Médio</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-val" id="dash-inadimplencia-val">—</div>
+      <div class="stat-lbl">Inadimplência</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-val text-yellow" id="dash-comodatos-val">—</div>
+      <div class="stat-lbl">Comodatos</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title" style="margin-bottom:4px">Faturamento — Últimos 30 Dias</div>
+    <div class="card-sub" style="margin-bottom:10px">Independente do filtro de período selecionado acima</div>
+    <div style="position:relative;height:170px"><canvas id="chart-faturamento"></canvas></div>
+  </div>
+
   <div class="card">
     <div class="card-title" style="margin-bottom:10px">Pagamentos por Perfil (Período)</div>
     <div class="card-sub" style="margin-bottom:10px">Quem confirmou cada pagamento — só o que vem do perfil "Caixa" entra na contabilidade da gaveta (acima e na tela do Caixa).</div>
@@ -377,6 +399,25 @@ select.form-control option { background: var(--surface); }
   <div class="card">
     <div class="card-title" style="margin-bottom:10px">Quem Está Devendo (Período)</div>
     <div id="dash-devedores" class="loading"><div class="spinner"></div>Carregando...</div>
+  </div>
+
+  <div class="card">
+    <div class="card-title" style="margin-bottom:10px">Forma de Pagamento (Período)</div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:12px">
+      <div style="width:160px;height:160px"><canvas id="chart-formas"></canvas></div>
+      <div id="chart-formas-legenda" style="width:100%"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title" style="margin-bottom:10px">Top 5 Clientes por Faturamento (Período)</div>
+    <div id="chart-clientes-wrap" style="position:relative;height:200px"><canvas id="chart-clientes"></canvas></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title" style="margin-bottom:10px">Comodatos em Aberto</div>
+    <div class="card-sub" style="margin-bottom:10px">Garrafões emprestados ainda não devolvidos — independente do período selecionado</div>
+    <div id="dash-comodatos-lista"></div>
   </div>
 </div>
 
@@ -5171,6 +5212,10 @@ function calcularIntervaloDashboard() {
   return { inicio, fim };
 }
 
+let _chartFaturamento = null;
+let _chartFormas = null;
+let _chartClientes = null;
+
 async function loadDashboard() {
   const { inicio, fim } = calcularIntervaloDashboard();
   const inicioISO = inicio.toISOString();
@@ -5182,7 +5227,7 @@ async function loadDashboard() {
   // entrega), não no dia em que o pedido foi criado. Um pedido criado
   // ontem e pago/entregue hoje entra nos números de hoje, não de ontem.
   const { data: pedidosHojeRaw } = await sb.from('pedidos')
-    .select('id, total, status, status_entrega, forma_pagamento, valor_dinheiro_misto, valor_pix_misto, parcelas_esperadas')
+    .select('id, total, status, status_entrega, forma_pagamento, valor_dinheiro_misto, valor_pix_misto, parcelas_esperadas, cliente_id')
     .gte('data', inicioISO)
     .lt('data', fimISO);
   const pedidosHoje = (pedidosHojeRaw || []).filter(p => p.status !== 'cancelado');
@@ -5265,6 +5310,20 @@ async function loadDashboard() {
   document.getElementById('dash-entregas-total').textContent = entregasTotal;
   document.getElementById('dash-entregas-efetuadas').textContent = entregasEfetuadas;
   document.getElementById('dash-entregas-pendentes').textContent = entregasPendentes;
+
+  // Ticket médio
+  const ticketMedio = pedidosHoje.length > 0 ? roundMoeda(vendasHoje / pedidosHoje.length) : 0;
+  document.getElementById('dash-ticket-medio').textContent = fmtMoeda(ticketMedio);
+
+  // Inadimplência: % de pedidos do período com saldo ainda em aberto
+  const inadimplentesCount = pedidosHoje.filter(p => {
+    const totalPago = FORMAS.reduce((s, f) => s + (pagoPorPedidoForma[p.id]?.[f] || 0), 0);
+    return totalPago < parseFloat(p.total) - 0.01;
+  }).length;
+  const inadimplenciaPct = pedidosHoje.length > 0 ? Math.round((inadimplentesCount / pedidosHoje.length) * 100) : 0;
+  const inadEl = document.getElementById('dash-inadimplencia-val');
+  inadEl.textContent = inadimplenciaPct + '%';
+  inadEl.className = 'stat-val ' + (inadimplenciaPct > 30 ? 'text-red' : inadimplenciaPct > 10 ? 'text-yellow' : 'text-green');
 
   const labelPerfil = { caixa: 'Caixa', administrador: 'Administrador', desenvolvedor: 'Desenvolvedor' };
   document.getElementById('dash-pagamentos-perfil').innerHTML = PERFIS.map(perfil => {
@@ -5421,6 +5480,123 @@ async function loadDashboard() {
       <div class="item-value text-red">${fmtMoeda(pendentesPeriodo[c.id] || 0)}</div>
     </div>
   `).join('') : '<div class="empty-state">Nenhum cliente devendo no período</div>';
+
+  // === Comodatos em Aberto ===
+  const { data: clientesComodato } = await sb.from('clientes')
+    .select('nome, saldo_comodato_garrafoes')
+    .gt('saldo_comodato_garrafoes', 0)
+    .order('saldo_comodato_garrafoes', { ascending: false });
+  const totalComodatos = (clientesComodato || []).reduce((s, c) => s + c.saldo_comodato_garrafoes, 0);
+  document.getElementById('dash-comodatos-val').textContent = totalComodatos;
+  document.getElementById('dash-comodatos-lista').innerHTML = (clientesComodato || []).length
+    ? (clientesComodato || []).map(c => `
+      <div class="list-item">
+        <div class="item-info"><div class="item-name">${escapeHtml(c.nome)}</div></div>
+        <div class="item-value text-yellow">${c.saldo_comodato_garrafoes} garrafão${c.saldo_comodato_garrafoes !== 1 ? 'ões' : ''}</div>
+      </div>`).join('')
+    : '<div class="empty-state">Nenhum comodato em aberto</div>';
+
+  // === Faturamento — Últimos 30 Dias ===
+  const hoje30 = new Date(); hoje30.setHours(23, 59, 59, 999);
+  const inicio30 = new Date(); inicio30.setDate(inicio30.getDate() - 29); inicio30.setHours(0, 0, 0, 0);
+  const { data: pedidos30d } = await sb.from('pedidos')
+    .select('data, total')
+    .neq('status', 'cancelado')
+    .gte('data', inicio30.toISOString())
+    .lte('data', hoje30.toISOString());
+  const fat30map = {};
+  (pedidos30d || []).forEach(p => { const d = p.data.slice(0, 10); fat30map[d] = roundMoeda((fat30map[d] || 0) + parseFloat(p.total)); });
+  const fat30labels = [], fat30data = [];
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(); d.setDate(d.getDate() - i);
+    fat30labels.push(i === 0 ? 'Hoje' : d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }));
+    fat30data.push(fat30map[d.toISOString().slice(0, 10)] || 0);
+  }
+  if (_chartFaturamento) _chartFaturamento.destroy();
+  _chartFaturamento = new Chart(document.getElementById('chart-faturamento').getContext('2d'), {
+    type: 'line',
+    data: {
+      labels: fat30labels,
+      datasets: [{
+        data: fat30data,
+        borderColor: '#0ea5c4',
+        backgroundColor: 'rgba(14,165,196,0.12)',
+        fill: true, tension: 0.35, pointRadius: 2, pointHoverRadius: 5, pointBackgroundColor: '#0ea5c4',
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: ctx => ' ' + fmtMoeda(ctx.parsed.y) } }
+      },
+      scales: {
+        x: { ticks: { font: { size: 9 }, maxTicksLimit: 8, maxRotation: 0 }, grid: { display: false } },
+        y: { ticks: { font: { size: 9 }, callback: v => v >= 1000 ? 'R$' + (v / 1000).toFixed(1) + 'k' : 'R$' + v }, grid: { color: 'rgba(0,0,0,0.04)' }, beginAtZero: true }
+      }
+    }
+  });
+
+  // === Distribuição por Forma de Pagamento (doughnut) ===
+  const formaLabels = ['Dinheiro', 'Pix', 'Cartão'];
+  const formaData = [efetuadoPorForma.dinheiro, efetuadoPorForma.pix, efetuadoPorForma.cartao_credito];
+  const formaColors = ['#22c55e', '#0ea5c4', '#9333ea'];
+  const formaTotal = roundMoeda(formaData.reduce((s, v) => s + v, 0));
+  if (_chartFormas) _chartFormas.destroy();
+  _chartFormas = null;
+  if (formaTotal > 0) {
+    _chartFormas = new Chart(document.getElementById('chart-formas').getContext('2d'), {
+      type: 'doughnut',
+      data: { labels: formaLabels, datasets: [{ data: formaData, backgroundColor: formaColors, borderWidth: 0 }] },
+      options: {
+        responsive: true, maintainAspectRatio: false, cutout: '68%',
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: ctx => ' ' + fmtMoeda(ctx.parsed) + ' (' + (formaTotal > 0 ? Math.round(ctx.parsed / formaTotal * 100) : 0) + '%)' } }
+        }
+      }
+    });
+  }
+  document.getElementById('chart-formas-legenda').innerHTML = formaLabels.map((label, i) => {
+    const pct = formaTotal > 0 ? Math.round(formaData[i] / formaTotal * 100) : 0;
+    return `<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+      <div style="width:12px;height:12px;border-radius:3px;background:${formaColors[i]};flex-shrink:0"></div>
+      <div><div style="font-size:.85rem;font-weight:600">${label}</div><div style="font-size:.75rem;color:var(--muted)">${fmtMoeda(formaData[i])} · ${pct}%</div></div>
+    </div>`;
+  }).join('') + (formaTotal === 0 ? '<div class="empty-state">Nenhum pagamento no período</div>' : '');
+
+  // === Top 5 Clientes por Faturamento ===
+  const faturamentoPorCliente = {};
+  pedidosHoje.forEach(p => {
+    if (p.cliente_id) faturamentoPorCliente[p.cliente_id] = roundMoeda((faturamentoPorCliente[p.cliente_id] || 0) + parseFloat(p.total));
+  });
+  const top5 = Object.entries(faturamentoPorCliente).sort(([, a], [, b]) => b - a).slice(0, 5);
+  if (_chartClientes) _chartClientes.destroy();
+  _chartClientes = null;
+  const wrapClientes = document.getElementById('chart-clientes-wrap');
+  if (top5.length) {
+    const nomes = top5.map(([id]) => { const c = allClientes.find(x => x.id === id); const n = c?.nome || '—'; return n.length > 17 ? n.slice(0, 16) + '…' : n; });
+    const valores = top5.map(([, v]) => v);
+    wrapClientes.style.height = Math.max(140, top5.length * 46 + 20) + 'px';
+    _chartClientes = new Chart(document.getElementById('chart-clientes').getContext('2d'), {
+      type: 'bar',
+      data: { labels: nomes, datasets: [{ data: valores, backgroundColor: '#0ea5c4', borderRadius: 5 }] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        indexAxis: 'y',
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: ctx => ' ' + fmtMoeda(ctx.parsed.x) } }
+        },
+        scales: {
+          x: { ticks: { font: { size: 9 }, callback: v => v >= 1000 ? 'R$' + (v / 1000).toFixed(1) + 'k' : 'R$' + v }, grid: { color: 'rgba(0,0,0,0.04)' }, beginAtZero: true },
+          y: { ticks: { font: { size: 11 } }, grid: { display: false } }
+        }
+      }
+    });
+  } else {
+    wrapClientes.innerHTML = '<canvas id="chart-clientes" style="display:none"></canvas><div class="empty-state">Nenhum pedido de clientes no período</div>';
+  }
 }
 
 // Igual a calcularPendentesPorCliente(), mas só considera pedidos criados
