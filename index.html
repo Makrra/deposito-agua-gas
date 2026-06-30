@@ -359,11 +359,11 @@ select.form-control option { background: var(--surface); }
     </div>
     <div class="stat-card">
       <svg class="stat-icon text-green" viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-      <div class="stat-val text-green" id="dash-pagamentos-efetuados">—</div><div class="stat-lbl">Pagamentos Efetuados</div>
+      <div class="stat-val text-green" id="dash-pagamentos-efetuados">—</div><div class="stat-lbl">Entrou no Caixa</div>
     </div>
     <div class="stat-card" style="cursor:pointer" onclick="irParaPedidosPagamentoPendente()">
       <svg class="stat-icon text-red" viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-      <div class="stat-val text-red" id="dash-pagamentos-pendentes">—</div><div class="stat-lbl">Pagamentos Pendentes</div>
+      <div class="stat-val text-red" id="dash-pagamentos-pendentes">—</div><div class="stat-lbl">A Receber (Vendas)</div>
     </div>
     <div class="stat-card">
       <svg class="stat-icon" viewBox="0 0 24 24" fill="none" stroke-width="2"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
@@ -5261,32 +5261,42 @@ async function loadDashboard() {
 
   const vendasHoje = roundMoeda(pedidosHoje.reduce((s, p) => s + parseFloat(p.total), 0));
 
-  // Todos os três valores (Vendas, Efetuados, Pendentes) usam o mesmo cohort:
-  // pedidos CRIADOS no período. Isso garante que Efetuados + Pendentes = Vendas
-  // sempre, independente de quando o pagamento foi confirmado ou por quem.
-  // "Efetuados" = quanto do total desses pedidos já entrou no caixa.
-  // "Pendentes" = quanto do total desses pedidos ainda falta receber.
+  // Efetuados: usa a DATA DO PAGAMENTO como filtro — captura tudo que entrou
+  // no caixa nesse período, incluindo quitações de pedidos criados em outros
+  // dias (ex: Pix que cai um dia depois). Eixo independente de Vendas.
+  // Pendentes: usa cohort dos pedidos CRIADOS no período — quanto falta receber
+  // das vendas desse período. Também eixo independente.
+  // Por isso Efetuados + Pendentes ≠ Vendas necessariamente — cada um mede
+  // uma dimensão diferente do negócio.
   const FORMAS = ['dinheiro', 'pix', 'cartao_credito'];
   const PERFIS = ['caixa', 'administrador', 'desenvolvedor'];
   const efetuadoPorForma = { dinheiro: 0, pix: 0, cartao_credito: 0 };
   const efetuadoPorPerfil = {};
   PERFIS.forEach(perfil => { efetuadoPorPerfil[perfil] = { dinheiro: 0, pix: 0, cartao_credito: 0 }; });
+  const { data: pagamentosPeriodo } = await sb.from('pagamentos_pedido')
+    .select('forma, valor, pedidos(status), usuarios(role)')
+    .gte('data', inicioISO).lt('data', fimISO);
+  (pagamentosPeriodo || []).filter(p => p.pedidos?.status !== 'cancelado').forEach(p => {
+    const perfil = p.usuarios?.role;
+    if (efetuadoPorPerfil[perfil] && efetuadoPorPerfil[perfil][p.forma] != null)
+      efetuadoPorPerfil[perfil][p.forma] = roundMoeda(efetuadoPorPerfil[perfil][p.forma] + parseFloat(p.valor));
+    if (efetuadoPorForma[p.forma] != null)
+      efetuadoPorForma[p.forma] = roundMoeda(efetuadoPorForma[p.forma] + parseFloat(p.valor));
+  });
+  const pagamentosEfetuados = roundMoeda(FORMAS.reduce((s, f) => s + efetuadoPorForma[f], 0));
+
+  // Pendentes: cohort dos pedidos criados no período, todos os pagamentos
+  // (sem filtro de data nem de quem confirmou).
   const pendentePorForma = { dinheiro: 0, pix: 0, cartao_credito: 0 };
   const pagoPorPedidoForma = {};
   if (idsHoje.length) {
     const { data: pagamentosCohorte } = await sb.from('pagamentos_pedido')
-      .select('pedido_id, forma, valor, usuarios(role)')
-      .in('pedido_id', idsHoje);
+      .select('pedido_id, forma, valor').in('pedido_id', idsHoje);
     (pagamentosCohorte || []).forEach(pg => {
       if (!pagoPorPedidoForma[pg.pedido_id]) pagoPorPedidoForma[pg.pedido_id] = {};
       pagoPorPedidoForma[pg.pedido_id][pg.forma] = roundMoeda((pagoPorPedidoForma[pg.pedido_id][pg.forma] || 0) + parseFloat(pg.valor));
-      if (efetuadoPorForma[pg.forma] != null) efetuadoPorForma[pg.forma] = roundMoeda(efetuadoPorForma[pg.forma] + parseFloat(pg.valor));
-      const perfil = pg.usuarios?.role;
-      if (efetuadoPorPerfil[perfil] && efetuadoPorPerfil[perfil][pg.forma] != null)
-        efetuadoPorPerfil[perfil][pg.forma] = roundMoeda(efetuadoPorPerfil[perfil][pg.forma] + parseFloat(pg.valor));
     });
   }
-  const pagamentosEfetuados = roundMoeda(FORMAS.reduce((s, f) => s + efetuadoPorForma[f], 0));
   pedidosHoje.forEach(p => {
     const pago = pagoPorPedidoForma[p.id] || {};
     const parcelas = getParcelasEsperadas(p);
