@@ -395,8 +395,7 @@ select.form-control option { background: var(--surface); }
   </div>
 
   <div class="card">
-    <div class="card-title" style="margin-bottom:4px">Faturamento — Últimos 30 Dias</div>
-    <div class="card-sub" style="margin-bottom:10px">Independente do filtro de período selecionado acima</div>
+    <div class="card-title" id="chart-faturamento-titulo" style="margin-bottom:10px">Faturamento</div>
     <div style="position:relative;height:170px"><canvas id="chart-faturamento"></canvas></div>
   </div>
 
@@ -5253,7 +5252,7 @@ async function loadDashboard() {
   // entrega), não no dia em que o pedido foi criado. Um pedido criado
   // ontem e pago/entregue hoje entra nos números de hoje, não de ontem.
   const { data: pedidosHojeRaw } = await sb.from('pedidos')
-    .select('id, total, status, status_entrega, forma_pagamento, valor_dinheiro_misto, valor_pix_misto, parcelas_esperadas, cliente_id')
+    .select('id, total, status, status_entrega, forma_pagamento, valor_dinheiro_misto, valor_pix_misto, parcelas_esperadas, cliente_id, data')
     .gte('data', inicioISO)
     .lt('data', fimISO);
   const pedidosHoje = (pedidosHojeRaw || []).filter(p => p.status !== 'cancelado');
@@ -5517,32 +5516,55 @@ async function loadDashboard() {
       </div>`).join('')
     : '<div class="empty-state">Nenhum comodato em aberto</div>';
 
-  // === Faturamento — Últimos 30 Dias ===
-  const hoje30 = new Date(); hoje30.setHours(23, 59, 59, 999);
-  const inicio30 = new Date(); inicio30.setDate(inicio30.getDate() - 29); inicio30.setHours(0, 0, 0, 0);
-  const { data: pedidos30d } = await sb.from('pedidos')
-    .select('data, total')
-    .neq('status', 'cancelado')
-    .gte('data', inicio30.toISOString())
-    .lte('data', hoje30.toISOString());
-  const fat30map = {};
-  (pedidos30d || []).forEach(p => { const d = p.data.slice(0, 10); fat30map[d] = roundMoeda((fat30map[d] || 0) + parseFloat(p.total)); });
-  const fat30labels = [], fat30data = [];
-  for (let i = 29; i >= 0; i--) {
-    const d = new Date(); d.setDate(d.getDate() - i);
-    fat30labels.push(i === 0 ? 'Hoje' : d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }));
-    fat30data.push(fat30map[d.toISOString().slice(0, 10)] || 0);
+  // === Faturamento — escala dinâmica conforme filtro ===
+  const diffDias = Math.round((fim - inicio) / 86400000);
+  const escalaHoraria = diffDias <= 1;
+  const hojeDiaStr = new Date().toISOString().slice(0, 10);
+  let fatLabels, fatData, fatTitulo;
+
+  if (escalaHoraria) {
+    const titulos = { hoje: 'Faturamento — Hoje por Hora', personalizado: 'Faturamento — Dia por Hora' };
+    fatTitulo = titulos[dashboardPeriodo] || 'Faturamento por Hora';
+    const porHora = Array(24).fill(0);
+    pedidosHoje.forEach(p => {
+      const h = new Date(p.data).getHours();
+      porHora[h] = roundMoeda(porHora[h] + parseFloat(p.total));
+    });
+    fatLabels = Array.from({ length: 24 }, (_, i) => i.toString().padStart(2, '0') + 'h');
+    fatData = porHora;
+  } else {
+    const titulos = { semana: 'Faturamento — Esta Semana', mes: 'Faturamento — Este Mês', personalizado: 'Faturamento — Período Selecionado' };
+    fatTitulo = titulos[dashboardPeriodo] || 'Faturamento';
+    const porDia = {};
+    pedidosHoje.forEach(p => {
+      const d = p.data.slice(0, 10);
+      porDia[d] = roundMoeda((porDia[d] || 0) + parseFloat(p.total));
+    });
+    fatLabels = []; fatData = [];
+    const cur = new Date(inicio);
+    while (cur < fim) {
+      const key = cur.toISOString().slice(0, 10);
+      fatLabels.push(key === hojeDiaStr ? 'Hoje' : cur.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }));
+      fatData.push(porDia[key] || 0);
+      cur.setDate(cur.getDate() + 1);
+    }
   }
+
+  document.getElementById('chart-faturamento-titulo').textContent = fatTitulo;
   if (_chartFaturamento) _chartFaturamento.destroy();
   _chartFaturamento = new Chart(document.getElementById('chart-faturamento').getContext('2d'), {
     type: 'line',
     data: {
-      labels: fat30labels,
+      labels: fatLabels,
       datasets: [{
-        data: fat30data,
+        data: fatData,
         borderColor: '#0ea5c4',
         backgroundColor: 'rgba(14,165,196,0.12)',
-        fill: true, tension: 0.35, pointRadius: 2, pointHoverRadius: 5, pointBackgroundColor: '#0ea5c4',
+        fill: true,
+        tension: escalaHoraria ? 0.2 : 0.35,
+        pointRadius: fatLabels.length > 20 ? 1 : 3,
+        pointHoverRadius: 5,
+        pointBackgroundColor: '#0ea5c4',
       }]
     },
     options: {
@@ -5552,7 +5574,7 @@ async function loadDashboard() {
         tooltip: { callbacks: { label: ctx => ' ' + fmtMoeda(ctx.parsed.y) } }
       },
       scales: {
-        x: { ticks: { font: { size: 9 }, maxTicksLimit: 8, maxRotation: 0 }, grid: { display: false } },
+        x: { ticks: { font: { size: 9 }, maxTicksLimit: escalaHoraria ? 12 : 10, maxRotation: 0 }, grid: { display: false } },
         y: { ticks: { font: { size: 9 }, callback: v => v >= 1000 ? 'R$' + (v / 1000).toFixed(1) + 'k' : 'R$' + v }, grid: { color: 'rgba(0,0,0,0.04)' }, beginAtZero: true }
       }
     }
