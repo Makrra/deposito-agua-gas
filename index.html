@@ -5246,35 +5246,96 @@ async function loadDashboard() {
   const inicioISO = inicio.toISOString();
   const fimISO = fim.toISOString();
 
-  // "Vendas no Período" é pela data de CRIAÇÃO do pedido. Pagamentos e
-  // entregas NÃO seguem essa mesma data — cada um conta no dia em que a
-  // própria ação aconteceu (confirmação de pagamento / confirmação de
-  // entrega), não no dia em que o pedido foi criado. Um pedido criado
-  // ontem e pago/entregue hoje entra nos números de hoje, não de ontem.
+  // FASE 1: apenas pedidos do período — habilita gráfico e vendas imediatamente.
   const { data: pedidosHojeRaw } = await sb.from('pedidos')
     .select('id, total, status, status_entrega, forma_pagamento, valor_dinheiro_misto, valor_pix_misto, parcelas_esperadas, cliente_id, data')
-    .gte('data', inicioISO)
-    .lt('data', fimISO);
+    .gte('data', inicioISO).lt('data', fimISO);
   const pedidosHoje = (pedidosHojeRaw || []).filter(p => p.status !== 'cancelado');
   const idsHoje = pedidosHoje.map(p => p.id);
-
   const vendasHoje = roundMoeda(pedidosHoje.reduce((s, p) => s + parseFloat(p.total), 0));
 
-  // Efetuados: usa a DATA DO PAGAMENTO como filtro — captura tudo que entrou
-  // no caixa nesse período, incluindo quitações de pedidos criados em outros
-  // dias (ex: Pix que cai um dia depois). Eixo independente de Vendas.
-  // Pendentes: usa cohort dos pedidos CRIADOS no período — quanto falta receber
-  // das vendas desse período. Também eixo independente.
-  // Por isso Efetuados + Pendentes ≠ Vendas necessariamente — cada um mede
-  // uma dimensão diferente do negócio.
+  // Atualiza vendas, ticket médio e gráfico já — não precisam de mais dados.
+  document.getElementById('dash-vendas-hoje').textContent = fmtMoeda(vendasHoje);
+  document.getElementById('dash-ticket-medio').textContent = fmtMoeda(pedidosHoje.length > 0 ? roundMoeda(vendasHoje / pedidosHoje.length) : 0);
+  {
+    const diffDias = Math.round((fim - inicio) / 86400000);
+    const escalaHoraria = diffDias <= 1;
+    const hojeDiaStr = new Date().toISOString().slice(0, 10);
+    let fatLabels, fatData, fatTitulo;
+    if (escalaHoraria) {
+      fatTitulo = { hoje: 'Faturamento — Hoje por Hora', personalizado: 'Faturamento — Dia por Hora' }[dashboardPeriodo] || 'Faturamento por Hora';
+      const porHora = Array(24).fill(0);
+      pedidosHoje.forEach(p => { const h = new Date(p.data).getHours(); porHora[h] = roundMoeda(porHora[h] + parseFloat(p.total)); });
+      fatLabels = Array.from({ length: 24 }, (_, i) => i.toString().padStart(2, '0') + 'h');
+      fatData = porHora;
+    } else {
+      fatTitulo = { semana: 'Faturamento — Esta Semana', mes: 'Faturamento — Este Mês', personalizado: 'Faturamento — Período Selecionado' }[dashboardPeriodo] || 'Faturamento';
+      const porDia = {};
+      pedidosHoje.forEach(p => { const d = p.data.slice(0, 10); porDia[d] = roundMoeda((porDia[d] || 0) + parseFloat(p.total)); });
+      fatLabels = []; fatData = [];
+      const cur = new Date(inicio);
+      while (cur < fim) {
+        const key = cur.toISOString().slice(0, 10);
+        fatLabels.push(key === hojeDiaStr ? 'Hoje' : cur.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }));
+        fatData.push(porDia[key] || 0);
+        cur.setDate(cur.getDate() + 1);
+      }
+    }
+    document.getElementById('chart-faturamento-titulo').textContent = fatTitulo;
+    if (_chartFaturamento) _chartFaturamento.destroy();
+    _chartFaturamento = new Chart(document.getElementById('chart-faturamento').getContext('2d'), {
+      type: 'line',
+      data: {
+        labels: fatLabels,
+        datasets: [{
+          data: fatData,
+          borderColor: '#0ea5c4', backgroundColor: 'rgba(14,165,196,0.12)',
+          fill: true, tension: escalaHoraria ? 0.2 : 0.35,
+          pointRadius: fatLabels.length > 20 ? 1 : 3, pointHoverRadius: 5, pointBackgroundColor: '#0ea5c4',
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ' ' + fmtMoeda(ctx.parsed.y) } } },
+        scales: {
+          x: { ticks: { font: { size: 9 }, maxTicksLimit: escalaHoraria ? 12 : 10, maxRotation: 0 }, grid: { display: false } },
+          y: { ticks: { font: { size: 9 }, callback: v => v >= 1000 ? 'R$' + (v / 1000).toFixed(1) + 'k' : 'R$' + v }, grid: { color: 'rgba(0,0,0,0.04)' }, beginAtZero: true }
+        }
+      }
+    });
+  }
+
+  // FASE 2: todas as queries restantes em paralelo.
   const FORMAS = ['dinheiro', 'pix', 'cartao_credito'];
   const PERFIS = ['caixa', 'administrador', 'desenvolvedor'];
+  const [
+    { data: pagamentosPeriodo },
+    { data: pagamentosCohorteRaw },
+    { data: entreguesPeriodoRaw },
+    { data: movAgua },
+    { data: itensAguaRaw },
+    { data: lotesAtuais },
+    { data: movVazios },
+    { data: itensGas },
+    { data: clientesComodato },
+  ] = await Promise.all([
+    sb.from('pagamentos_pedido').select('forma, valor, pedidos(status), usuarios(role)').gte('data', inicioISO).lt('data', fimISO),
+    idsHoje.length ? sb.from('pagamentos_pedido').select('pedido_id, forma, valor').in('pedido_id', idsHoje) : Promise.resolve({ data: [] }),
+    sb.from('pedidos').select('id').neq('status', 'cancelado').gte('data_entrega', inicioISO).lt('data_entrega', fimISO),
+    sb.from('movimentos_estoque').select('quantidade, referencia_pedido_id, pedidos(status), lotes_garrafao(marca_id, marcas(nome, tipo, tamanho_litros))').eq('tipo', 'saida_venda').gte('data', inicioISO).lt('data', fimISO),
+    idsHoje.length ? sb.from('itens_pedido').select('pedido_id, marca_id, quantidade, preco_unitario, preco_vasilhame, marcas(nome, tipo, tamanho_litros)').in('pedido_id', idsHoje) : Promise.resolve({ data: [] }),
+    sb.from('lotes_garrafao').select('marca_id, qtd_cheios'),
+    sb.from('movimentos_estoque').select('quantidade, ano_validade, tamanho_litros, referencia_pedido_id, pedidos(status)').eq('tipo', 'retorno_vazio').gte('data', inicioISO).lt('data', fimISO),
+    sb.from('itens_pedido').select('quantidade, marcas(nome), pedidos!inner(status_entrega, data_entrega)').is('lote_id', null).eq('pedidos.status_entrega', 'entregue').gte('pedidos.data_entrega', inicioISO).lt('pedidos.data_entrega', fimISO),
+    sb.from('clientes').select('nome, saldo_comodato_garrafoes').gt('saldo_comodato_garrafoes', 0).order('saldo_comodato_garrafoes', { ascending: false }),
+  ]);
+
+  // FASE 3: processa tudo e atualiza DOM.
+
+  // — Pagamentos efetuados (por data do pagamento) —
   const efetuadoPorForma = { dinheiro: 0, pix: 0, cartao_credito: 0 };
   const efetuadoPorPerfil = {};
   PERFIS.forEach(perfil => { efetuadoPorPerfil[perfil] = { dinheiro: 0, pix: 0, cartao_credito: 0 }; });
-  const { data: pagamentosPeriodo } = await sb.from('pagamentos_pedido')
-    .select('forma, valor, pedidos(status), usuarios(role)')
-    .gte('data', inicioISO).lt('data', fimISO);
   (pagamentosPeriodo || []).filter(p => p.pedidos?.status !== 'cancelado').forEach(p => {
     const perfil = p.usuarios?.role;
     if (efetuadoPorPerfil[perfil] && efetuadoPorPerfil[perfil][p.forma] != null)
@@ -5284,58 +5345,40 @@ async function loadDashboard() {
   });
   const pagamentosEfetuados = roundMoeda(FORMAS.reduce((s, f) => s + efetuadoPorForma[f], 0));
 
-  // Pendentes: cohort dos pedidos criados no período, todos os pagamentos
-  // (sem filtro de data nem de quem confirmou).
+  // — Pagamentos pendentes (cohort dos pedidos do período) —
   const pendentePorForma = { dinheiro: 0, pix: 0, cartao_credito: 0 };
   const pagoPorPedidoForma = {};
-  if (idsHoje.length) {
-    const { data: pagamentosCohorte } = await sb.from('pagamentos_pedido')
-      .select('pedido_id, forma, valor').in('pedido_id', idsHoje);
-    (pagamentosCohorte || []).forEach(pg => {
-      if (!pagoPorPedidoForma[pg.pedido_id]) pagoPorPedidoForma[pg.pedido_id] = {};
-      pagoPorPedidoForma[pg.pedido_id][pg.forma] = roundMoeda((pagoPorPedidoForma[pg.pedido_id][pg.forma] || 0) + parseFloat(pg.valor));
-    });
-  }
+  (pagamentosCohorteRaw || []).forEach(pg => {
+    if (!pagoPorPedidoForma[pg.pedido_id]) pagoPorPedidoForma[pg.pedido_id] = {};
+    pagoPorPedidoForma[pg.pedido_id][pg.forma] = roundMoeda((pagoPorPedidoForma[pg.pedido_id][pg.forma] || 0) + parseFloat(pg.valor));
+  });
   pedidosHoje.forEach(p => {
     const pago = pagoPorPedidoForma[p.id] || {};
     const parcelas = getParcelasEsperadas(p);
     if (parcelas) {
       parcelas.forEach(parc => {
-        if (pendentePorForma[parc.forma] != null) {
+        if (pendentePorForma[parc.forma] != null)
           pendentePorForma[parc.forma] = roundMoeda(pendentePorForma[parc.forma] + Math.max(0, roundMoeda(parc.valor - (pago[parc.forma] || 0))));
-        }
       });
     } else if (pendentePorForma[p.forma_pagamento] != null) {
       const totalPagoPedido = FORMAS.reduce((s, f) => s + (pago[f] || 0), 0);
-      const pendente = Math.max(0, roundMoeda(parseFloat(p.total) - totalPagoPedido));
-      pendentePorForma[p.forma_pagamento] = roundMoeda(pendentePorForma[p.forma_pagamento] + pendente);
+      pendentePorForma[p.forma_pagamento] = roundMoeda(pendentePorForma[p.forma_pagamento] + Math.max(0, roundMoeda(parseFloat(p.total) - totalPagoPedido)));
     }
   });
   const pagamentosPendentes = roundMoeda(FORMAS.reduce((s, f) => s + pendentePorForma[f], 0));
 
-  // Entregas: "Efetuadas" conta pela data em que a ENTREGA foi confirmada
-  // (data_entrega) — mesma lógica de pagamento, decoupled da criação do
-  // pedido. "Pendentes" continua olhando, dos pedidos criados no período,
-  // o que ainda falta entregar até agora.
-  const { data: entreguesPeriodoRaw } = await sb.from('pedidos').select('id')
-    .neq('status', 'cancelado')
-    .gte('data_entrega', inicioISO).lt('data_entrega', fimISO);
+  // — Entregas —
   const entregasTotal = pedidosHoje.length;
   const entregasEfetuadas = (entreguesPeriodoRaw || []).length;
   const entregasPendentes = pedidosHoje.filter(p => p.status_entrega === 'pendente').length;
 
-  document.getElementById('dash-vendas-hoje').textContent = fmtMoeda(vendasHoje);
   document.getElementById('dash-pagamentos-efetuados').textContent = fmtMoeda(pagamentosEfetuados);
   document.getElementById('dash-pagamentos-pendentes').textContent = fmtMoeda(pagamentosPendentes);
   document.getElementById('dash-entregas-total').textContent = entregasTotal;
   document.getElementById('dash-entregas-efetuadas').textContent = entregasEfetuadas;
   document.getElementById('dash-entregas-pendentes').textContent = entregasPendentes;
 
-  // Ticket médio
-  const ticketMedio = pedidosHoje.length > 0 ? roundMoeda(vendasHoje / pedidosHoje.length) : 0;
-  document.getElementById('dash-ticket-medio').textContent = fmtMoeda(ticketMedio);
-
-  // Inadimplência: % de pedidos do período com saldo ainda em aberto
+  // — Inadimplência —
   const inadimplentesCount = pedidosHoje.filter(p => {
     const totalPago = FORMAS.reduce((s, f) => s + (pagoPorPedidoForma[p.id]?.[f] || 0), 0);
     return totalPago < parseFloat(p.total) - 0.01;
@@ -5345,6 +5388,7 @@ async function loadDashboard() {
   inadEl.textContent = inadimplenciaPct + '%';
   inadEl.className = 'stat-val ' + (inadimplenciaPct > 30 ? 'text-red' : inadimplenciaPct > 10 ? 'text-yellow' : 'text-green');
 
+  // — Pagamentos por perfil —
   const labelPerfil = { caixa: 'Caixa', administrador: 'Administrador', desenvolvedor: 'Desenvolvedor' };
   document.getElementById('dash-pagamentos-perfil').innerHTML = PERFIS.map(perfil => {
     const v = efetuadoPorPerfil[perfil];
@@ -5363,16 +5407,7 @@ async function loadDashboard() {
     `;
   }).join('');
 
-  // Cheios: movimento de vendidos por marca (marca já carrega o tamanho)
-  // dentro do período — não é "quanto eu tenho agora", é "quanto saiu
-  // nesse período". Agrupa por marca_id (não nome) pra não colapsar marcas
-  // com o mesmo nome e tamanhos diferentes. Pedidos cancelados não contam
-  // como venda, mesmo que o estoque já tenha sido baixado e depois
-  // revertido (a reversão entra como 'ajuste', não como 'saida_venda').
-  const { data: movAgua } = await sb.from('movimentos_estoque')
-    .select('quantidade, referencia_pedido_id, pedidos(status), lotes_garrafao(marca_id, marcas(nome, tipo, tamanho_litros))')
-    .eq('tipo', 'saida_venda')
-    .gte('data', inicioISO).lt('data', fimISO);
+  // — Cheios por marca —
   const porMarcaAgua = {};
   const novaMarcaAgua = () => ({ label: '—', vendidos: 0, recebidoPorForma: { dinheiro: 0, pix: 0, cartao_credito: 0 }, pendente: 0 });
   (movAgua || []).filter(m => m.pedidos?.status !== 'cancelado').forEach(m => {
@@ -5382,43 +5417,25 @@ async function loadDashboard() {
     if (marca) porMarcaAgua[marcaId].label = nomeMarcaComTamanho(marca);
     porMarcaAgua[marcaId].vendidos += Math.abs(m.quantidade);
   });
-
-  // Recebido (por forma) / pendente por marca: pagamento é só por pedido,
-  // não por item, então rateia o pago de cada forma proporcionalmente ao
-  // subtotal de cada item de água dentro do pedido.
-  if (idsHoje.length) {
-    const { data: itensAgua } = await sb.from('itens_pedido')
-      .select('pedido_id, marca_id, quantidade, preco_unitario, preco_vasilhame, marcas(nome, tipo, tamanho_litros)')
-      .in('pedido_id', idsHoje);
-    const totalPedidoPorId = {};
-    pedidosHoje.forEach(p => { totalPedidoPorId[p.id] = parseFloat(p.total); });
-    (itensAgua || []).filter(it => it.marcas?.tipo === 'agua').forEach(it => {
-      const subtotal = roundMoeda((parseFloat(it.preco_unitario) + parseFloat(it.preco_vasilhame)) * it.quantidade);
-      const totalPedido = totalPedidoPorId[it.pedido_id] || 0;
-      const ratioItem = totalPedido > 0 ? Math.min(1, subtotal / totalPedido) : 0;
-      const pagoPedidoForma = pagoPorPedidoForma[it.pedido_id] || {};
-      const marcaId = it.marca_id;
-      if (!porMarcaAgua[marcaId]) { porMarcaAgua[marcaId] = novaMarcaAgua(); porMarcaAgua[marcaId].label = it.marcas ? nomeMarcaComTamanho(it.marcas) : '—'; }
-      let recebidoItem = 0;
-      FORMAS.forEach(f => {
-        const recebidoFormaItem = roundMoeda((pagoPedidoForma[f] || 0) * ratioItem);
-        porMarcaAgua[marcaId].recebidoPorForma[f] = roundMoeda(porMarcaAgua[marcaId].recebidoPorForma[f] + recebidoFormaItem);
-        recebidoItem = roundMoeda(recebidoItem + recebidoFormaItem);
-      });
-      porMarcaAgua[marcaId].pendente = roundMoeda(porMarcaAgua[marcaId].pendente + Math.max(0, subtotal - recebidoItem));
+  const totalPedidoPorId = {};
+  pedidosHoje.forEach(p => { totalPedidoPorId[p.id] = parseFloat(p.total); });
+  (itensAguaRaw || []).filter(it => it.marcas?.tipo === 'agua').forEach(it => {
+    const subtotal = roundMoeda((parseFloat(it.preco_unitario) + parseFloat(it.preco_vasilhame)) * it.quantidade);
+    const totalPedido = totalPedidoPorId[it.pedido_id] || 0;
+    const ratioItem = totalPedido > 0 ? Math.min(1, subtotal / totalPedido) : 0;
+    const pagoPedidoForma = pagoPorPedidoForma[it.pedido_id] || {};
+    const marcaId = it.marca_id;
+    if (!porMarcaAgua[marcaId]) { porMarcaAgua[marcaId] = novaMarcaAgua(); porMarcaAgua[marcaId].label = it.marcas ? nomeMarcaComTamanho(it.marcas) : '—'; }
+    let recebidoItem = 0;
+    FORMAS.forEach(f => {
+      const recebidoFormaItem = roundMoeda((pagoPedidoForma[f] || 0) * ratioItem);
+      porMarcaAgua[marcaId].recebidoPorForma[f] = roundMoeda(porMarcaAgua[marcaId].recebidoPorForma[f] + recebidoFormaItem);
+      recebidoItem = roundMoeda(recebidoItem + recebidoFormaItem);
     });
-  }
-
-  // Estoque atual (agora, não do período) por marca — soma de qtd_cheios
-  // de todos os lotes daquela marca, pra contextualizar o vendido do
-  // período com o que ainda tem na prateleira.
-  const { data: lotesAtuais } = await sb.from('lotes_garrafao').select('marca_id, qtd_cheios');
+    porMarcaAgua[marcaId].pendente = roundMoeda(porMarcaAgua[marcaId].pendente + Math.max(0, subtotal - recebidoItem));
+  });
   const estoqueAtualPorMarca = {};
   (lotesAtuais || []).forEach(l => { estoqueAtualPorMarca[l.marca_id] = (estoqueAtualPorMarca[l.marca_id] || 0) + l.qtd_cheios; });
-
-  // Barra multi-segmentada por marca (dinheiro/pix/cartão/pendente), com
-  // legenda de cores — junta a info de forma de pagamento direto na marca,
-  // sem precisar de um card de dinheiro separado.
   const corForma = { dinheiro: 'var(--green)', pix: 'var(--accent)', cartao_credito: '#9333ea' };
   const labelFormaCurta = { dinheiro: 'dinheiro', pix: 'pix', cartao_credito: 'cartão' };
   const idsAgua = Object.keys(porMarcaAgua);
@@ -5453,12 +5470,7 @@ async function loadDashboard() {
     }).join('')}
   ` : '<div class="empty-state">Nenhum movimento de cheios no período</div>';
 
-  // Vazios: devoluções registradas no período, por tamanho + ano de
-  // validade (tamanho_litros já vem direto no movimento, sem precisar de join).
-  const { data: movVazios } = await sb.from('movimentos_estoque')
-    .select('quantidade, ano_validade, tamanho_litros, referencia_pedido_id, pedidos(status)')
-    .eq('tipo', 'retorno_vazio')
-    .gte('data', inicioISO).lt('data', fimISO);
+  // — Vazios —
   const porChaveVazio = {};
   (movVazios || []).filter(m => m.pedidos?.status !== 'cancelado').forEach(m => {
     const chave = `${m.tamanho_litros}-${m.ano_validade}`;
@@ -5472,18 +5484,9 @@ async function loadDashboard() {
     ${chavesVazio.map(c => `<div class="list-item"><div class="item-info"><div class="item-name">${porChaveVazio[c].tamanho}L · Validade ${porChaveVazio[c].ano}</div></div><div class="item-detail">${porChaveVazio[c].quantidade} devolvidos</div></div>`).join('')}
   ` : '<div class="empty-state">Nenhum vazio devolvido no período</div>';
 
-  // Gás não tem histórico de entrada por data — só dá pra saber o vendido
-  // no período (via itens de pedido entregues, que não têm lote_id).
-  const { data: itensGas } = await sb.from('itens_pedido')
-    .select('quantidade, marcas(nome), pedidos!inner(status_entrega, data_entrega)')
-    .is('lote_id', null)
-    .eq('pedidos.status_entrega', 'entregue')
-    .gte('pedidos.data_entrega', inicioISO).lt('pedidos.data_entrega', fimISO);
+  // — Gás —
   const porMarcaGas = {};
-  (itensGas || []).forEach(it => {
-    const nome = it.marcas ? it.marcas.nome : '—';
-    porMarcaGas[nome] = (porMarcaGas[nome] || 0) + it.quantidade;
-  });
+  (itensGas || []).forEach(it => { const nome = it.marcas ? it.marcas.nome : '—'; porMarcaGas[nome] = (porMarcaGas[nome] || 0) + it.quantidade; });
   const nomesGas = Object.keys(porMarcaGas);
   const totalGas = nomesGas.reduce((s, n) => s + porMarcaGas[n], 0);
   document.getElementById('dash-estoque-gas').innerHTML = nomesGas.length ? `
@@ -5491,21 +5494,7 @@ async function loadDashboard() {
     ${nomesGas.map(nome => `<div class="list-item"><div class="item-info"><div class="item-name">${escapeHtml(nome)}</div></div><div class="item-detail">${porMarcaGas[nome]} vendidos</div></div>`).join('')}
   ` : '<div class="empty-state">Nenhuma venda de gás no período</div>';
 
-  if (!allClientes.length) await loadClientes();
-  const pendentesPeriodo = await calcularPendentesPorClientePeriodo(inicioISO, fimISO);
-  const devedores = allClientes.filter(c => (pendentesPeriodo[c.id] || 0) > 0);
-  document.getElementById('dash-devedores').innerHTML = devedores.length ? devedores.map(c => `
-    <div class="list-item">
-      <div class="item-info"><div class="item-name">${escapeHtml(c.nome)}</div></div>
-      <div class="item-value text-red">${fmtMoeda(pendentesPeriodo[c.id] || 0)}</div>
-    </div>
-  `).join('') : '<div class="empty-state">Nenhum cliente devendo no período</div>';
-
-  // === Comodatos em Aberto ===
-  const { data: clientesComodato } = await sb.from('clientes')
-    .select('nome, saldo_comodato_garrafoes')
-    .gt('saldo_comodato_garrafoes', 0)
-    .order('saldo_comodato_garrafoes', { ascending: false });
+  // — Comodatos —
   const totalComodatos = (clientesComodato || []).reduce((s, c) => s + c.saldo_comodato_garrafoes, 0);
   document.getElementById('dash-comodatos-val').textContent = totalComodatos;
   document.getElementById('dash-comodatos-lista').innerHTML = (clientesComodato || []).length
@@ -5516,71 +5505,18 @@ async function loadDashboard() {
       </div>`).join('')
     : '<div class="empty-state">Nenhum comodato em aberto</div>';
 
-  // === Faturamento — escala dinâmica conforme filtro ===
-  const diffDias = Math.round((fim - inicio) / 86400000);
-  const escalaHoraria = diffDias <= 1;
-  const hojeDiaStr = new Date().toISOString().slice(0, 10);
-  let fatLabels, fatData, fatTitulo;
+  // — Devedores (loadClientes é cacheado após primeira chamada) —
+  if (!allClientes.length) await loadClientes();
+  const pendentesPeriodo = await calcularPendentesPorClientePeriodo(inicioISO, fimISO);
+  const devedores = allClientes.filter(c => (pendentesPeriodo[c.id] || 0) > 0);
+  document.getElementById('dash-devedores').innerHTML = devedores.length ? devedores.map(c => `
+    <div class="list-item">
+      <div class="item-info"><div class="item-name">${escapeHtml(c.nome)}</div></div>
+      <div class="item-value text-red">${fmtMoeda(pendentesPeriodo[c.id] || 0)}</div>
+    </div>
+  `).join('') : '<div class="empty-state">Nenhum cliente devendo no período</div>';
 
-  if (escalaHoraria) {
-    const titulos = { hoje: 'Faturamento — Hoje por Hora', personalizado: 'Faturamento — Dia por Hora' };
-    fatTitulo = titulos[dashboardPeriodo] || 'Faturamento por Hora';
-    const porHora = Array(24).fill(0);
-    pedidosHoje.forEach(p => {
-      const h = new Date(p.data).getHours();
-      porHora[h] = roundMoeda(porHora[h] + parseFloat(p.total));
-    });
-    fatLabels = Array.from({ length: 24 }, (_, i) => i.toString().padStart(2, '0') + 'h');
-    fatData = porHora;
-  } else {
-    const titulos = { semana: 'Faturamento — Esta Semana', mes: 'Faturamento — Este Mês', personalizado: 'Faturamento — Período Selecionado' };
-    fatTitulo = titulos[dashboardPeriodo] || 'Faturamento';
-    const porDia = {};
-    pedidosHoje.forEach(p => {
-      const d = p.data.slice(0, 10);
-      porDia[d] = roundMoeda((porDia[d] || 0) + parseFloat(p.total));
-    });
-    fatLabels = []; fatData = [];
-    const cur = new Date(inicio);
-    while (cur < fim) {
-      const key = cur.toISOString().slice(0, 10);
-      fatLabels.push(key === hojeDiaStr ? 'Hoje' : cur.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }));
-      fatData.push(porDia[key] || 0);
-      cur.setDate(cur.getDate() + 1);
-    }
-  }
-
-  document.getElementById('chart-faturamento-titulo').textContent = fatTitulo;
-  if (_chartFaturamento) _chartFaturamento.destroy();
-  _chartFaturamento = new Chart(document.getElementById('chart-faturamento').getContext('2d'), {
-    type: 'line',
-    data: {
-      labels: fatLabels,
-      datasets: [{
-        data: fatData,
-        borderColor: '#0ea5c4',
-        backgroundColor: 'rgba(14,165,196,0.12)',
-        fill: true,
-        tension: escalaHoraria ? 0.2 : 0.35,
-        pointRadius: fatLabels.length > 20 ? 1 : 3,
-        pointHoverRadius: 5,
-        pointBackgroundColor: '#0ea5c4',
-      }]
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: {
-        legend: { display: false },
-        tooltip: { callbacks: { label: ctx => ' ' + fmtMoeda(ctx.parsed.y) } }
-      },
-      scales: {
-        x: { ticks: { font: { size: 9 }, maxTicksLimit: escalaHoraria ? 12 : 10, maxRotation: 0 }, grid: { display: false } },
-        y: { ticks: { font: { size: 9 }, callback: v => v >= 1000 ? 'R$' + (v / 1000).toFixed(1) + 'k' : 'R$' + v }, grid: { color: 'rgba(0,0,0,0.04)' }, beginAtZero: true }
-      }
-    }
-  });
-
-  // === Distribuição por Forma de Pagamento (doughnut) ===
+  // — Doughnut formas de pagamento —
   const formaLabels = ['Dinheiro', 'Pix', 'Cartão'];
   const formaData = [efetuadoPorForma.dinheiro, efetuadoPorForma.pix, efetuadoPorForma.cartao_credito];
   const formaColors = ['#22c55e', '#0ea5c4', '#9333ea'];
@@ -5608,7 +5544,7 @@ async function loadDashboard() {
     </div>`;
   }).join('') + (formaTotal === 0 ? '<div class="empty-state">Nenhum pagamento no período</div>' : '');
 
-  // === Top 5 Clientes por Faturamento ===
+  // — Top 5 Clientes —
   const faturamentoPorCliente = {};
   pedidosHoje.forEach(p => {
     if (p.cliente_id) faturamentoPorCliente[p.cliente_id] = roundMoeda((faturamentoPorCliente[p.cliente_id] || 0) + parseFloat(p.total));
@@ -5625,12 +5561,8 @@ async function loadDashboard() {
       type: 'bar',
       data: { labels: nomes, datasets: [{ data: valores, backgroundColor: '#0ea5c4', borderRadius: 5 }] },
       options: {
-        responsive: true, maintainAspectRatio: false,
-        indexAxis: 'y',
-        plugins: {
-          legend: { display: false },
-          tooltip: { callbacks: { label: ctx => ' ' + fmtMoeda(ctx.parsed.x) } }
-        },
+        responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ' ' + fmtMoeda(ctx.parsed.x) } } },
         scales: {
           x: { ticks: { font: { size: 9 }, callback: v => v >= 1000 ? 'R$' + (v / 1000).toFixed(1) + 'k' : 'R$' + v }, grid: { color: 'rgba(0,0,0,0.04)' }, beginAtZero: true },
           y: { ticks: { font: { size: 11 } }, grid: { display: false } }
