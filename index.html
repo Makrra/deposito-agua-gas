@@ -4249,6 +4249,23 @@ async function confirmarAnoVazioEEntregar() {
 }
 
 async function efetivarEntrega(pedidoId, onConcluido) {
+  // Valida estoque de cada lote ANTES de acionar o trigger — evita baixa silenciosa
+  const { data: itensComLote } = await sb.from('itens_pedido')
+    .select('quantidade, lote_id, marcas(nome), lotes_garrafao(qtd_cheios)')
+    .eq('pedido_id', pedidoId).not('lote_id', 'is', null);
+  const porLote = {};
+  for (const it of (itensComLote || [])) {
+    const id = it.lote_id;
+    if (!porLote[id]) porLote[id] = { disponivel: it.lotes_garrafao?.qtd_cheios ?? 0, necessario: 0, nome: it.marcas?.nome || '—' };
+    porLote[id].necessario += it.quantidade;
+  }
+  for (const lote of Object.values(porLote)) {
+    if (lote.necessario > lote.disponivel) {
+      toast(`Estoque insuficiente para ${lote.nome}: precisa de ${lote.necessario}, há ${lote.disponivel} disponíveis no lote. Verifique o estoque antes de confirmar.`, true);
+      return;
+    }
+  }
+
   const { error } = await sb.from('pedidos').update({ status_entrega: 'entregue', data_entrega: new Date().toISOString() }).eq('id', pedidoId);
   if (error) { toastErro('marcar entregue', error); return; }
 

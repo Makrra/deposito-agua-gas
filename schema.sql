@@ -464,7 +464,20 @@ DECLARE
   v_diferenca INTEGER;
   v_ano_origem INTEGER;
   v_tamanho_litros INTEGER;
+  v_estoque_atual INTEGER;
 BEGIN
+  -- Pré-validação: garante que todos os lotes têm estoque suficiente
+  -- antes de fazer qualquer alteração (fail-fast, transação atômica).
+  FOR item IN SELECT * FROM itens_pedido WHERE pedido_id = NEW.id LOOP
+    IF item.lote_id IS NOT NULL THEN
+      SELECT qtd_cheios INTO v_estoque_atual FROM lotes_garrafao WHERE id = item.lote_id;
+      IF v_estoque_atual < item.quantidade THEN
+        RAISE EXCEPTION 'Estoque insuficiente: lote_id=%, disponível=%, necessário=%',
+          item.lote_id, v_estoque_atual, item.quantidade;
+      END IF;
+    END IF;
+  END LOOP;
+
   FOR item IN SELECT * FROM itens_pedido WHERE pedido_id = NEW.id LOOP
 
     -- tamanho (litros) da marca do item — NULL pra gás
@@ -472,7 +485,7 @@ BEGIN
 
     IF item.lote_id IS NOT NULL THEN
       -- ÁGUA: baixa cheios do lote de origem (marca+ano)
-      UPDATE lotes_garrafao SET qtd_cheios = GREATEST(0, qtd_cheios - item.quantidade) WHERE id = item.lote_id;
+      UPDATE lotes_garrafao SET qtd_cheios = qtd_cheios - item.quantidade WHERE id = item.lote_id;
       INSERT INTO movimentos_estoque (lote_id, tamanho_litros, tipo, quantidade, referencia_pedido_id)
         VALUES (item.lote_id, v_tamanho_litros, 'saida_venda', -item.quantidade, NEW.id);
 
