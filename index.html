@@ -402,7 +402,7 @@ select.form-control option { background: var(--surface); }
 
   <div class="card">
     <div class="card-title" style="margin-bottom:10px">Pagamentos por Perfil (Período)</div>
-    <div class="card-sub" style="margin-bottom:10px">Quem confirmou cada pagamento — só o que vem do perfil "Caixa" entra na contabilidade da gaveta (acima e na tela do Caixa).</div>
+    <div class="card-sub" style="margin-bottom:10px">Quem confirmou os pagamentos dos pedidos criados nesse período — a contabilidade da gaveta física (tela do Caixa) conta apenas o perfil "Caixa".</div>
     <div id="dash-pagamentos-perfil" class="loading"><div class="spinner"></div>Carregando...</div>
   </div>
 
@@ -5261,47 +5261,32 @@ async function loadDashboard() {
 
   const vendasHoje = roundMoeda(pedidosHoje.reduce((s, p) => s + parseFloat(p.total), 0));
 
-  // Pagamentos Efetuados: soma pela data em que o PAGAMENTO foi confirmado
-  // (mesma régua do caixa, que conta dinheiro pela sessão em que foi
-  // confirmado) — não pela data de criação do pedido a que pertence. Só
-  // conta quem confirmou estando logado como "caixa": admin/desenvolvedor
-  // podem confirmar pagamento (quita a pendência do cliente), mas isso não
-  // entra na contabilidade do caixa/dashboard.
+  // Todos os três valores (Vendas, Efetuados, Pendentes) usam o mesmo cohort:
+  // pedidos CRIADOS no período. Isso garante que Efetuados + Pendentes = Vendas
+  // sempre, independente de quando o pagamento foi confirmado ou por quem.
+  // "Efetuados" = quanto do total desses pedidos já entrou no caixa.
+  // "Pendentes" = quanto do total desses pedidos ainda falta receber.
   const FORMAS = ['dinheiro', 'pix', 'cartao_credito'];
   const PERFIS = ['caixa', 'administrador', 'desenvolvedor'];
   const efetuadoPorForma = { dinheiro: 0, pix: 0, cartao_credito: 0 };
   const efetuadoPorPerfil = {};
   PERFIS.forEach(perfil => { efetuadoPorPerfil[perfil] = { dinheiro: 0, pix: 0, cartao_credito: 0 }; });
-  const { data: pagamentosPeriodo } = await sb.from('pagamentos_pedido')
-    .select('forma, valor, pedidos(status), usuarios(role)')
-    .gte('data', inicioISO).lt('data', fimISO);
-  (pagamentosPeriodo || []).filter(p => p.pedidos?.status !== 'cancelado').forEach(p => {
-    const perfil = p.usuarios?.role;
-    // Detalhamento por perfil — para transparência na visão de quem confirmou.
-    if (efetuadoPorPerfil[perfil] && efetuadoPorPerfil[perfil][p.forma] != null) {
-      efetuadoPorPerfil[perfil][p.forma] = roundMoeda(efetuadoPorPerfil[perfil][p.forma] + parseFloat(p.valor));
-    }
-    // Pagamentos Efetuados: todos os perfis contam (caixa, admin, desenvolvedor).
-    if (efetuadoPorForma[p.forma] != null) {
-      efetuadoPorForma[p.forma] = roundMoeda(efetuadoPorForma[p.forma] + parseFloat(p.valor));
-    }
-  });
-  const pagamentosEfetuados = roundMoeda(FORMAS.reduce((s, f) => s + efetuadoPorForma[f], 0));
-
-  // Pagamentos Pendentes: dos pedidos CRIADOS no período, quanto ainda
-  // falta pagar até agora (independente de quando o que já foi pago foi
-  // confirmado, e por quem) — por isso usa todos os pagamentos desses
-  // pedidos, sem filtrar por data nem por quem confirmou: o cliente pagou
-  // ou não, isso não depende de quem bateu a confirmação.
   const pendentePorForma = { dinheiro: 0, pix: 0, cartao_credito: 0 };
   const pagoPorPedidoForma = {};
   if (idsHoje.length) {
-    const { data: pagamentosCohorte } = await sb.from('pagamentos_pedido').select('pedido_id, forma, valor').in('pedido_id', idsHoje);
+    const { data: pagamentosCohorte } = await sb.from('pagamentos_pedido')
+      .select('pedido_id, forma, valor, usuarios(role)')
+      .in('pedido_id', idsHoje);
     (pagamentosCohorte || []).forEach(pg => {
       if (!pagoPorPedidoForma[pg.pedido_id]) pagoPorPedidoForma[pg.pedido_id] = {};
       pagoPorPedidoForma[pg.pedido_id][pg.forma] = roundMoeda((pagoPorPedidoForma[pg.pedido_id][pg.forma] || 0) + parseFloat(pg.valor));
+      if (efetuadoPorForma[pg.forma] != null) efetuadoPorForma[pg.forma] = roundMoeda(efetuadoPorForma[pg.forma] + parseFloat(pg.valor));
+      const perfil = pg.usuarios?.role;
+      if (efetuadoPorPerfil[perfil] && efetuadoPorPerfil[perfil][pg.forma] != null)
+        efetuadoPorPerfil[perfil][pg.forma] = roundMoeda(efetuadoPorPerfil[perfil][pg.forma] + parseFloat(pg.valor));
     });
   }
+  const pagamentosEfetuados = roundMoeda(FORMAS.reduce((s, f) => s + efetuadoPorForma[f], 0));
   pedidosHoje.forEach(p => {
     const pago = pagoPorPedidoForma[p.id] || {};
     const parcelas = getParcelasEsperadas(p);
