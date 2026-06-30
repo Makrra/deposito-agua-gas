@@ -3804,11 +3804,20 @@ async function cancelarPedido() {
   const p = allPedidos.find(x => x.id === id);
   if (!p) return;
 
-  const jaEntregue = p.status_entrega === 'entregue';
-  const aviso = jaEntregue
+  // Usa cache só para o texto do confirm — a decisão real vem do banco (evita race condition)
+  const jaEntregueCache = p.status_entrega === 'entregue';
+  const aviso = jaEntregueCache
     ? `Cancelar o pedido de ${p.clientes ? p.clientes.nome : ''}? Como já foi entregue, o estoque e os saldos afetados serão revertidos.`
     : `Cancelar o pedido de ${p.clientes ? p.clientes.nome : ''}?`;
   if (!confirm(aviso)) return;
+
+  // Lê status real do banco depois do confirm — cache pode estar desatualizado
+  const { data: pedidoFresco } = await sb.from('pedidos').select('status, status_entrega').eq('id', id).single();
+  if (!pedidoFresco || pedidoFresco.status === 'cancelado') {
+    toast('Este pedido já foi cancelado.', true);
+    return;
+  }
+  const jaEntregue = pedidoFresco.status_entrega === 'entregue';
 
   if (jaEntregue) {
     const { data: itens } = await sb.from('itens_pedido').select('*').eq('pedido_id', id);
@@ -3825,15 +3834,17 @@ async function cancelarPedido() {
           const { data: splits } = await sb.from('vazios_devolvidos_pedido').select('*').eq('item_pedido_id', it.id);
           const listaSplits = (splits && splits.length) ? splits : (lote ? [{ ano_validade: lote.ano_validade, quantidade: it.quantidade }] : []);
           for (const s of listaSplits) {
-            const vazio = allEstoqueVazios.find(v => v.ano_validade === s.ano_validade && v.tamanho_litros === tamanho_litros);
-            if (vazio) await sb.from('estoque_vazios').update({ quantidade: Math.max(0, vazio.quantidade - s.quantidade) }).eq('id', vazio.id);
+            // leitura fresca — allEstoqueVazios pode estar desatualizado
+            const { data: vazioFresco } = await sb.from('estoque_vazios').select('id, quantidade').eq('tamanho_litros', tamanho_litros).eq('ano_validade', s.ano_validade).maybeSingle();
+            if (vazioFresco) await sb.from('estoque_vazios').update({ quantidade: Math.max(0, vazioFresco.quantidade - s.quantidade) }).eq('id', vazioFresco.id);
           }
         }
         await sb.from('movimentos_estoque').insert({ lote_id: it.lote_id, tamanho_litros, tipo: 'ajuste', quantidade: it.quantidade, referencia_pedido_id: id, observacao: 'Cancelamento de pedido entregue', criado_por: currentUserId });
       } else if (it.tipo_vasilhame === 'vazio_avulso') {
-        const vazio = allEstoqueVazios.find(v => v.tamanho_litros === it.tamanho_litros_vazio && v.ano_validade === it.ano_validade_vazio);
-        if (vazio) {
-          await sb.from('estoque_vazios').update({ quantidade: vazio.quantidade + it.quantidade }).eq('id', vazio.id);
+        // leitura fresca — allEstoqueVazios pode estar desatualizado
+        const { data: vazioFresco } = await sb.from('estoque_vazios').select('id, quantidade').eq('tamanho_litros', it.tamanho_litros_vazio).eq('ano_validade', it.ano_validade_vazio).maybeSingle();
+        if (vazioFresco) {
+          await sb.from('estoque_vazios').update({ quantidade: vazioFresco.quantidade + it.quantidade }).eq('id', vazioFresco.id);
         }
         await sb.from('movimentos_estoque').insert({
           tamanho_litros: it.tamanho_litros_vazio, ano_validade: it.ano_validade_vazio,
