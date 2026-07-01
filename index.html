@@ -1727,12 +1727,16 @@ async function salvarEntradaGas() {
   const quantidade = parseInt(document.getElementById('gas-quantidade').value || 0, 10);
   if (!marca_id || quantidade <= 0) { toast('Selecione a marca e a quantidade', true); return; }
 
-  const existente = allEstoqueGas.find(g => g.marca_id === marca_id);
-  if (existente) {
-    await sb.from('estoque_gas').update({ qtd_cheios: existente.qtd_cheios + quantidade }).eq('id', existente.id);
+  const { data: gasExistente, error: errBuscaGas } = await sb.from('estoque_gas')
+    .select('id, qtd_cheios').eq('marca_id', marca_id).maybeSingle();
+  if (errBuscaGas) { toastErro('buscar estoque de gás', errBuscaGas); return; }
+  let errGas;
+  if (gasExistente) {
+    ({ error: errGas } = await sb.from('estoque_gas').update({ qtd_cheios: gasExistente.qtd_cheios + quantidade }).eq('id', gasExistente.id));
   } else {
-    await sb.from('estoque_gas').insert({ marca_id, qtd_cheios: quantidade });
+    ({ error: errGas } = await sb.from('estoque_gas').insert({ marca_id, qtd_cheios: quantidade }));
   }
+  if (errGas) { toastErro('registrar entrada de gás', errGas); return; }
 
   closeModal('modal-entrada-gas');
   toast('Entrada de gás registrada!');
@@ -1913,10 +1917,12 @@ async function salvarAjusteVazios() {
   const quantidade = parseInt(document.getElementById('vazios-quantidade').value || 0, 10);
   if (String(ano).length !== 4 || quantidade <= 0) { toast('Informe um ano de validade e uma quantidade válidos', true); return; }
 
-  const existente = allEstoqueVazios.find(v => v.ano_validade === ano && v.tamanho_litros === tamanho_litros);
+  const { data: vazioExistente, error: errBuscaAdj } = await sb.from('estoque_vazios')
+    .select('id, quantidade').eq('ano_validade', ano).eq('tamanho_litros', tamanho_litros).maybeSingle();
+  if (errBuscaAdj) { toastErro('buscar estoque de vazios', errBuscaAdj); return; }
   let error;
-  if (existente) {
-    ({ error } = await sb.from('estoque_vazios').update({ quantidade: existente.quantidade + quantidade }).eq('id', existente.id));
+  if (vazioExistente) {
+    ({ error } = await sb.from('estoque_vazios').update({ quantidade: vazioExistente.quantidade + quantidade }).eq('id', vazioExistente.id));
   } else {
     ({ error } = await sb.from('estoque_vazios').insert({ tamanho_litros, ano_validade: ano, quantidade }));
   }
@@ -2201,10 +2207,12 @@ async function salvarAvariaGas() {
     if (!id) { toast('Selecione a marca', true); return; }
     if (quantidade <= 0) { toast('Informe a quantidade', true); return; }
 
-    const estoque = allEstoqueGas.find(g => g.id === id);
-    const disponivel = tipo === 'cheio' ? (estoque?.qtd_cheios || 0) : (estoque?.qtd_vazios || 0);
+    const { data: gasAtual, error: errBuscaGas } = await sb.from('estoque_gas')
+      .select('id, qtd_cheios, qtd_vazios').eq('id', id).single();
+    if (errBuscaGas || !gasAtual) { toastErro('ler estoque de gás', errBuscaGas || { message: 'não encontrado' }); return; }
+    const disponivel = tipo === 'cheio' ? gasAtual.qtd_cheios : gasAtual.qtd_vazios;
     if (quantidade > disponivel) {
-      toast(`Só há ${disponivel} ${tipo === 'cheio' ? 'cheios' : 'vazios'} disponíveis`, true); return;
+      toast(`Só há ${disponivel} ${tipo === 'cheio' ? 'cheios' : 'vazios'} disponíveis agora`, true); return;
     }
 
     const upd = tipo === 'cheio' ? { qtd_cheios: disponivel - quantidade } : { qtd_vazios: disponivel - quantidade };
@@ -2243,10 +2251,12 @@ async function salvarEntradaVazios() {
   const observacao = document.getElementById('ev-observacao').value.trim();
   if (String(ano_validade).length !== 4 || quantidade <= 0) { toast('Informe um ano de validade e uma quantidade válidos', true); return; }
 
-  const existente = allEstoqueVazios.find(v => v.ano_validade === ano_validade && v.tamanho_litros === tamanho_litros);
+  const { data: vazioExistente, error: errBuscaVazio } = await sb.from('estoque_vazios')
+    .select('id, quantidade').eq('ano_validade', ano_validade).eq('tamanho_litros', tamanho_litros).maybeSingle();
+  if (errBuscaVazio) { toastErro('buscar estoque de vazios', errBuscaVazio); return; }
   let error;
-  if (existente) {
-    ({ error } = await sb.from('estoque_vazios').update({ quantidade: existente.quantidade + quantidade }).eq('id', existente.id));
+  if (vazioExistente) {
+    ({ error } = await sb.from('estoque_vazios').update({ quantidade: vazioExistente.quantidade + quantidade }).eq('id', vazioExistente.id));
   } else {
     ({ error } = await sb.from('estoque_vazios').insert({ tamanho_litros, ano_validade, quantidade }));
   }
@@ -2258,7 +2268,7 @@ async function salvarEntradaVazios() {
   });
 
   closeModal('modal-entrada-vazio');
-  toast(existente ? 'Entrada somada ao estoque!' : 'Estoque iniciado!');
+  toast(vazioExistente ? 'Entrada somada ao estoque!' : 'Estoque iniciado!');
   loadEstoque();
   } finally {
     _emAndamento.delete('salvarEntradaVazios');
