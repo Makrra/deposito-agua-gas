@@ -1728,11 +1728,11 @@ async function salvarEntradaGas() {
   if (!marca_id || quantidade <= 0) { toast('Selecione a marca e a quantidade', true); return; }
 
   const { data: gasExistente, error: errBuscaGas } = await sb.from('estoque_gas')
-    .select('id, qtd_cheios').eq('marca_id', marca_id).maybeSingle();
+    .select('id').eq('marca_id', marca_id).maybeSingle();
   if (errBuscaGas) { toastErro('buscar estoque de gás', errBuscaGas); return; }
   let errGas;
   if (gasExistente) {
-    ({ error: errGas } = await sb.from('estoque_gas').update({ qtd_cheios: gasExistente.qtd_cheios + quantidade }).eq('id', gasExistente.id));
+    ({ error: errGas } = await sb.rpc('incrementar_gas_cheios', { p_id: gasExistente.id, p_delta: quantidade }));
   } else {
     ({ error: errGas } = await sb.from('estoque_gas').insert({ marca_id, qtd_cheios: quantidade }));
   }
@@ -1916,15 +1916,7 @@ async function salvarAjusteVazios() {
   const quantidade = parseInt(document.getElementById('vazios-quantidade').value || 0, 10);
   if (String(ano).length !== 4 || quantidade <= 0) { toast('Informe um ano de validade e uma quantidade válidos', true); return; }
 
-  const { data: vazioExistente, error: errBuscaAdj } = await sb.from('estoque_vazios')
-    .select('id, quantidade').eq('ano_validade', ano).eq('tamanho_litros', tamanho_litros).maybeSingle();
-  if (errBuscaAdj) { toastErro('buscar estoque de vazios', errBuscaAdj); return; }
-  let error;
-  if (vazioExistente) {
-    ({ error } = await sb.from('estoque_vazios').update({ quantidade: vazioExistente.quantidade + quantidade }).eq('id', vazioExistente.id));
-  } else {
-    ({ error } = await sb.from('estoque_vazios').insert({ tamanho_litros, ano_validade: ano, quantidade }));
-  }
+  const { error } = await sb.rpc('upsert_vazios', { p_tamanho: tamanho_litros, p_ano: ano, p_delta: quantidade });
   if (error) { toastErro('ajustar vazios', error); return; }
 
   await sb.from('movimentos_estoque').insert({ ano_validade: ano, tamanho_litros, tipo: 'ajuste', quantidade, observacao: 'Ajuste manual de estoque de vazios', criado_por: currentUserId });
@@ -2003,27 +1995,18 @@ async function salvarLote() {
     if (String(ano_validade).length !== 4) { toast('Informe um ano de validade com 4 números', true); return; }
   }
 
-  const { data: loteExistente, error: errBusca } = await sb.from('lotes_garrafao')
-    .select('id, qtd_cheios').eq('marca_id', marca_id).eq('ano_validade', ano_validade).maybeSingle();
-  if (errBusca) { toastErro('buscar lote', errBusca); return; }
-  let loteId;
-  if (loteExistente) {
-    const { error } = await sb.from('lotes_garrafao').update({ qtd_cheios: loteExistente.qtd_cheios + qtd_recebida }).eq('id', loteExistente.id);
-    if (error) { toastErro('atualizar lote', error); return; }
-    loteId = loteExistente.id;
-  } else {
-    const { data: lote, error } = await sb.from('lotes_garrafao').insert({ marca_id, ano_validade, qtd_cheios: qtd_recebida }).select().single();
-    if (error) { toastErro('criar lote', error); return; }
-    loteId = lote.id;
-  }
+  const { data: loteRpc, error: errLote } = await sb.rpc('upsert_cheios', { p_marca_id: marca_id, p_ano: ano_validade, p_delta: qtd_recebida });
+  if (errLote || !loteRpc?.length) { toastErro('atualizar lote', errLote || { message: 'sem retorno do banco' }); return; }
+  const loteId = loteRpc[0].lote_id;
 
   const marcaNome = marcaSelecionada ? marcaSelecionada.nome : '';
 
   if (origem === 'reaproveitado') {
-    const { data: vazioAtual, error: errVazio } = await sb.from('estoque_vazios').select('quantidade').eq('id', vazioOrigem.id).single();
-    if (errVazio || !vazioAtual) { toastErro('ler estoque de vazios', errVazio || { message: 'registro não encontrado' }); return; }
+    const { data: vazioAtual, error: errVazioLer } = await sb.from('estoque_vazios').select('quantidade').eq('id', vazioOrigem.id).single();
+    if (errVazioLer || !vazioAtual) { toastErro('ler estoque de vazios', errVazioLer || { message: 'registro não encontrado' }); return; }
     if (qtd_recebida > vazioAtual.quantidade) { toast(`Só há ${vazioAtual.quantidade} vazios disponíveis agora`, true); return; }
-    await sb.from('estoque_vazios').update({ quantidade: vazioAtual.quantidade - qtd_recebida }).eq('id', vazioOrigem.id);
+    const { error: errVazioRpc } = await sb.rpc('upsert_vazios', { p_tamanho: marcaSelecionada.tamanho_litros, p_ano: ano_validade, p_delta: -qtd_recebida });
+    if (errVazioRpc) { toastErro('decrementar vazios', errVazioRpc); return; }
     await sb.from('movimentos_estoque').insert({
       ano_validade, tamanho_litros: marcaSelecionada.tamanho_litros, tipo: 'reaproveitamento', quantidade: -qtd_recebida,
       observacao: `Reaproveitado para encher com ${marcaNome}`, criado_por: currentUserId,
@@ -2043,7 +2026,7 @@ async function salvarLote() {
   }
 
   closeModal('modal-lote');
-  toast(loteExistente ? 'Entrada somada ao lote existente!' : 'Lote criado!');
+  toast('Entrada registrada!');
   loadEstoque();
   } finally {
     _emAndamento.delete('salvarLote');
@@ -2071,11 +2054,10 @@ async function salvarAvaria() {
   if (!lote_id) { toast('Selecione o lote', true); return; }
   if (quantidade <= 0) { toast('Informe a quantidade', true); return; }
 
-  const lote = allLotes.find(l => l.id === lote_id);
-  const novaQtd = Math.max(0, (lote ? lote.qtd_cheios : 0) - quantidade);
-  const { error: errUpd } = await sb.from('lotes_garrafao').update({ qtd_cheios: novaQtd }).eq('id', lote_id);
-  if (errUpd) { toastErro('atualizar estoque', errUpd); return; }
+  const { error: errUpd } = await sb.rpc('incrementar_lote', { p_lote_id: lote_id, p_delta: -quantidade });
+  if (errUpd) { toast('Estoque insuficiente para registrar a avaria.', true); return; }
 
+  const lote = allLotes.find(l => l.id === lote_id);
   const tamanho_litros = lote?.marcas?.tamanho_litros ?? null;
   await sb.from('avarias').insert({ lote_id, tamanho_litros, tipo: 'cheio', quantidade, motivo, criado_por: currentUserId });
   await sb.from('movimentos_estoque').insert({ lote_id, tamanho_litros, tipo: 'avaria', quantidade: -quantidade, observacao: motivo, criado_por: currentUserId });
@@ -2108,12 +2090,9 @@ async function salvarAjusteLote() {
     const obs = document.getElementById('ajuste-lote-obs').value.trim();
     if (!loteId || isNaN(quantidade) || quantidade === 0) { toast('Informe o lote e uma quantidade diferente de zero', true); return; }
     if (!obs) { toast('Informe a observação do ajuste', true); return; }
+    const { error: errLote } = await sb.rpc('incrementar_lote', { p_lote_id: loteId, p_delta: quantidade });
+    if (errLote) { toast('Ajuste inválido: o estoque resultante seria negativo.', true); return; }
     const lote = allLotes.find(l => l.id === loteId);
-    if (!lote) { toast('Lote não encontrado', true); return; }
-    const novoQtd = lote.qtd_cheios + quantidade;
-    if (novoQtd < 0) { toast(`Estoque resultante seria negativo (${novoQtd}). Ajuste a quantidade.`, true); return; }
-    const { error: errLote } = await sb.from('lotes_garrafao').update({ qtd_cheios: novoQtd }).eq('id', loteId);
-    if (errLote) { toastErro('ajustar lote', errLote); return; }
     const tamanho_litros = lote?.marcas?.tamanho_litros ?? null;
     const { error: errMov } = await sb.from('movimentos_estoque').insert({ lote_id: loteId, tamanho_litros, tipo: 'ajuste', quantidade, observacao: obs, criado_por: currentUserId });
     if (errMov) { toastErro('registrar movimento de ajuste', errMov); return; }
@@ -2162,12 +2141,13 @@ async function salvarAvariaVazio() {
   if (!ano_validade) { toast('Nenhum ano de validade disponível', true); return; }
   if (quantidade <= 0) { toast('Informe a quantidade', true); return; }
 
-  const vazio = allEstoqueVazios.find(v => v.ano_validade === ano_validade && v.tamanho_litros === tamanho_litros);
-  if (!vazio || vazio.quantidade < quantidade) {
-    toast(`Só há ${vazio ? vazio.quantidade : 0} vazios ${tamanho_litros}L val. ${ano_validade} disponíveis`, true); return;
+  const { data: vazioAtual, error: errVazioLer } = await sb.from('estoque_vazios')
+    .select('quantidade').eq('tamanho_litros', tamanho_litros).eq('ano_validade', ano_validade).single();
+  if (errVazioLer || !vazioAtual) { toastErro('ler estoque de vazios', errVazioLer || { message: 'não encontrado' }); return; }
+  if (vazioAtual.quantidade < quantidade) {
+    toast(`Só há ${vazioAtual.quantidade} vazios ${tamanho_litros}L val. ${ano_validade} disponíveis`, true); return;
   }
-
-  const { error: errUpd } = await sb.from('estoque_vazios').update({ quantidade: vazio.quantidade - quantidade }).eq('id', vazio.id);
+  const { error: errUpd } = await sb.rpc('upsert_vazios', { p_tamanho: tamanho_litros, p_ano: ano_validade, p_delta: -quantidade });
   if (errUpd) { toastErro('atualizar estoque', errUpd); return; }
 
   await sb.from('avarias').insert({ ano_validade, tamanho_litros, tipo: 'vazio', quantidade, motivo, criado_por: currentUserId });
@@ -2214,8 +2194,8 @@ async function salvarAvariaGas() {
       toast(`Só há ${disponivel} ${tipo === 'cheio' ? 'cheios' : 'vazios'} disponíveis agora`, true); return;
     }
 
-    const upd = tipo === 'cheio' ? { qtd_cheios: disponivel - quantidade } : { qtd_vazios: disponivel - quantidade };
-    const { error: errUpd } = await sb.from('estoque_gas').update(upd).eq('id', id);
+    const rpcFn = tipo === 'cheio' ? 'incrementar_gas_cheios' : 'incrementar_gas_vazios';
+    const { error: errUpd } = await sb.rpc(rpcFn, { p_id: id, p_delta: -quantidade });
     if (errUpd) { toastErro('atualizar estoque', errUpd); return; }
 
     await sb.from('avarias').insert({ tipo: `gas_${tipo}`, quantidade, motivo, criado_por: currentUserId });
@@ -2250,15 +2230,7 @@ async function salvarEntradaVazios() {
   const observacao = document.getElementById('ev-observacao').value.trim();
   if (String(ano_validade).length !== 4 || quantidade <= 0) { toast('Informe um ano de validade e uma quantidade válidos', true); return; }
 
-  const { data: vazioExistente, error: errBuscaVazio } = await sb.from('estoque_vazios')
-    .select('id, quantidade').eq('ano_validade', ano_validade).eq('tamanho_litros', tamanho_litros).maybeSingle();
-  if (errBuscaVazio) { toastErro('buscar estoque de vazios', errBuscaVazio); return; }
-  let error;
-  if (vazioExistente) {
-    ({ error } = await sb.from('estoque_vazios').update({ quantidade: vazioExistente.quantidade + quantidade }).eq('id', vazioExistente.id));
-  } else {
-    ({ error } = await sb.from('estoque_vazios').insert({ tamanho_litros, ano_validade, quantidade }));
-  }
+  const { error } = await sb.rpc('upsert_vazios', { p_tamanho: tamanho_litros, p_ano: ano_validade, p_delta: quantidade });
   if (error) { toastErro('registrar entrada de vazios', error); return; }
 
   await sb.from('movimentos_estoque').insert({
@@ -2267,7 +2239,7 @@ async function salvarEntradaVazios() {
   });
 
   closeModal('modal-entrada-vazio');
-  toast(vazioExistente ? 'Entrada somada ao estoque!' : 'Estoque iniciado!');
+  toast('Entrada registrada!');
   loadEstoque();
   } finally {
     _emAndamento.delete('salvarEntradaVazios');
