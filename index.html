@@ -481,6 +481,7 @@ select.form-control option { background: var(--surface); }
       <button class="btn btn-primary btn-sm" style="flex:1" onclick="abrirNovoLote()">+ Registrar Entrada</button>
       <button class="btn btn-outline btn-sm" style="flex:1" onclick="abrirAvaria()">Registrar Avaria</button>
     </div>
+    <button id="btn-ajuste-lote-dev" class="btn btn-outline btn-sm btn-block" style="display:none;margin-bottom:14px;color:#f59e0b;border-color:#f59e0b" onclick="abrirAjusteLote()">Ajuste Manual (Dev)</button>
     <div class="tabs" style="margin-bottom:14px">
       <button class="tab-btn active" id="tab-lotes-tamanho-todos" onclick="filterLotesPorTamanho('todos')">Todos</button>
       <button class="tab-btn" id="tab-lotes-tamanho-20" onclick="filterLotesPorTamanho(20)">20L</button>
@@ -787,6 +788,27 @@ select.form-control option { background: var(--surface); }
       <textarea class="form-control" id="avaria-motivo" rows="2" placeholder="Ex: rachado, vazando..."></textarea>
     </div>
     <button class="btn btn-primary btn-block" onclick="salvarAvaria()">Registrar</button>
+  </div>
+</div>
+
+<!-- ===== MODAL: Ajuste Manual de Lote (Desenvolvedor) ===== -->
+<div class="modal-overlay" id="modal-ajuste-lote">
+  <div class="modal">
+    <div class="modal-title">Ajuste Manual — Cheios (Dev)</div>
+    <div class="form-group">
+      <label class="form-label">Lote</label>
+      <select class="form-control" id="ajuste-lote-id"></select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Quantidade (negativo para reduzir)</label>
+      <input class="form-control" id="ajuste-lote-quantidade" type="number" placeholder="ex: -5 ou +10">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Observação</label>
+      <input class="form-control" id="ajuste-lote-obs" type="text" placeholder="motivo do ajuste">
+    </div>
+    <button class="btn btn-primary btn-block" onclick="salvarAjusteLote()">Salvar Ajuste</button>
+    <button class="btn btn-outline btn-block" style="margin-top:8px" onclick="closeModal('modal-ajuste-lote')">Cancelar</button>
   </div>
 </div>
 
@@ -1745,6 +1767,8 @@ function renderLotesList() {
   const el = document.getElementById('lotes-list');
   if (!allLotes.length) { el.innerHTML = emptyStateHTML(SVG.estoque, 'Nenhum lote cadastrado'); return; }
   const podeExcluir = isAdminLevel();
+  const btnDev = document.getElementById('btn-ajuste-lote-dev');
+  if (btnDev) btnDev.style.display = currentUserRole === 'desenvolvedor' ? '' : 'none';
   const filtrados = currentLoteFiltroTamanho === 'todos'
     ? allLotes
     : allLotes.filter(l => l.marcas && l.marcas.tamanho_litros === currentLoteFiltroTamanho);
@@ -2053,6 +2077,43 @@ async function salvarAvaria() {
   loadEstoque();
   } finally {
     _emAndamento.delete('salvarAvaria');
+    if (_btn) { _btn.disabled = false; if (_btnOrig) _btn.textContent = _btnOrig; }
+  }
+}
+
+function abrirAjusteLote() {
+  preencherSelectLotes(document.getElementById('ajuste-lote-id'), {});
+  document.getElementById('ajuste-lote-quantidade').value = '';
+  document.getElementById('ajuste-lote-obs').value = '';
+  openModal('modal-ajuste-lote');
+}
+
+async function salvarAjusteLote() {
+  if (_emAndamento.has('salvarAjusteLote')) return;
+  _emAndamento.add('salvarAjusteLote');
+  const _btn = document.querySelector('#modal-ajuste-lote .btn-primary');
+  const _btnOrig = _btn?.textContent;
+  if (_btn) { _btn.disabled = true; _btn.textContent = 'Aguarde...'; }
+  try {
+    const loteId = document.getElementById('ajuste-lote-id').value;
+    const quantidade = parseInt(document.getElementById('ajuste-lote-quantidade').value, 10);
+    const obs = document.getElementById('ajuste-lote-obs').value.trim();
+    if (!loteId || isNaN(quantidade) || quantidade === 0) { toast('Informe o lote e uma quantidade diferente de zero', true); return; }
+    if (!obs) { toast('Informe a observação do ajuste', true); return; }
+    const lote = allLotes.find(l => l.id === loteId);
+    if (!lote) { toast('Lote não encontrado', true); return; }
+    const novoQtd = lote.qtd_cheios + quantidade;
+    if (novoQtd < 0) { toast(`Estoque resultante seria negativo (${novoQtd}). Ajuste a quantidade.`, true); return; }
+    const { error: errLote } = await sb.from('lotes_garrafao').update({ qtd_cheios: novoQtd }).eq('id', loteId);
+    if (errLote) { toastErro('ajustar lote', errLote); return; }
+    const tamanho_litros = lote?.marcas?.tamanho_litros ?? null;
+    const { error: errMov } = await sb.from('movimentos_estoque').insert({ lote_id: loteId, tamanho_litros, tipo: 'ajuste', quantidade, observacao: obs, criado_por: currentUserId });
+    if (errMov) { toastErro('registrar movimento de ajuste', errMov); return; }
+    closeModal('modal-ajuste-lote');
+    toast('Ajuste registrado!');
+    loadEstoque();
+  } finally {
+    _emAndamento.delete('salvarAjusteLote');
     if (_btn) { _btn.disabled = false; if (_btnOrig) _btn.textContent = _btnOrig; }
   }
 }
