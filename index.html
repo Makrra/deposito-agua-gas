@@ -1998,14 +1998,14 @@ async function salvarLote() {
     if (String(ano_validade).length !== 4) { toast('Informe um ano de validade com 4 números', true); return; }
   }
 
-  const existente = allLotes.find(l => l.marca_id === marca_id && l.ano_validade === ano_validade);
+  const { data: loteExistente, error: errBusca } = await sb.from('lotes_garrafao')
+    .select('id, qtd_cheios').eq('marca_id', marca_id).eq('ano_validade', ano_validade).maybeSingle();
+  if (errBusca) { toastErro('buscar lote', errBusca); return; }
   let loteId;
-  if (existente) {
-    const { data: loteAtual, error: errLer } = await sb.from('lotes_garrafao').select('qtd_cheios').eq('id', existente.id).single();
-    if (errLer || !loteAtual) { toastErro('ler lote atual', errLer || { message: 'lote não encontrado' }); return; }
-    const { error } = await sb.from('lotes_garrafao').update({ qtd_cheios: loteAtual.qtd_cheios + qtd_recebida }).eq('id', existente.id);
+  if (loteExistente) {
+    const { error } = await sb.from('lotes_garrafao').update({ qtd_cheios: loteExistente.qtd_cheios + qtd_recebida }).eq('id', loteExistente.id);
     if (error) { toastErro('atualizar lote', error); return; }
-    loteId = existente.id;
+    loteId = loteExistente.id;
   } else {
     const { data: lote, error } = await sb.from('lotes_garrafao').insert({ marca_id, ano_validade, qtd_cheios: qtd_recebida }).select().single();
     if (error) { toastErro('criar lote', error); return; }
@@ -2015,7 +2015,10 @@ async function salvarLote() {
   const marcaNome = marcaSelecionada ? marcaSelecionada.nome : '';
 
   if (origem === 'reaproveitado') {
-    await sb.from('estoque_vazios').update({ quantidade: vazioOrigem.quantidade - qtd_recebida }).eq('id', vazioOrigem.id);
+    const { data: vazioAtual, error: errVazio } = await sb.from('estoque_vazios').select('quantidade').eq('id', vazioOrigem.id).single();
+    if (errVazio || !vazioAtual) { toastErro('ler estoque de vazios', errVazio || { message: 'registro não encontrado' }); return; }
+    if (qtd_recebida > vazioAtual.quantidade) { toast(`Só há ${vazioAtual.quantidade} vazios disponíveis agora`, true); return; }
+    await sb.from('estoque_vazios').update({ quantidade: vazioAtual.quantidade - qtd_recebida }).eq('id', vazioOrigem.id);
     await sb.from('movimentos_estoque').insert({
       ano_validade, tamanho_litros: marcaSelecionada.tamanho_litros, tipo: 'reaproveitamento', quantidade: -qtd_recebida,
       observacao: `Reaproveitado para encher com ${marcaNome}`, criado_por: currentUserId,
@@ -2035,7 +2038,7 @@ async function salvarLote() {
   }
 
   closeModal('modal-lote');
-  toast(existente ? 'Entrada somada ao lote existente!' : 'Lote criado!');
+  toast(loteExistente ? 'Entrada somada ao lote existente!' : 'Lote criado!');
   loadEstoque();
   } finally {
     _emAndamento.delete('salvarLote');
