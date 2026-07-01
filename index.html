@@ -227,6 +227,13 @@ select.form-control option { background: var(--surface); }
 }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 .toast.error { background: var(--red); }
+/* OFFLINE BANNER */
+.offline-banner {
+  display: none; position: fixed; top: 0; left: 0; right: 0; z-index: 400;
+  background: #92400e; color: #fef3c7; padding: 8px 16px;
+  font-size: 0.82rem; font-weight: 600; text-align: center;
+  border-bottom: 2px solid #b45309;
+}
 /* LOADING */
 .loading { text-align: center; padding: 40px; color: var(--muted); font-size: 0.9rem; }
 .spinner { width: 32px; height: 32px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; margin: 0 auto 12px; }
@@ -334,6 +341,7 @@ select.form-control option { background: var(--surface); }
 </div>
 
 <div class="toast" id="toast"></div>
+<div class="offline-banner" id="offline-banner">⚠ Sem internet — não é possível salvar alterações</div>
 
 <!-- ======= PAGE: DASHBOARD ======= -->
 <div class="page active" id="page-dash">
@@ -1451,11 +1459,17 @@ document.addEventListener('click', e => {
 // ============================================================
 // TOAST
 // ============================================================
-function toast(msg, error = false) {
+function toast(msg, error = false, duration = 3000) {
   const t = document.getElementById('toast');
   t.textContent = msg;
   t.className = 'toast show' + (error ? ' error' : '');
-  setTimeout(() => t.classList.remove('show'), 3000);
+  setTimeout(() => t.classList.remove('show'), duration);
+}
+
+function _isErroRede(error) {
+  if (!navigator.onLine) return true;
+  const msg = (error?.message || '').toLowerCase();
+  return msg.includes('failed to fetch') || msg.includes('networkerror') || msg.includes('network request failed');
 }
 
 // Sem isso, um erro de banco só aparece como toast e se perde quando a
@@ -1477,6 +1491,10 @@ async function logErroApp(acao, error) {
 
 function toastErro(acao, error) {
   console.error(acao, error);
+  if (_isErroRede(error)) {
+    toast('Sem conexão com o servidor. Verifique sua internet e tente de novo.', true, 6000);
+    return;
+  }
   toast('Erro ao ' + acao + ': ' + (error?.message || ''), true);
   logErroApp(acao, error);
 }
@@ -1981,43 +1999,36 @@ async function salvarLote() {
   const marcaSelecionada = allMarcas.find(m => m.id === marca_id);
 
   let ano_validade;
-  let vazioOrigem = null;
   if (origem === 'reaproveitado') {
     ano_validade = parseInt(document.getElementById('lote-vazio-origem').value || 0, 10);
     if (!ano_validade) { toast('Selecione o vazio a reaproveitar', true); return; }
-    vazioOrigem = allEstoqueVazios.find(v => v.ano_validade === ano_validade && v.tamanho_litros === marcaSelecionada.tamanho_litros);
+    const vazioOrigem = allEstoqueVazios.find(v => v.ano_validade === ano_validade && v.tamanho_litros === marcaSelecionada.tamanho_litros);
     if (!vazioOrigem || qtd_recebida > vazioOrigem.quantidade) {
       toast(`Só há ${vazioOrigem ? vazioOrigem.quantidade : 0} vazios de ${marcaSelecionada.tamanho_litros}L validade ${ano_validade} disponíveis`, true);
+      return;
+    }
+    const { error: errReap } = await sb.rpc('reaproveitamento_lote', {
+      p_marca_id: marca_id,
+      p_ano: ano_validade,
+      p_qtd: qtd_recebida,
+      p_tamanho: marcaSelecionada.tamanho_litros,
+      p_usuario_id: currentUserId,
+      p_data_entrada: data_entrada ? data_entrada + 'T12:00:00' : null,
+    });
+    if (errReap) {
+      if (errReap.message?.includes('Sem estoque')) {
+        toast(`Vazios insuficientes de ${marcaSelecionada.tamanho_litros}L validade ${ano_validade}`, true);
+      } else {
+        toastErro('registrar reaproveitamento', errReap);
+      }
       return;
     }
   } else {
     ano_validade = parseInt(document.getElementById('lote-ano-validade').value || 0, 10);
     if (String(ano_validade).length !== 4) { toast('Informe um ano de validade com 4 números', true); return; }
-  }
-
-  const { data: loteRpc, error: errLote } = await sb.rpc('upsert_cheios', { p_marca_id: marca_id, p_ano: ano_validade, p_delta: qtd_recebida });
-  if (errLote || !loteRpc?.length) { toastErro('atualizar lote', errLote || { message: 'sem retorno do banco' }); return; }
-  const loteId = loteRpc[0].lote_id;
-
-  const marcaNome = marcaSelecionada ? marcaSelecionada.nome : '';
-
-  if (origem === 'reaproveitado') {
-    const { data: vazioAtual, error: errVazioLer } = await sb.from('estoque_vazios').select('quantidade').eq('id', vazioOrigem.id).single();
-    if (errVazioLer || !vazioAtual) { toastErro('ler estoque de vazios', errVazioLer || { message: 'registro não encontrado' }); return; }
-    if (qtd_recebida > vazioAtual.quantidade) { toast(`Só há ${vazioAtual.quantidade} vazios disponíveis agora`, true); return; }
-    const { error: errVazioRpc } = await sb.rpc('upsert_vazios', { p_tamanho: marcaSelecionada.tamanho_litros, p_ano: ano_validade, p_delta: -qtd_recebida });
-    if (errVazioRpc) { toastErro('decrementar vazios', errVazioRpc); return; }
-    await sb.from('movimentos_estoque').insert({
-      ano_validade, tamanho_litros: marcaSelecionada.tamanho_litros, tipo: 'reaproveitamento', quantidade: -qtd_recebida,
-      observacao: `Reaproveitado para encher com ${marcaNome}`, criado_por: currentUserId,
-    });
-    await sb.from('movimentos_estoque').insert({
-      lote_id: loteId, tamanho_litros: marcaSelecionada.tamanho_litros, tipo: 'reaproveitamento', quantidade: qtd_recebida,
-      observacao: 'Reaproveitado do estoque de vazios',
-      data: data_entrada ? data_entrada + 'T12:00:00' : undefined,
-      criado_por: currentUserId,
-    });
-  } else {
+    const { data: loteRpc, error: errLote } = await sb.rpc('upsert_cheios', { p_marca_id: marca_id, p_ano: ano_validade, p_delta: qtd_recebida });
+    if (errLote || !loteRpc?.length) { toastErro('atualizar lote', errLote || { message: 'sem retorno do banco' }); return; }
+    const loteId = loteRpc[0].lote_id;
     await sb.from('movimentos_estoque').insert({
       lote_id: loteId, tamanho_litros: marcaSelecionada.tamanho_litros, tipo: 'entrada_fabrica', quantidade: qtd_recebida,
       data: data_entrada ? data_entrada + 'T12:00:00' : undefined,
@@ -5782,6 +5793,14 @@ async function init() {
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
 }
+
+window.addEventListener('offline', () => {
+  document.getElementById('offline-banner').style.display = 'block';
+});
+window.addEventListener('online', () => {
+  document.getElementById('offline-banner').style.display = 'none';
+  toast('Conexão restaurada!');
+});
 </script>
 </body>
 </html>
