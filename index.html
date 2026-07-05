@@ -131,6 +131,9 @@ body {
   box-shadow: 0 6px 18px rgba(14,165,196,.32); transform: scale(1.04);
 }
 .btn-acao:active { transform: scale(.97); box-shadow: 0 2px 8px rgba(14,165,196,.18); }
+.btn-acao.active { background: var(--primary); color: #fff; box-shadow: 0 4px 14px rgba(14,165,196,.28); }
+.stock-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.stock-card { padding: 12px; text-align: center; }
 @keyframes _ripple { to { transform: scale(3.8); opacity: 0; } }
 .btn-acao-ripple {
   position: absolute; border-radius: 50%; pointer-events: none;
@@ -477,14 +480,29 @@ select.form-control option { background: var(--surface); }
 
 <!-- ======= PAGE: ESTOQUE ======= -->
 <div class="page" id="page-estoque">
-  <div class="tabs">
-    <button class="tab-btn active" id="tab-estoque-agua" onclick="estoqueSetView('agua')">Água</button>
-    <button class="tab-btn" id="tab-estoque-gas" onclick="estoqueSetView('gas')">Gás</button>
-    <button class="tab-btn" id="tab-estoque-marcas" onclick="estoqueSetView('marcas')">Marcas</button>
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">
+    <button class="btn-acao active" id="estoque-btn-agua" onclick="rippleBtnAcao(event);estoqueSetView('agua')" style="min-height:56px;flex-direction:column;gap:4px">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="1.8"><path d="M12 2C6.5 8 4 12.5 4 15.5a8 8 0 0 0 16 0C20 12.5 17.5 8 12 2z"/></svg>
+      <span style="font-size:.7rem;font-weight:700">Água</span>
+    </button>
+    <button class="btn-acao" id="estoque-btn-gas" onclick="rippleBtnAcao(event);estoqueSetView('gas')" style="min-height:56px;flex-direction:column;gap:4px">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="#ef4444"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg>
+      <span style="font-size:.7rem;font-weight:700">Gás</span>
+    </button>
+    <button class="btn-acao" id="estoque-btn-marcas" onclick="rippleBtnAcao(event);estoqueSetView('marcas')" style="min-height:56px;flex-direction:column;gap:4px">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+      <span style="font-size:.7rem;font-weight:700">Marcas</span>
+    </button>
   </div>
 
-  <div id="estoque-view-agua">
-    <div style="font-weight:700;font-size:0.8rem;color:var(--muted);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:12px">Cheios</div>
+  <!-- Sub-nav Água: Cheios / Vazios -->
+  <div id="estoque-agua-sub" style="display:flex;gap:8px;margin-bottom:14px">
+    <button id="estoque-btn-cheios" class="btn btn-primary btn-sm" style="flex:1" onclick="estoqueAguaSetSub('cheios')">Cheios</button>
+    <button id="estoque-btn-vazios" class="btn btn-outline btn-sm" style="flex:1" onclick="estoqueAguaSetSub('vazios')">Vazios</button>
+  </div>
+
+  <!-- Água: Cheios -->
+  <div id="estoque-view-agua-cheios">
     <div style="display:flex;gap:8px;margin-bottom:14px">
       <button class="btn btn-primary btn-sm" style="flex:1" onclick="abrirNovoLote()">+ Registrar Entrada</button>
       <button class="btn btn-outline btn-sm" style="flex:1" onclick="abrirAvaria()">Registrar Avaria</button>
@@ -496,8 +514,10 @@ select.form-control option { background: var(--surface); }
       <button class="tab-btn" id="tab-lotes-tamanho-10" onclick="filterLotesPorTamanho(10)">10L</button>
     </div>
     <div id="lotes-list" class="loading"><div class="spinner"></div>Carregando...</div>
+  </div>
 
-    <div style="font-weight:700;font-size:0.8rem;color:var(--muted);letter-spacing:0.08em;text-transform:uppercase;margin-top:24px;margin-bottom:12px;padding-top:16px;border-top:1px solid var(--border)">Vazios</div>
+  <!-- Água: Vazios -->
+  <div id="estoque-view-agua-vazios" style="display:none">
     <div class="card-sub" style="margin-bottom:14px">Vasilhames vazios não pertencem a uma marca — o mesmo garrafão pode ser enchido por qualquer marca depois.</div>
     <div style="display:flex;gap:8px;margin-bottom:14px">
       <button class="btn btn-primary btn-sm" style="flex:1" onclick="abrirEntradaVazios()">+ Registrar Entrada</button>
@@ -506,6 +526,7 @@ select.form-control option { background: var(--surface); }
     <div id="vazios-list"></div>
   </div>
 
+  <!-- Gás -->
   <div id="estoque-view-gas" style="display:none">
     <div style="display:flex;gap:8px;margin-bottom:14px">
       <button class="btn btn-primary btn-sm" style="flex:1" onclick="abrirEntradaGas()">+ Registrar Entrada</button>
@@ -514,6 +535,7 @@ select.form-control option { background: var(--surface); }
     <div id="gas-list" class="loading"><div class="spinner"></div>Carregando...</div>
   </div>
 
+  <!-- Marcas -->
   <div id="estoque-view-marcas" style="display:none">
     <button class="btn btn-primary btn-sm btn-block" style="margin-bottom:14px" id="btn-nova-marca" onclick="abrirNovaMarca()">+ Nova Marca</button>
     <div id="marcas-list" class="loading"><div class="spinner"></div>Carregando...</div>
@@ -1641,12 +1663,29 @@ function nomeMarcaComTamanho(marca) {
 // ESTOQUE: MARCAS
 // ============================================================
 function estoqueSetView(view) {
-  document.getElementById('estoque-view-agua').style.display    = view === 'agua'    ? 'block' : 'none';
-  document.getElementById('estoque-view-gas').style.display     = view === 'gas'     ? 'block' : 'none';
-  document.getElementById('estoque-view-marcas').style.display  = view === 'marcas'  ? 'block' : 'none';
-  document.getElementById('tab-estoque-agua').classList.toggle('active', view === 'agua');
-  document.getElementById('tab-estoque-gas').classList.toggle('active', view === 'gas');
-  document.getElementById('tab-estoque-marcas').classList.toggle('active', view === 'marcas');
+  ['agua', 'gas', 'marcas'].forEach(v => {
+    document.getElementById(`estoque-btn-${v}`).classList.toggle('active', v === view);
+  });
+  const aguaSub = document.getElementById('estoque-agua-sub');
+  if (view === 'agua') {
+    aguaSub.style.display = 'flex';
+    estoqueAguaSetSub('cheios');
+  } else {
+    aguaSub.style.display = 'none';
+    document.getElementById('estoque-view-agua-cheios').style.display = 'none';
+    document.getElementById('estoque-view-agua-vazios').style.display = 'none';
+  }
+  document.getElementById('estoque-view-gas').style.display    = view === 'gas'    ? 'block' : 'none';
+  document.getElementById('estoque-view-marcas').style.display = view === 'marcas' ? 'block' : 'none';
+}
+
+function estoqueAguaSetSub(sub) {
+  document.getElementById('estoque-view-agua-cheios').style.display = sub === 'cheios' ? 'block' : 'none';
+  document.getElementById('estoque-view-agua-vazios').style.display = sub === 'vazios' ? 'block' : 'none';
+  const btnC = document.getElementById('estoque-btn-cheios');
+  const btnV = document.getElementById('estoque-btn-vazios');
+  btnC.className = `btn btn-sm ${sub === 'cheios' ? 'btn-primary' : 'btn-outline'}`;
+  btnV.className = `btn btn-sm ${sub === 'vazios' ? 'btn-primary' : 'btn-outline'}`;
 }
 
 async function loadEstoque() {
@@ -1766,17 +1805,21 @@ async function salvarMarca() {
 function renderGasList() {
   const el = document.getElementById('gas-list');
   if (!allEstoqueGas.length) { el.innerHTML = emptyStateHTML(SVG.gas, 'Nenhuma marca de gás com estoque ainda'); return; }
-  el.innerHTML = allEstoqueGas.map(g => `
-    <div class="card">
-      <div class="card-header">
-        <div class="card-title">${g.marcas ? escapeHtml(g.marcas.nome) : '—'}</div>
-      </div>
-      <div style="display:flex;gap:16px">
-        <div><div class="item-value">${g.qtd_cheios}</div><div class="item-detail">cheios</div></div>
-        <div><div class="item-value">${g.qtd_vazios}</div><div class="item-detail">vazios</div></div>
+  el.innerHTML = '<div class="stock-grid">' + allEstoqueGas.map(g => `
+    <div class="card stock-card">
+      <div style="font-weight:700;font-size:0.85rem;margin-bottom:10px">${g.marcas ? escapeHtml(g.marcas.nome) : '—'}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+        <div>
+          <div style="font-size:1.9rem;font-weight:800;line-height:1;color:var(--accent)">${g.qtd_cheios}</div>
+          <div style="font-size:0.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-top:2px">cheios</div>
+        </div>
+        <div>
+          <div style="font-size:1.9rem;font-weight:800;line-height:1;color:var(--muted)">${g.qtd_vazios}</div>
+          <div style="font-size:0.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-top:2px">vazios</div>
+        </div>
       </div>
     </div>
-  `).join('');
+  `).join('') + '</div>';
 }
 
 function abrirEntradaGas() {
@@ -1895,26 +1938,17 @@ function renderLotesList() {
     if (nomeA !== nomeB) return nomeA.localeCompare(nomeB, 'pt-BR');
     return a.ano_validade - b.ano_validade;
   });
-  el.innerHTML = lotesOrdenados.map(l => `
-    <div class="card${l.qtd_cheios === 0 ? ' card-esgotado' : ''}">
-      <div class="card-header">
-        <div>
-          <div class="card-title">${l.marcas ? nomeMarcaComTamanho(l.marcas) : '—'}</div>
-          <div class="card-sub">Validade: ${l.ano_validade}</div>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">
-          ${badgeValidadeAno(l.ano_validade)}
-          ${l.qtd_cheios === 0 ? '<span class="badge badge-red">Esgotado</span>' : ''}
-        </div>
-      </div>
-      <div style="display:flex;justify-content:space-between;align-items:flex-end">
-        <div><div class="item-value">${l.qtd_cheios}</div><div class="item-detail">cheios</div></div>
-        <button class="btn btn-outline btn-sm" onclick="abrirHistoricoLote('${l.id}')">Ver Histórico</button>
-      </div>
-      ${l.observacao ? `<div class="card-sub" style="margin-top:8px">${escapeHtml(l.observacao)}</div>` : ''}
-      ${podeExcluir ? `<button class="btn btn-outline btn-block btn-sm" style="margin-top:10px;color:var(--red);border-color:var(--red)" onclick="excluirLote('${l.id}')">Excluir Lote</button>` : ''}
+  el.innerHTML = '<div class="stock-grid">' + lotesOrdenados.map(l => `
+    <div class="card stock-card${l.qtd_cheios === 0 ? ' card-esgotado' : ''}">
+      <div style="font-weight:700;font-size:0.82rem;line-height:1.2;margin-bottom:2px">${l.marcas ? escapeHtml(l.marcas.nome) : '—'}</div>
+      <div style="font-size:0.68rem;color:var(--muted);margin-bottom:8px">Val. ${l.ano_validade}${l.marcas?.tamanho_litros ? ' · ' + l.marcas.tamanho_litros + 'L' : ''}</div>
+      <div style="font-size:2.4rem;font-weight:800;line-height:1;color:${l.qtd_cheios === 0 ? 'var(--muted)' : 'var(--accent)'}">${l.qtd_cheios}</div>
+      <div style="font-size:0.65rem;color:var(--muted);margin:3px 0 8px;text-transform:uppercase;letter-spacing:.05em">cheios</div>
+      <div style="margin-bottom:8px">${badgeValidadeAno(l.ano_validade)}${l.qtd_cheios === 0 ? ' <span class="badge badge-red">Esgotado</span>' : ''}</div>
+      <button class="btn btn-outline btn-sm btn-block" style="font-size:0.7rem;padding:5px 0" onclick="abrirHistoricoLote('${l.id}')">Histórico</button>
+      ${podeExcluir ? `<button class="btn btn-sm btn-block" style="margin-top:5px;font-size:0.7rem;padding:5px 0;color:var(--red);border:1.5px solid var(--red);background:none;border-radius:8px;cursor:pointer;width:100%;font-family:inherit;font-weight:600" onclick="excluirLote('${l.id}')">Excluir</button>` : ''}
     </div>
-  `).join('');
+  `).join('') + '</div>';
 }
 
 async function excluirLote(id) {
@@ -1960,18 +1994,16 @@ function renderVaziosList() {
   const el = document.getElementById('vazios-list');
   if (!allEstoqueVazios.length) { el.innerHTML = emptyStateHTML(SVG.vazio, 'Nenhum vazio em estoque ainda'); return; }
   const ordenados = [...allEstoqueVazios].sort((a, b) => a.tamanho_litros - b.tamanho_litros || a.ano_validade - b.ano_validade);
-  el.innerHTML = ordenados.map(v => `
-    <div class="card">
-      <div class="card-header">
-        <div class="card-title">${v.tamanho_litros}L · Validade ${v.ano_validade}</div>
-        ${badgeValidadeAno(v.ano_validade)}
-      </div>
-      <div style="display:flex;justify-content:space-between;align-items:flex-end">
-        <div><div class="item-value">${v.quantidade}</div><div class="item-detail">vazios em estoque</div></div>
-        <button class="btn btn-outline btn-sm" onclick="abrirHistoricoVazios(${v.tamanho_litros}, ${v.ano_validade})">Ver Histórico</button>
-      </div>
+  el.innerHTML = '<div class="stock-grid">' + ordenados.map(v => `
+    <div class="card stock-card">
+      <div style="font-weight:800;font-size:1.1rem;line-height:1;margin-bottom:2px">${v.tamanho_litros}L</div>
+      <div style="font-size:0.68rem;color:var(--muted);margin-bottom:8px">Val. ${v.ano_validade}</div>
+      <div style="font-size:2.4rem;font-weight:800;line-height:1;color:var(--accent)">${v.quantidade}</div>
+      <div style="font-size:0.65rem;color:var(--muted);margin:3px 0 8px;text-transform:uppercase;letter-spacing:.05em">vazios</div>
+      <div style="margin-bottom:8px">${badgeValidadeAno(v.ano_validade)}</div>
+      <button class="btn btn-outline btn-sm btn-block" style="font-size:0.7rem;padding:5px 0" onclick="abrirHistoricoVazios(${v.tamanho_litros}, ${v.ano_validade})">Histórico</button>
     </div>
-  `).join('');
+  `).join('') + '</div>';
 }
 
 const TIPO_MOVIMENTO_LABEL = { entrada_fabrica: 'Entrada', saida_venda: 'Saída (venda)', saida_vazio_venda: 'Saída (venda vazio)', ajuste: 'Ajuste', avaria: 'Avaria', retorno_vazio: 'Retorno de Vazio', reaproveitamento: 'Reaproveitamento' };
