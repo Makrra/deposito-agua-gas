@@ -1178,16 +1178,33 @@ select.form-control option { background: var(--surface); }
       <div style="font-size:0.75rem;font-weight:700;color:var(--muted);text-align:center;letter-spacing:0.05em;text-transform:uppercase;margin-bottom:8px" id="np-tipo-seletor-label">Selecione o tipo</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
         <button class="btn-acao" style="min-height:60px" onclick="rippleBtnAcao(event);confirmarTipoPedidoNP('agua')">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="1.5">
             <path d="M12 2C6.5 8 4 12.5 4 15.5a8 8 0 0 0 16 0C20 12.5 17.5 8 12 2z"/>
           </svg>
           <span style="font-size:.72rem;font-weight:700">Água</span>
         </button>
         <button class="btn-acao" style="min-height:60px" onclick="rippleBtnAcao(event);confirmarTipoPedidoNP('gas')">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="#ef4444">
             <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>
           </svg>
           <span style="font-size:.72rem;font-weight:700">Gás</span>
+        </button>
+      </div>
+      <div style="text-align:center;margin-top:8px">
+        <button type="button" style="background:none;border:none;font-size:0.75rem;color:var(--muted);cursor:pointer;padding:2px 8px" onclick="fecharTipoSeletorNP()">Cancelar</button>
+      </div>
+    </div>
+
+    <div id="np-tamanho-seletor" style="display:none;padding:10px;background:var(--card);border:1.5px solid #3b82f6;border-radius:10px;margin-bottom:12px">
+      <div style="font-size:0.75rem;font-weight:700;color:var(--muted);text-align:center;letter-spacing:0.05em;text-transform:uppercase;margin-bottom:8px">Tamanho do vasilhame</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <button class="btn-acao" style="min-height:60px" onclick="rippleBtnAcao(event);confirmarTamanhoNP(20)">
+          <span style="font-size:1.5rem;font-weight:800;line-height:1">20</span>
+          <span style="font-size:.72rem;font-weight:700">Litros</span>
+        </button>
+        <button class="btn-acao" style="min-height:60px" onclick="rippleBtnAcao(event);confirmarTamanhoNP(10)">
+          <span style="font-size:1.5rem;font-weight:800;line-height:1">10</span>
+          <span style="font-size:.72rem;font-weight:700">Litros</span>
         </button>
       </div>
       <div style="text-align:center;margin-top:8px">
@@ -1367,6 +1384,7 @@ let reservasGasVazioPendentes = {}; // marca_id (gás vazio avulso) -> quantidad
 let reservasVazioPendentes = {}; // `${tamanho}_${ano}` -> quantidade já comprometida em pedidos pendentes
 let pedidoItemVazioSeq = 0;
 let _npPendingModo = null;
+let _npPendingTipo = null;
 const _emAndamento = new Set();
 
 // O estoque só é baixado quando o pedido é marcado como entregue, então um
@@ -2880,9 +2898,15 @@ function abrirNovoClienteDoPedido() {
 // ============================================================
 // PEDIDOS: ITENS DINÂMICOS DO NOVO PEDIDO
 // ============================================================
-function itemPedidoRowHTML(idx, tipo) {
-  const aguaOpts = allMarcas.filter(m => m.ativo && m.tipo === 'agua').map(m => `<option value="${m.id}">${nomeMarcaComTamanho(m)}</option>`).join('');
-  const gasOpts  = allMarcas.filter(m => m.ativo && m.tipo === 'gas').map(m => `<option value="${m.id}">${escapeHtml(m.nome)}</option>`).join('');
+function itemPedidoRowHTML(idx, tipo, tamanho) {
+  let aguaFiltradas = allMarcas.filter(m => m.ativo && m.tipo === 'agua');
+  if (tamanho) aguaFiltradas = aguaFiltradas.filter(m => m.tamanho_litros === tamanho);
+  const aguaOpts = aguaFiltradas.map(m => `<option value="${m.id}">${nomeMarcaComTamanho(m)}</option>`).join('');
+  const gasOpts  = allMarcas.filter(m => m.ativo && m.tipo === 'gas').map(m => {
+    const estoque = allEstoqueGas.find(g => g.marca_id === m.id);
+    const disp = estoque ? Math.max(0, estoque.qtd_cheios) : 0;
+    return `<option value="${m.id}">${escapeHtml(m.nome)} · ${disp} disp.</option>`;
+  }).join('');
   const marcaOpts = tipo === 'agua'
     ? (aguaOpts || '<option value="">Nenhuma marca de água ativa</option>')
     : tipo === 'gas'
@@ -2900,12 +2924,6 @@ function itemPedidoRowHTML(idx, tipo) {
       <div class="form-group item-lote-wrap" style="display:none;margin-bottom:8px">
         <label class="form-label">Lote</label>
         <select class="form-control item-lote" onchange="atualizarItemPedido(${idx})"></select>
-      </div>
-      <div class="form-group item-gas-estoque-wrap" style="display:none;margin-bottom:8px">
-        <label class="form-label">Estoque disponível</label>
-        <div style="padding:9px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;font-size:0.85rem">
-          <strong class="item-gas-disp" style="font-size:1rem">—</strong> botijões
-        </div>
       </div>
       <div style="display:grid;grid-template-columns:2fr 1fr;gap:8px;margin-bottom:8px">
         <select class="form-control item-vasilhame" onchange="onVasilhameChangeItemPedido(${idx})">
@@ -2933,9 +2951,9 @@ function itemPedidoRowHTML(idx, tipo) {
   `;
 }
 
-function adicionarItemPedido(tipo) {
+function adicionarItemPedido(tipo, tamanho) {
   const idx = pedidoItemSeq++;
-  document.getElementById('np-itens-container').insertAdjacentHTML('beforeend', itemPedidoRowHTML(idx, tipo));
+  document.getElementById('np-itens-container').insertAdjacentHTML('beforeend', itemPedidoRowHTML(idx, tipo, tamanho));
 }
 
 function mostrarTipoSeletorNP(modo) {
@@ -2943,15 +2961,24 @@ function mostrarTipoSeletorNP(modo) {
   const labels = { cheio: 'Tipo de vasilhame cheio', vazio: 'Tipo de vasilhame vazio' };
   document.getElementById('np-tipo-seletor-label').textContent = labels[modo] || 'Selecione o tipo';
   document.getElementById('np-tipo-seletor').style.display = 'block';
+  document.getElementById('np-tamanho-seletor').style.display = 'none';
 }
 
 function fecharTipoSeletorNP() {
   _npPendingModo = null;
+  _npPendingTipo = null;
   document.getElementById('np-tipo-seletor').style.display = 'none';
+  document.getElementById('np-tamanho-seletor').style.display = 'none';
 }
 
 function confirmarTipoPedidoNP(tipo) {
   const modo = _npPendingModo;
+  document.getElementById('np-tipo-seletor').style.display = 'none';
+  if (modo === 'cheio' && tipo === 'agua') {
+    _npPendingTipo = 'agua';
+    document.getElementById('np-tamanho-seletor').style.display = 'block';
+    return;
+  }
   fecharTipoSeletorNP();
   if (modo === 'cheio') {
     adicionarItemPedido(tipo);
@@ -2964,6 +2991,12 @@ function confirmarTipoPedidoNP(tipo) {
     }
     adicionarItemVazioNP(tipo);
   }
+}
+
+function confirmarTamanhoNP(tamanho) {
+  const tipo = _npPendingTipo;
+  fecharTipoSeletorNP();
+  adicionarItemPedido(tipo, tamanho);
 }
 
 // Preenche uma linha recém-criada com os dados de um item_pedido já
@@ -3124,7 +3157,6 @@ function onMarcaChangeItemPedido(idx) {
   const loteWrap = row.querySelector('.item-lote-wrap');
   const loteSel = row.querySelector('.item-lote');
 
-  const gasWrap = row.querySelector('.item-gas-estoque-wrap');
   if (marca && marca.tipo === 'agua') {
     // mostra o saldo já líquido de reservas de outros pedidos pendentes,
     // pra não oferecer um lote que na prática já está todo comprometido
@@ -3137,20 +3169,9 @@ function onMarcaChangeItemPedido(idx) {
       ? lotes.map(l => `<option value="${l.id}">Val. ${l.ano_validade} · ${l.disponivelLiquido} disponível</option>`).join('')
       : '<option value="">Nenhum lote com estoque</option>';
     loteWrap.style.display = 'block';
-    if (gasWrap) gasWrap.style.display = 'none';
   } else {
     loteSel.innerHTML = '';
     loteWrap.style.display = 'none';
-    if (gasWrap) {
-      if (marcaId) {
-        const gasEstoque = allEstoqueGas.find(g => g.marca_id === marcaId);
-        const disponivel = gasEstoque ? Math.max(0, gasEstoque.qtd_cheios) : 0;
-        row.querySelector('.item-gas-disp').textContent = disponivel;
-        gasWrap.style.display = 'block';
-      } else {
-        gasWrap.style.display = 'none';
-      }
-    }
   }
   // pré-preenche o preço com o valor de tabela já com desconto do cliente
   // aplicado — fica editável daqui pra frente (desconto pontual ou ajuste
