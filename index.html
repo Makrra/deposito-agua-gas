@@ -478,13 +478,13 @@ select.form-control option { background: var(--surface); }
 <!-- ======= PAGE: ESTOQUE ======= -->
 <div class="page" id="page-estoque">
   <div class="tabs">
-    <button class="tab-btn active" id="tab-estoque-lotes" onclick="estoqueSetView('lotes')">Cheios (Água)</button>
-    <button class="tab-btn" id="tab-estoque-vazios" onclick="estoqueSetView('vazios')">Vazios</button>
+    <button class="tab-btn active" id="tab-estoque-agua" onclick="estoqueSetView('agua')">Água</button>
     <button class="tab-btn" id="tab-estoque-gas" onclick="estoqueSetView('gas')">Gás</button>
     <button class="tab-btn" id="tab-estoque-marcas" onclick="estoqueSetView('marcas')">Marcas</button>
   </div>
 
-  <div id="estoque-view-lotes">
+  <div id="estoque-view-agua">
+    <div style="font-weight:700;font-size:0.8rem;color:var(--muted);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:12px">Cheios</div>
     <div style="display:flex;gap:8px;margin-bottom:14px">
       <button class="btn btn-primary btn-sm" style="flex:1" onclick="abrirNovoLote()">+ Registrar Entrada</button>
       <button class="btn btn-outline btn-sm" style="flex:1" onclick="abrirAvaria()">Registrar Avaria</button>
@@ -496,15 +496,14 @@ select.form-control option { background: var(--surface); }
       <button class="tab-btn" id="tab-lotes-tamanho-10" onclick="filterLotesPorTamanho(10)">10L</button>
     </div>
     <div id="lotes-list" class="loading"><div class="spinner"></div>Carregando...</div>
-  </div>
 
-  <div id="estoque-view-vazios" style="display:none">
+    <div style="font-weight:700;font-size:0.8rem;color:var(--muted);letter-spacing:0.08em;text-transform:uppercase;margin-top:24px;margin-bottom:12px;padding-top:16px;border-top:1px solid var(--border)">Vazios</div>
     <div class="card-sub" style="margin-bottom:14px">Vasilhames vazios não pertencem a uma marca — o mesmo garrafão pode ser enchido por qualquer marca depois.</div>
     <div style="display:flex;gap:8px;margin-bottom:14px">
       <button class="btn btn-primary btn-sm" style="flex:1" onclick="abrirEntradaVazios()">+ Registrar Entrada</button>
       <button class="btn btn-outline btn-sm" style="flex:1" onclick="abrirAvariaVazio()">Registrar Avaria</button>
     </div>
-    <div id="vazios-list" class="loading"><div class="spinner"></div>Carregando...</div>
+    <div id="vazios-list"></div>
   </div>
 
   <div id="estoque-view-gas" style="display:none">
@@ -768,11 +767,19 @@ select.form-control option { background: var(--surface); }
   <div class="modal">
     <div class="modal-title">Entrada de Gás</div>
     <div class="form-group">
-      <label class="form-label">Marca</label>
-      <select class="form-control" id="gas-marca"></select>
+      <label class="form-label">Origem</label>
+      <select class="form-control" id="gas-origem" onchange="onGasOrigemChange()">
+        <option value="fabrica">Da fábrica</option>
+        <option value="reaproveitamento">Reaproveitamento (Encher vazio)</option>
+      </select>
     </div>
     <div class="form-group">
-      <label class="form-label">Quantidade de Cheios Recebidos</label>
+      <label class="form-label">Marca</label>
+      <select class="form-control" id="gas-marca" onchange="onGasMarcaChange()"></select>
+    </div>
+    <div id="gas-vazios-info" style="display:none;padding:8px 12px;border-radius:8px;background:var(--card);border:1px solid var(--border);font-size:0.85rem;color:var(--muted);margin-bottom:12px"></div>
+    <div class="form-group">
+      <label class="form-label" id="gas-qtd-label">Quantidade de Cheios Recebidos</label>
       <input class="form-control" id="gas-quantidade" type="number" min="1" placeholder="0">
     </div>
     <button class="btn btn-primary btn-block" onclick="salvarEntradaGas()">Salvar</button>
@@ -1594,12 +1601,10 @@ function nomeMarcaComTamanho(marca) {
 // ESTOQUE: MARCAS
 // ============================================================
 function estoqueSetView(view) {
-  document.getElementById('estoque-view-lotes').style.display  = view === 'lotes'  ? 'block' : 'none';
-  document.getElementById('estoque-view-vazios').style.display = view === 'vazios' ? 'block' : 'none';
-  document.getElementById('estoque-view-gas').style.display    = view === 'gas'    ? 'block' : 'none';
-  document.getElementById('estoque-view-marcas').style.display = view === 'marcas' ? 'block' : 'none';
-  document.getElementById('tab-estoque-lotes').classList.toggle('active', view === 'lotes');
-  document.getElementById('tab-estoque-vazios').classList.toggle('active', view === 'vazios');
+  document.getElementById('estoque-view-agua').style.display    = view === 'agua'    ? 'block' : 'none';
+  document.getElementById('estoque-view-gas').style.display     = view === 'gas'     ? 'block' : 'none';
+  document.getElementById('estoque-view-marcas').style.display  = view === 'marcas'  ? 'block' : 'none';
+  document.getElementById('tab-estoque-agua').classList.toggle('active', view === 'agua');
   document.getElementById('tab-estoque-gas').classList.toggle('active', view === 'gas');
   document.getElementById('tab-estoque-marcas').classList.toggle('active', view === 'marcas');
 }
@@ -1628,15 +1633,22 @@ function renderMarcasList() {
   const el = document.getElementById('marcas-list');
   if (!allMarcas.length) { el.innerHTML = emptyStateHTML(SVG.marca, 'Nenhuma marca cadastrada'); return; }
   const podeEditar = isAdminLevel();
-  el.innerHTML = allMarcas.map(m => `
+  const itemHTML = m => `
     <div class="list-item">
       <div class="item-info">
-        <div class="item-name">${nomeMarcaComTamanho(m)} <span class="badge badge-blue">${m.tipo === 'gas' ? 'Gás' : 'Água'}</span>${m.ativo ? '' : ' <span class="badge badge-red">Inativa</span>'}</div>
+        <div class="item-name">${nomeMarcaComTamanho(m)}${m.ativo ? '' : ' <span class="badge badge-red">Inativa</span>'}</div>
         <div class="item-detail">${fmtMoeda(m.preco_venda_atual)} / ${m.tipo === 'gas' ? 'botijão' : 'garrafão'}</div>
       </div>
       ${podeEditar ? `<button class="btn btn-outline btn-sm" onclick="abrirEditarMarca('${m.id}')">Editar</button>` : ''}
     </div>
-  `).join('');
+  `;
+  const agua = allMarcas.filter(m => m.tipo === 'agua');
+  const gas  = allMarcas.filter(m => m.tipo === 'gas');
+  el.innerHTML =
+    '<div style="font-weight:700;font-size:0.8rem;color:var(--muted);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:12px">Marcas de Água</div>' +
+    (agua.length ? agua.map(itemHTML).join('') : '<div class="card-sub" style="margin-bottom:10px">Nenhuma marca de água cadastrada</div>') +
+    '<div style="font-weight:700;font-size:0.8rem;color:var(--muted);letter-spacing:0.08em;text-transform:uppercase;margin-top:24px;margin-bottom:12px;padding-top:16px;border-top:1px solid var(--border)">Marcas de Gás</div>' +
+    (gas.length ? gas.map(itemHTML).join('') : '<div class="card-sub">Nenhuma marca de gás cadastrada</div>');
 }
 
 function atualizarCampoTamanhoMarca() {
@@ -1731,8 +1743,32 @@ function abrirEntradaGas() {
   const sel = document.getElementById('gas-marca');
   sel.innerHTML = allMarcas.filter(m => m.ativo && m.tipo === 'gas').map(m => `<option value="${m.id}">${escapeHtml(m.nome)}</option>`).join('')
     || '<option value="">Nenhuma marca de gás cadastrada</option>';
+  document.getElementById('gas-origem').value = 'fabrica';
   document.getElementById('gas-quantidade').value = '';
+  document.getElementById('gas-qtd-label').textContent = 'Quantidade de Cheios Recebidos';
+  document.getElementById('gas-vazios-info').style.display = 'none';
   openModal('modal-entrada-gas');
+}
+
+function onGasOrigemChange() {
+  const origem = document.getElementById('gas-origem').value;
+  document.getElementById('gas-qtd-label').textContent = origem === 'reaproveitamento'
+    ? 'Quantidade a Encher'
+    : 'Quantidade de Cheios Recebidos';
+  onGasMarcaChange();
+}
+
+function onGasMarcaChange() {
+  if (document.getElementById('gas-origem').value !== 'reaproveitamento') {
+    document.getElementById('gas-vazios-info').style.display = 'none';
+    return;
+  }
+  const marca_id = document.getElementById('gas-marca').value;
+  const infoEl = document.getElementById('gas-vazios-info');
+  const estoqueGas = allEstoqueGas.find(g => g.marca_id === marca_id);
+  const qtdVazios = estoqueGas ? (estoqueGas.qtd_vazios || 0) : 0;
+  infoEl.textContent = `Vazios disponíveis para encher: ${qtdVazios} botijão${qtdVazios !== 1 ? 's' : ''}`;
+  infoEl.style.display = 'block';
 }
 
 async function salvarEntradaGas() {
@@ -1742,23 +1778,37 @@ async function salvarEntradaGas() {
   const _btnOrig = _btn?.textContent;
   if (_btn) { _btn.disabled = true; _btn.textContent = 'Aguarde...'; }
   try {
+  const origem = document.getElementById('gas-origem').value;
   const marca_id = document.getElementById('gas-marca').value;
   const quantidade = parseInt(document.getElementById('gas-quantidade').value || 0, 10);
   if (!marca_id || quantidade <= 0) { toast('Selecione a marca e a quantidade', true); return; }
 
-  const { data: gasExistente, error: errBuscaGas } = await sb.from('estoque_gas')
-    .select('id').eq('marca_id', marca_id).maybeSingle();
-  if (errBuscaGas) { toastErro('buscar estoque de gás', errBuscaGas); return; }
-  let errGas;
-  if (gasExistente) {
-    ({ error: errGas } = await sb.rpc('incrementar_gas_cheios', { p_id: gasExistente.id, p_delta: quantidade }));
+  if (origem === 'reaproveitamento') {
+    const estoqueGas = allEstoqueGas.find(g => g.marca_id === marca_id);
+    const qtdVazios = estoqueGas ? (estoqueGas.qtd_vazios || 0) : 0;
+    if (quantidade > qtdVazios) {
+      toast(`Só há ${qtdVazios} botijão${qtdVazios !== 1 ? 's' : ''} vazio${qtdVazios !== 1 ? 's' : ''} disponíveis`, true); return;
+    }
+    const { error: errReap } = await sb.rpc('reaproveitamento_gas', {
+      p_marca_id: marca_id, p_qtd: quantidade, p_usuario_id: currentUserId,
+    });
+    if (errReap) { toastErro('registrar reaproveitamento de gás', errReap); return; }
+    closeModal('modal-entrada-gas');
+    toast('Reaproveitamento de gás registrado!');
   } else {
-    ({ error: errGas } = await sb.from('estoque_gas').insert({ marca_id, qtd_cheios: quantidade }));
+    const { data: gasExistente, error: errBuscaGas } = await sb.from('estoque_gas')
+      .select('id').eq('marca_id', marca_id).maybeSingle();
+    if (errBuscaGas) { toastErro('buscar estoque de gás', errBuscaGas); return; }
+    let errGas;
+    if (gasExistente) {
+      ({ error: errGas } = await sb.rpc('incrementar_gas_cheios', { p_id: gasExistente.id, p_delta: quantidade }));
+    } else {
+      ({ error: errGas } = await sb.from('estoque_gas').insert({ marca_id, qtd_cheios: quantidade }));
+    }
+    if (errGas) { toastErro('registrar entrada de gás', errGas); return; }
+    closeModal('modal-entrada-gas');
+    toast('Entrada de gás registrada!');
   }
-  if (errGas) { toastErro('registrar entrada de gás', errGas); return; }
-
-  closeModal('modal-entrada-gas');
-  toast('Entrada de gás registrada!');
   loadEstoque();
   } finally {
     _emAndamento.delete('salvarEntradaGas');
@@ -2825,6 +2875,12 @@ function itemPedidoRowHTML(idx) {
         <label class="form-label">Lote</label>
         <select class="form-control item-lote" onchange="atualizarItemPedido(${idx})"></select>
       </div>
+      <div class="form-group item-gas-estoque-wrap" style="display:none;margin-bottom:8px">
+        <label class="form-label">Estoque disponível</label>
+        <div style="padding:9px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;font-size:0.85rem">
+          <strong class="item-gas-disp" style="font-size:1rem">—</strong> botijões
+        </div>
+      </div>
       <div style="display:grid;grid-template-columns:2fr 1fr;gap:8px;margin-bottom:8px">
         <select class="form-control item-vasilhame" onchange="onVasilhameChangeItemPedido(${idx})">
           <option value="troca">Troca de Vasilhame</option>
@@ -3016,6 +3072,7 @@ function onMarcaChangeItemPedido(idx) {
   const loteWrap = row.querySelector('.item-lote-wrap');
   const loteSel = row.querySelector('.item-lote');
 
+  const gasWrap = row.querySelector('.item-gas-estoque-wrap');
   if (marca && marca.tipo === 'agua') {
     // mostra o saldo já líquido de reservas de outros pedidos pendentes,
     // pra não oferecer um lote que na prática já está todo comprometido
@@ -3028,9 +3085,20 @@ function onMarcaChangeItemPedido(idx) {
       ? lotes.map(l => `<option value="${l.id}">Val. ${l.ano_validade} · ${l.disponivelLiquido} disponível</option>`).join('')
       : '<option value="">Nenhum lote com estoque</option>';
     loteWrap.style.display = 'block';
+    if (gasWrap) gasWrap.style.display = 'none';
   } else {
     loteSel.innerHTML = '';
     loteWrap.style.display = 'none';
+    if (gasWrap) {
+      if (marcaId) {
+        const gasEstoque = allEstoqueGas.find(g => g.marca_id === marcaId);
+        const disponivel = gasEstoque ? Math.max(0, gasEstoque.qtd_cheios) : 0;
+        row.querySelector('.item-gas-disp').textContent = disponivel;
+        gasWrap.style.display = 'block';
+      } else {
+        gasWrap.style.display = 'none';
+      }
+    }
   }
   // pré-preenche o preço com o valor de tabela já com desconto do cliente
   // aplicado — fica editável daqui pra frente (desconto pontual ou ajuste
