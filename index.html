@@ -1148,8 +1148,8 @@ select.form-control option { background: var(--surface); }
       <div class="card-sub" id="np-cliente-selecionado" style="margin-top:6px"></div>
     </div>
 
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:16px">
-      <button class="btn-acao" onclick="rippleBtnAcao(event);adicionarItemPedido()">
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">
+      <button class="btn-acao" onclick="rippleBtnAcao(event);mostrarTipoSeletorNP('cheio')">
         <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor">
           <path d="M9.5 2h5a1 1 0 0 1 0 2h-5a1 1 0 0 1 0-2z"/>
           <path d="M7 6h10v14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V6z"/>
@@ -1157,7 +1157,7 @@ select.form-control option { background: var(--surface); }
         </svg>
         <span style="font-size:.7rem;font-weight:700;line-height:1.3;text-align:center">Vender Vasilhame<br>Cheio</span>
       </button>
-      <button class="btn-acao" onclick="rippleBtnAcao(event);adicionarItemVazioNP()">
+      <button class="btn-acao" onclick="rippleBtnAcao(event);mostrarTipoSeletorNP('vazio')">
         <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
           <path d="M9.5 2h5a1 1 0 0 1 0 2h-5a1 1 0 0 1 0-2z"/>
           <path d="M7 6h10v14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V6z"/>
@@ -1172,6 +1172,27 @@ select.form-control option { background: var(--surface); }
         </svg>
         <span style="font-size:.7rem;font-weight:700;line-height:1.3;text-align:center">Cadastrar<br>Cliente</span>
       </button>
+    </div>
+
+    <div id="np-tipo-seletor" style="display:none;padding:10px;background:var(--card);border:1.5px solid var(--primary);border-radius:10px;margin-bottom:12px">
+      <div style="font-size:0.75rem;font-weight:700;color:var(--muted);text-align:center;letter-spacing:0.05em;text-transform:uppercase;margin-bottom:8px" id="np-tipo-seletor-label">Selecione o tipo</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <button class="btn-acao" style="min-height:60px" onclick="rippleBtnAcao(event);confirmarTipoPedidoNP('agua')">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M12 2C6.5 8 4 12.5 4 15.5a8 8 0 0 0 16 0C20 12.5 17.5 8 12 2z"/>
+          </svg>
+          <span style="font-size:.72rem;font-weight:700">Água</span>
+        </button>
+        <button class="btn-acao" style="min-height:60px" onclick="rippleBtnAcao(event);confirmarTipoPedidoNP('gas')">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>
+          </svg>
+          <span style="font-size:.72rem;font-weight:700">Gás</span>
+        </button>
+      </div>
+      <div style="text-align:center;margin-top:8px">
+        <button type="button" style="background:none;border:none;font-size:0.75rem;color:var(--muted);cursor:pointer;padding:2px 8px" onclick="fecharTipoSeletorNP()">Cancelar</button>
+      </div>
     </div>
 
     <div id="np-itens-container"></div>
@@ -1345,6 +1366,7 @@ let reservasGasPendentes = {}; // marca_id (gás cheio) -> quantidade já compro
 let reservasGasVazioPendentes = {}; // marca_id (gás vazio avulso) -> quantidade já comprometida em pedidos pendentes
 let reservasVazioPendentes = {}; // `${tamanho}_${ano}` -> quantidade já comprometida em pedidos pendentes
 let pedidoItemVazioSeq = 0;
+let _npPendingModo = null;
 const _emAndamento = new Set();
 
 // O estoque só é baixado quando o pedido é marcado como entregue, então um
@@ -2858,17 +2880,21 @@ function abrirNovoClienteDoPedido() {
 // ============================================================
 // PEDIDOS: ITENS DINÂMICOS DO NOVO PEDIDO
 // ============================================================
-function itemPedidoRowHTML(idx) {
+function itemPedidoRowHTML(idx, tipo) {
   const aguaOpts = allMarcas.filter(m => m.ativo && m.tipo === 'agua').map(m => `<option value="${m.id}">${nomeMarcaComTamanho(m)}</option>`).join('');
   const gasOpts  = allMarcas.filter(m => m.ativo && m.tipo === 'gas').map(m => `<option value="${m.id}">${escapeHtml(m.nome)}</option>`).join('');
+  const marcaOpts = tipo === 'agua'
+    ? (aguaOpts || '<option value="">Nenhuma marca de água ativa</option>')
+    : tipo === 'gas'
+      ? (gasOpts || '<option value="">Nenhuma marca de gás ativa</option>')
+      : (aguaOpts ? `<optgroup label="Água">${aguaOpts}</optgroup>` : '') + (gasOpts ? `<optgroup label="Gás">${gasOpts}</optgroup>` : '');
   return `
     <div class="card pedido-item-row" data-idx="${idx}" style="margin-bottom:10px">
       <div class="form-group" style="margin-bottom:8px">
         <label class="form-label">Marca</label>
         <select class="form-control item-marca" onchange="onMarcaChangeItemPedido(${idx})">
           <option value="">Selecione a marca...</option>
-          ${aguaOpts ? `<optgroup label="Água">${aguaOpts}</optgroup>` : ''}
-          ${gasOpts ? `<optgroup label="Gás">${gasOpts}</optgroup>` : ''}
+          ${marcaOpts}
         </select>
       </div>
       <div class="form-group item-lote-wrap" style="display:none;margin-bottom:8px">
@@ -2907,9 +2933,37 @@ function itemPedidoRowHTML(idx) {
   `;
 }
 
-function adicionarItemPedido() {
+function adicionarItemPedido(tipo) {
   const idx = pedidoItemSeq++;
-  document.getElementById('np-itens-container').insertAdjacentHTML('beforeend', itemPedidoRowHTML(idx));
+  document.getElementById('np-itens-container').insertAdjacentHTML('beforeend', itemPedidoRowHTML(idx, tipo));
+}
+
+function mostrarTipoSeletorNP(modo) {
+  _npPendingModo = modo;
+  const labels = { cheio: 'Tipo de vasilhame cheio', vazio: 'Tipo de vasilhame vazio' };
+  document.getElementById('np-tipo-seletor-label').textContent = labels[modo] || 'Selecione o tipo';
+  document.getElementById('np-tipo-seletor').style.display = 'block';
+}
+
+function fecharTipoSeletorNP() {
+  _npPendingModo = null;
+  document.getElementById('np-tipo-seletor').style.display = 'none';
+}
+
+function confirmarTipoPedidoNP(tipo) {
+  const modo = _npPendingModo;
+  fecharTipoSeletorNP();
+  if (modo === 'cheio') {
+    adicionarItemPedido(tipo);
+  } else if (modo === 'vazio') {
+    if (tipo === 'agua' && !allEstoqueVazios.some(v => v.quantidade > 0)) {
+      toast('Sem vasilhames vazios de água em estoque', true); return;
+    }
+    if (tipo === 'gas' && !allEstoqueGas.some(g => g.qtd_vazios > 0)) {
+      toast('Sem botijões vazios de gás em estoque', true); return;
+    }
+    adicionarItemVazioNP(tipo);
+  }
 }
 
 // Preenche uma linha recém-criada com os dados de um item_pedido já
@@ -2940,7 +2994,7 @@ function removerItemPedido(idx) {
 // ============================================================
 // PEDIDOS: ITENS VAZIO AVULSO
 // ============================================================
-function itemPedidoVazioRowHTML(idx) {
+function itemPedidoVazioRowHTML(idx, tipo) {
   const disponiveis = allEstoqueVazios.filter(v => v.quantidade > 0).sort((a, b) => a.tamanho_litros - b.tamanho_litros || a.ano_validade - b.ano_validade);
   const tamanhos = [...new Set(disponiveis.map(v => v.tamanho_litros))];
   const tamanhoOpts = tamanhos.map(t => `<option value="${t}">${t}L</option>`).join('');
@@ -2956,20 +3010,21 @@ function itemPedidoVazioRowHTML(idx) {
     const disp = Math.max(0, g.qtd_vazios - (reservasGasVazioPendentes[g.marca_id] || 0));
     return `<option value="${g.marca_id}">${escapeHtml(g.marcas.nome)} (${disp} disp.)</option>`;
   }).join('') || '<option value="">Sem estoque</option>';
+  const ativoAgua = tipo !== 'gas';
   const btnAtivoStyle = `background:var(--primary);color:#fff;border-color:var(--primary)`;
   const btnInativoStyle = `background:transparent;color:var(--muted);border-color:var(--border)`;
   return `
-    <div class="pedido-item-vazio-row" data-idx="${idx}" data-tipo-vazio="agua" style="border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:8px">
+    <div class="pedido-item-vazio-row" data-idx="${idx}" data-tipo-vazio="${ativoAgua ? 'agua' : 'gas'}" style="border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:8px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
         <div style="display:flex;gap:6px">
           <button type="button" class="vazio-btn-agua" onclick="onTipoVazioNPChange(${idx},'agua')"
-            style="padding:4px 12px;border-radius:6px;border:1.5px solid;font-size:.72rem;font-weight:700;cursor:pointer;font-family:inherit;transition:all .15s;${btnAtivoStyle}">Água</button>
+            style="padding:4px 12px;border-radius:6px;border:1.5px solid;font-size:.72rem;font-weight:700;cursor:pointer;font-family:inherit;transition:all .15s;${ativoAgua ? btnAtivoStyle : btnInativoStyle}">Água</button>
           <button type="button" class="vazio-btn-gas" onclick="onTipoVazioNPChange(${idx},'gas')"
-            style="padding:4px 12px;border-radius:6px;border:1.5px solid;font-size:.72rem;font-weight:700;cursor:pointer;font-family:inherit;transition:all .15s;${btnInativoStyle}">Gás</button>
+            style="padding:4px 12px;border-radius:6px;border:1.5px solid;font-size:.72rem;font-weight:700;cursor:pointer;font-family:inherit;transition:all .15s;${ativoAgua ? btnInativoStyle : btnAtivoStyle}">Gás</button>
         </div>
         <button class="btn btn-outline btn-sm" style="padding:2px 8px;color:var(--red);border-color:var(--red)" onclick="removerItemVazioNP(${idx})">✕</button>
       </div>
-      <div class="vazio-campos-agua">
+      <div class="vazio-campos-agua"${ativoAgua ? '' : ' style="display:none"'}>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
           <div>
             <label class="form-label">Tamanho</label>
@@ -2981,7 +3036,7 @@ function itemPedidoVazioRowHTML(idx) {
           </div>
         </div>
       </div>
-      <div class="vazio-campos-gas" style="display:none;margin-bottom:8px">
+      <div class="vazio-campos-gas" style="display:${ativoAgua ? 'none' : 'block'};margin-bottom:8px">
         <label class="form-label">Marca</label>
         <select class="form-control vazio-gas-marca" onchange="recalcularTotalPedido()">${gasOpts}</select>
       </div>
@@ -2999,12 +3054,9 @@ function itemPedidoVazioRowHTML(idx) {
   `;
 }
 
-function adicionarItemVazioNP() {
-  const temAgua = allEstoqueVazios.some(v => v.quantidade > 0);
-  const temGas = allEstoqueGas.some(g => g.qtd_vazios > 0);
-  if (!temAgua && !temGas) { toast('Sem vasilhames vazios em estoque', true); return; }
+function adicionarItemVazioNP(tipo) {
   const idx = pedidoItemVazioSeq++;
-  document.getElementById('np-vazios-container').insertAdjacentHTML('beforeend', itemPedidoVazioRowHTML(idx));
+  document.getElementById('np-vazios-container').insertAdjacentHTML('beforeend', itemPedidoVazioRowHTML(idx, tipo));
   recalcularTotalPedido();
 }
 
@@ -3259,6 +3311,7 @@ async function abrirNovoPedido() {
   pedidoClienteDescontos = [];
   pedidoItemSeq = 0;
   pedidoItemVazioSeq = 0;
+  fecharTipoSeletorNP();
 
   await Promise.all([loadEstoque(), loadClientes(), loadReservasPendentes()]);
 
@@ -3311,6 +3364,7 @@ async function abrirEditarPedido(id) {
   pedidoClienteDescontos = [];
   pedidoItemSeq = 0;
   pedidoItemVazioSeq = 0;
+  fecharTipoSeletorNP();
 
   await Promise.all([loadEstoque(), loadClientes(), loadReservasPendentes(id)]);
 
