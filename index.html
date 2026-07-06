@@ -132,7 +132,6 @@ body {
 }
 .btn-acao:active { transform: scale(.97); box-shadow: 0 2px 8px rgba(14,165,196,.18); }
 .btn-acao.active { background: var(--primary); color: #fff; box-shadow: 0 4px 14px rgba(14,165,196,.28); }
-.stock-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .stock-card { padding: 12px; text-align: center; }
 @keyframes _ripple { to { transform: scale(3.8); opacity: 0; } }
 .btn-acao-ripple {
@@ -1805,19 +1804,13 @@ async function salvarMarca() {
 function renderGasList() {
   const el = document.getElementById('gas-list');
   if (!allEstoqueGas.length) { el.innerHTML = emptyStateHTML(SVG.gas, 'Nenhuma marca de gás com estoque ainda'); return; }
-  el.innerHTML = '<div class="stock-grid">' + allEstoqueGas.map(g => `
+  el.innerHTML = '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">' + allEstoqueGas.map(g => `
     <div class="card stock-card">
-      <div style="font-weight:700;font-size:0.85rem;margin-bottom:10px">${g.marcas ? escapeHtml(g.marcas.nome) : '—'}</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
-        <div>
-          <div style="font-size:1.9rem;font-weight:800;line-height:1;color:var(--accent)">${g.qtd_cheios}</div>
-          <div style="font-size:0.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-top:2px">cheios</div>
-        </div>
-        <div>
-          <div style="font-size:1.9rem;font-weight:800;line-height:1;color:var(--muted)">${g.qtd_vazios}</div>
-          <div style="font-size:0.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-top:2px">vazios</div>
-        </div>
-      </div>
+      <div style="font-weight:700;font-size:0.78rem;margin-bottom:8px;word-break:break-word">${g.marcas ? escapeHtml(g.marcas.nome) : '—'}</div>
+      <div style="font-size:1.8rem;font-weight:800;line-height:1;color:var(--accent)">${g.qtd_cheios}</div>
+      <div style="font-size:0.58rem;color:var(--muted);text-transform:uppercase;margin:2px 0 8px">cheios</div>
+      <div style="font-size:1.8rem;font-weight:800;line-height:1;color:var(--muted)">${g.qtd_vazios}</div>
+      <div style="font-size:0.58rem;color:var(--muted);text-transform:uppercase;margin:2px 0">vazios</div>
     </div>
   `).join('') + '</div>';
 }
@@ -1938,17 +1931,28 @@ function renderLotesList() {
     if (nomeA !== nomeB) return nomeA.localeCompare(nomeB, 'pt-BR');
     return a.ano_validade - b.ano_validade;
   });
-  el.innerHTML = '<div class="stock-grid">' + lotesOrdenados.map(l => `
+  // Agrupa por marca para manter lotes da mesma marca na mesma linha
+  const grupos = [];
+  const _idx = new Map();
+  lotesOrdenados.forEach(l => {
+    const key = l.marca_id || 'sem-marca';
+    if (!_idx.has(key)) { _idx.set(key, grupos.length); grupos.push({ nome: l.marcas?.nome || '—', lotes: [] }); }
+    grupos[_idx.get(key)].lotes.push(l);
+  });
+  const _cardLote = l => `
     <div class="card stock-card${l.qtd_cheios === 0 ? ' card-esgotado' : ''}">
-      <div style="font-weight:700;font-size:0.82rem;line-height:1.2;margin-bottom:2px">${l.marcas ? escapeHtml(l.marcas.nome) : '—'}</div>
-      <div style="font-size:0.68rem;color:var(--muted);margin-bottom:8px">Val. ${l.ano_validade}${l.marcas?.tamanho_litros ? ' · ' + l.marcas.tamanho_litros + 'L' : ''}</div>
-      <div style="font-size:2.4rem;font-weight:800;line-height:1;color:${l.qtd_cheios === 0 ? 'var(--muted)' : 'var(--accent)'}">${l.qtd_cheios}</div>
-      <div style="font-size:0.65rem;color:var(--muted);margin:3px 0 8px;text-transform:uppercase;letter-spacing:.05em">cheios</div>
-      <div style="margin-bottom:8px">${badgeValidadeAno(l.ano_validade)}${l.qtd_cheios === 0 ? ' <span class="badge badge-red">Esgotado</span>' : ''}</div>
-      <button class="btn btn-outline btn-sm btn-block" style="font-size:0.7rem;padding:5px 0" onclick="abrirHistoricoLote('${l.id}')">Histórico</button>
-      ${podeExcluir ? `<button class="btn btn-sm btn-block" style="margin-top:5px;font-size:0.7rem;padding:5px 0;color:var(--red);border:1.5px solid var(--red);background:none;border-radius:8px;cursor:pointer;width:100%;font-family:inherit;font-weight:600" onclick="excluirLote('${l.id}')">Excluir</button>` : ''}
-    </div>
-  `).join('') + '</div>';
+      <div style="font-weight:700;font-size:0.78rem">Val. ${l.ano_validade}${l.marcas?.tamanho_litros ? ' · ' + l.marcas.tamanho_litros + 'L' : ''}</div>
+      <div style="font-size:2rem;font-weight:800;line-height:1;margin:6px 0 2px;color:${l.qtd_cheios === 0 ? 'var(--muted)' : 'var(--accent)'}">${l.qtd_cheios}</div>
+      <div style="font-size:0.6rem;color:var(--muted);margin-bottom:6px;text-transform:uppercase">cheios</div>
+      <div style="margin-bottom:6px;font-size:0.66rem">${badgeValidadeAno(l.ano_validade)}${l.qtd_cheios === 0 ? '&nbsp;<span class="badge badge-red">Esgot.</span>' : ''}</div>
+      <button class="btn btn-outline btn-sm btn-block" style="font-size:0.62rem;padding:4px 0" onclick="abrirHistoricoLote('${l.id}')">Hist.</button>
+      ${podeExcluir ? `<button style="margin-top:4px;font-size:0.62rem;padding:4px 0;color:var(--red);border:1.5px solid var(--red);background:none;border-radius:8px;cursor:pointer;width:100%;font-family:inherit;font-weight:600" onclick="excluirLote('${l.id}')">Excluir</button>` : ''}
+    </div>`;
+  el.innerHTML = grupos.map(g => `
+    <div style="margin-bottom:14px">
+      <div style="font-weight:700;font-size:0.72rem;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;margin-bottom:6px">${escapeHtml(g.nome)}</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">${g.lotes.map(_cardLote).join('')}</div>
+    </div>`).join('');
 }
 
 async function excluirLote(id) {
@@ -1994,16 +1998,27 @@ function renderVaziosList() {
   const el = document.getElementById('vazios-list');
   if (!allEstoqueVazios.length) { el.innerHTML = emptyStateHTML(SVG.vazio, 'Nenhum vazio em estoque ainda'); return; }
   const ordenados = [...allEstoqueVazios].sort((a, b) => a.tamanho_litros - b.tamanho_litros || a.ano_validade - b.ano_validade);
-  el.innerHTML = '<div class="stock-grid">' + ordenados.map(v => `
+  // Agrupa por tamanho para manter vasilhames do mesmo tamanho na mesma linha
+  const grupos = [];
+  const _idx = new Map();
+  ordenados.forEach(v => {
+    const key = v.tamanho_litros;
+    if (!_idx.has(key)) { _idx.set(key, grupos.length); grupos.push({ tamanho: key, vazios: [] }); }
+    grupos[_idx.get(key)].vazios.push(v);
+  });
+  const _cardVazio = v => `
     <div class="card stock-card">
-      <div style="font-weight:800;font-size:1.1rem;line-height:1;margin-bottom:2px">${v.tamanho_litros}L</div>
-      <div style="font-size:0.68rem;color:var(--muted);margin-bottom:8px">Val. ${v.ano_validade}</div>
-      <div style="font-size:2.4rem;font-weight:800;line-height:1;color:var(--accent)">${v.quantidade}</div>
-      <div style="font-size:0.65rem;color:var(--muted);margin:3px 0 8px;text-transform:uppercase;letter-spacing:.05em">vazios</div>
-      <div style="margin-bottom:8px">${badgeValidadeAno(v.ano_validade)}</div>
-      <button class="btn btn-outline btn-sm btn-block" style="font-size:0.7rem;padding:5px 0" onclick="abrirHistoricoVazios(${v.tamanho_litros}, ${v.ano_validade})">Histórico</button>
-    </div>
-  `).join('') + '</div>';
+      <div style="font-weight:700;font-size:0.78rem">Val. ${v.ano_validade}</div>
+      <div style="font-size:2rem;font-weight:800;line-height:1;margin:6px 0 2px;color:var(--accent)">${v.quantidade}</div>
+      <div style="font-size:0.6rem;color:var(--muted);margin-bottom:6px;text-transform:uppercase">vazios</div>
+      <div style="margin-bottom:6px;font-size:0.66rem">${badgeValidadeAno(v.ano_validade)}</div>
+      <button class="btn btn-outline btn-sm btn-block" style="font-size:0.62rem;padding:4px 0" onclick="abrirHistoricoVazios(${v.tamanho_litros}, ${v.ano_validade})">Hist.</button>
+    </div>`;
+  el.innerHTML = grupos.map(g => `
+    <div style="margin-bottom:14px">
+      <div style="font-weight:700;font-size:0.72rem;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;margin-bottom:6px">${g.tamanho}L</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">${g.vazios.map(_cardVazio).join('')}</div>
+    </div>`).join('');
 }
 
 const TIPO_MOVIMENTO_LABEL = { entrada_fabrica: 'Entrada', saida_venda: 'Saída (venda)', saida_vazio_venda: 'Saída (venda vazio)', ajuste: 'Ajuste', avaria: 'Avaria', retorno_vazio: 'Retorno de Vazio', reaproveitamento: 'Reaproveitamento' };
