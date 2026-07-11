@@ -295,6 +295,22 @@ CREATE INDEX IF NOT EXISTS idx_pag_pedido_cliente ON pagamentos_pedido(cliente_i
 CREATE INDEX IF NOT EXISTS idx_pag_pedido_pedido  ON pagamentos_pedido(pedido_id);
 CREATE INDEX IF NOT EXISTS idx_pag_pedido_caixa_sessao ON pagamentos_pedido(caixa_sessao_id);
 
+-- Soma de pagamentos por pedido, agregada no banco. Existe pra evitar que o
+-- app precise puxar linha por linha de pagamentos_pedido (ou filtrar por uma
+-- lista gigante de IDs de pedido) só pra somar em JS — isso já causou uma
+-- consulta com URL grande demais falhando silenciosamente e todo pedido
+-- aparecendo como "pendente" mesmo já pago. security_invoker garante que a
+-- RLS de pagamentos_pedido continua valendo pra quem consulta a view (então
+-- entregador, que não pode ler pagamentos_pedido, também não vê nada aqui).
+CREATE OR REPLACE VIEW public.pagamentos_totais_pedido
+WITH (security_invoker = true) AS
+SELECT pedido_id, SUM(valor)::numeric AS total_pago
+FROM public.pagamentos_pedido
+WHERE pedido_id IS NOT NULL
+GROUP BY pedido_id;
+
+GRANT SELECT ON public.pagamentos_totais_pedido TO authenticated;
+
 -- ------------------------------------------------------------
 -- 10b. RECEBIMENTOS_ENTREGA (declaração informativa do entregador sobre
 -- o que recebeu na entrega — pode ser dividido entre formas, ex: parte

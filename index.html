@@ -1380,14 +1380,10 @@ let pendentesPorCliente = {};
 
 async function calcularPendentesPorCliente() {
   const { data: pedidos } = await sb.from('pedidos').select('id, cliente_id, total').neq('status', 'cancelado');
-  const ids = (pedidos || []).map(p => p.id);
-  let pagamentos = [];
-  if (ids.length) {
-    const { data } = await sb.from('pagamentos_pedido').select('pedido_id, valor').in('pedido_id', ids);
-    pagamentos = data || [];
-  }
+  const { data: pagamentos, error: errPagamentos } = await sb.from('pagamentos_totais_pedido').select('pedido_id, total_pago');
+  if (errPagamentos) toastErro('carregar pagamentos pendentes', errPagamentos);
   const pagoPorPedido = {};
-  pagamentos.forEach(pg => { pagoPorPedido[pg.pedido_id] = roundMoeda((pagoPorPedido[pg.pedido_id] || 0) + parseFloat(pg.valor)); });
+  (pagamentos || []).forEach(pg => { pagoPorPedido[pg.pedido_id] = roundMoeda(parseFloat(pg.total_pago)); });
   const mapa = {};
   (pedidos || []).forEach(p => {
     const pago = pagoPorPedido[p.id] || 0;
@@ -3669,13 +3665,11 @@ async function loadPedidos() {
   allPedidos = data || [];
 
   pagamentosPorPedido = {};
-  const ids = allPedidos.map(p => p.id);
-  if (ids.length) {
-    const { data: pagamentos } = await sb.from('pagamentos_pedido').select('pedido_id, valor').in('pedido_id', ids);
-    (pagamentos || []).forEach(pg => {
-      pagamentosPorPedido[pg.pedido_id] = roundMoeda((pagamentosPorPedido[pg.pedido_id] || 0) + parseFloat(pg.valor));
-    });
-  }
+  const { data: pagamentos, error: errPagamentos } = await sb.from('pagamentos_totais_pedido').select('pedido_id, total_pago');
+  if (errPagamentos) toastErro('carregar pagamentos', errPagamentos);
+  (pagamentos || []).forEach(pg => {
+    pagamentosPorPedido[pg.pedido_id] = roundMoeda(parseFloat(pg.total_pago));
+  });
 
   renderPedidosList();
 }
