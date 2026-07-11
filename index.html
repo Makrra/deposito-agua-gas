@@ -141,8 +141,9 @@ body {
   border-radius: 20px; padding: 4px 12px; font-size: 0.72rem; font-weight: 700; cursor: pointer;
   font-family: inherit;
 }
+.wizard-nav { display: flex; justify-content: center; align-items: center; gap: 18px; margin-top: 10px; }
 .wizard-back {
-  display: block; margin: 10px auto 0; background: none; border: none;
+  background: none; border: none;
   font-size: 0.78rem; color: var(--muted); cursor: pointer; padding: 6px 8px; font-family: inherit;
 }
 .wizard-option {
@@ -741,6 +742,9 @@ select.form-control option { background: var(--surface); }
           <span style="font-size:.82rem;font-weight:700">Reaproveita-<br>mento</span>
         </button>
       </div>
+      <div class="wizard-nav">
+        <button type="button" class="wizard-back" onclick="loteWizCancelar()">Cancelar</button>
+      </div>
     </div>
 
     <!-- Passo 2: Tamanho -->
@@ -754,14 +758,20 @@ select.form-control option { background: var(--surface); }
           <span style="font-size:1.4rem;font-weight:800;line-height:1">10</span><span style="font-size:.72rem;font-weight:700">Litros</span>
         </button>
       </div>
-      <button type="button" class="wizard-back" onclick="loteWizVoltar()">&larr; Voltar</button>
+      <div class="wizard-nav">
+        <button type="button" class="wizard-back" onclick="loteWizVoltar()">&larr; Voltar</button>
+        <button type="button" class="wizard-back" onclick="loteWizCancelar()">Cancelar</button>
+      </div>
     </div>
 
     <!-- Passo 3: Marca -->
     <div class="wizard-step" id="lote-step-marca" style="display:none">
       <div class="wizard-step-label">Qual marca?</div>
       <div id="lote-marca-lista"></div>
-      <button type="button" class="wizard-back" onclick="loteWizVoltar()">&larr; Voltar</button>
+      <div class="wizard-nav">
+        <button type="button" class="wizard-back" onclick="loteWizVoltar()">&larr; Voltar</button>
+        <button type="button" class="wizard-back" onclick="loteWizCancelar()">Cancelar</button>
+      </div>
     </div>
 
     <!-- Passo 4a: Ano de validade (vasilhame novo) -->
@@ -771,14 +781,20 @@ select.form-control option { background: var(--surface); }
         <input class="form-control" id="lote-ano-validade" type="number" inputmode="numeric" min="2000" max="2100" maxlength="4" placeholder="2027">
       </div>
       <button type="button" class="btn btn-primary btn-block" onclick="loteWizConfirmarAno()">Continuar</button>
-      <button type="button" class="wizard-back" onclick="loteWizVoltar()">&larr; Voltar</button>
+      <div class="wizard-nav">
+        <button type="button" class="wizard-back" onclick="loteWizVoltar()">&larr; Voltar</button>
+        <button type="button" class="wizard-back" onclick="loteWizCancelar()">Cancelar</button>
+      </div>
     </div>
 
     <!-- Passo 4b: Vazio a reaproveitar -->
     <div class="wizard-step" id="lote-step-vazio" style="display:none">
       <div class="wizard-step-label">Qual vazio em estoque será reaproveitado?</div>
       <div id="lote-vazio-lista"></div>
-      <button type="button" class="wizard-back" onclick="loteWizVoltar()">&larr; Voltar</button>
+      <div class="wizard-nav">
+        <button type="button" class="wizard-back" onclick="loteWizVoltar()">&larr; Voltar</button>
+        <button type="button" class="wizard-back" onclick="loteWizCancelar()">Cancelar</button>
+      </div>
     </div>
 
     <!-- Passo 5: Quantidade -->
@@ -788,7 +804,10 @@ select.form-control option { background: var(--surface); }
         <input class="form-control" id="lote-qtd-cheios" type="number" min="1" placeholder="0">
       </div>
       <button type="button" class="btn btn-primary btn-block" onclick="loteWizConfirmarQtd()">Continuar</button>
-      <button type="button" class="wizard-back" onclick="loteWizVoltar()">&larr; Voltar</button>
+      <div class="wizard-nav">
+        <button type="button" class="wizard-back" onclick="loteWizVoltar()">&larr; Voltar</button>
+        <button type="button" class="wizard-back" onclick="loteWizCancelar()">Cancelar</button>
+      </div>
     </div>
 
     <!-- Passo 6: Data da entrada -->
@@ -798,7 +817,10 @@ select.form-control option { background: var(--surface); }
         <input class="form-control" id="lote-data-entrada" type="date">
       </div>
       <button type="button" class="btn btn-primary btn-block" id="lote-btn-salvar" onclick="salvarLote()">Salvar</button>
-      <button type="button" class="wizard-back" onclick="loteWizVoltar()">&larr; Voltar</button>
+      <div class="wizard-nav">
+        <button type="button" class="wizard-back" onclick="loteWizVoltar()">&larr; Voltar</button>
+        <button type="button" class="wizard-back" onclick="loteWizCancelar()">Cancelar</button>
+      </div>
     </div>
   </div>
 </div>
@@ -2177,6 +2199,10 @@ function loteWizVoltar() {
   if (loteWizStack.length <= 1) return;
   loteWizStack.pop();
   loteWizShow(loteWizStack[loteWizStack.length - 1]);
+}
+
+function loteWizCancelar() {
+  closeModal('modal-lote');
 }
 
 function loteWizAtualizarResumo() {
