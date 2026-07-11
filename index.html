@@ -133,6 +133,27 @@ body {
 .btn-acao:active { transform: scale(.97); box-shadow: 0 2px 8px rgba(14,165,196,.18); }
 .btn-acao.active { background: var(--primary); color: #fff; box-shadow: 0 4px 14px rgba(14,165,196,.28); }
 .stock-card { padding: 12px; text-align: center; }
+/* WIZARD (entrada de água) */
+.wizard-step-label { font-size: 0.85rem; font-weight: 700; text-align: center; margin-bottom: 12px; }
+.wizard-summary { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.wizard-chip {
+  background: rgba(14,165,196,.10); color: var(--accent2); border: 1px solid var(--accent);
+  border-radius: 20px; padding: 4px 12px; font-size: 0.72rem; font-weight: 700; cursor: pointer;
+  font-family: inherit;
+}
+.wizard-back {
+  display: block; margin: 10px auto 0; background: none; border: none;
+  font-size: 0.78rem; color: var(--muted); cursor: pointer; padding: 6px 8px; font-family: inherit;
+}
+.wizard-option {
+  display: flex; align-items: center; justify-content: space-between; width: 100%;
+  background: transparent; border: 1.5px solid var(--primary); color: var(--primary);
+  border-radius: 10px; padding: 12px 16px; font-family: inherit; font-size: 0.88rem; font-weight: 700;
+  cursor: pointer; transition: background .2s, color .2s; margin-bottom: 8px;
+}
+.wizard-option:last-child { margin-bottom: 0; }
+.wizard-option:hover { background: var(--primary); color: #fff; }
+.wizard-option:active { transform: scale(.98); }
 @keyframes _ripple { to { transform: scale(3.8); opacity: 0; } }
 .btn-acao-ripple {
   position: absolute; border-radius: 50%; pointer-events: none;
@@ -697,39 +718,88 @@ select.form-control option { background: var(--surface); }
   </div>
 </div>
 
-<!-- ===== MODAL: Registrar Entrada de Garrafão ===== -->
+<!-- ===== MODAL: Registrar Entrada Água ===== -->
 <div class="modal-overlay" id="modal-lote">
   <div class="modal">
-    <div class="modal-title">Registrar Entrada de Garrafão</div>
+    <div class="modal-title">Registrar Entrada Água</div>
     <div class="card-sub" style="margin-bottom:14px">Se já existir um lote dessa marca e validade, a quantidade é somada nele. Senão, um novo é criado.</div>
-    <div class="form-group">
-      <label class="form-label">Origem do Vasilhame</label>
-      <select class="form-control" id="lote-origem" onchange="atualizarOrigemLote()">
-        <option value="novo">Vasilhame Novo</option>
-        <option value="reaproveitado">Reaproveitado do Estoque de Vazios</option>
-      </select>
+
+    <div class="wizard-summary" id="lote-resumo"></div>
+
+    <input type="hidden" id="lote-origem">
+    <input type="hidden" id="lote-marca">
+    <input type="hidden" id="lote-vazio-origem">
+
+    <!-- Passo 1: Origem -->
+    <div class="wizard-step" id="lote-step-origem">
+      <div class="wizard-step-label">Vasilhame novo ou reaproveitamento?</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <button type="button" class="btn-acao" style="min-height:64px" onclick="rippleBtnAcao(event);loteWizOrigem('novo')">
+          <span style="font-size:.82rem;font-weight:700">Vasilhame<br>Novo</span>
+        </button>
+        <button type="button" class="btn-acao" style="min-height:64px" onclick="rippleBtnAcao(event);loteWizOrigem('reaproveitado')">
+          <span style="font-size:.82rem;font-weight:700">Reaproveita-<br>mento</span>
+        </button>
+      </div>
     </div>
-    <div class="form-group">
-      <label class="form-label">Marca</label>
-      <select class="form-control" id="lote-marca" onchange="atualizarOrigemLote()"></select>
+
+    <!-- Passo 2: Tamanho -->
+    <div class="wizard-step" id="lote-step-tamanho" style="display:none">
+      <div class="wizard-step-label">Qual tamanho de vasilhame?</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <button type="button" class="btn-acao" style="min-height:64px" onclick="rippleBtnAcao(event);loteWizTamanho(20)">
+          <span style="font-size:1.4rem;font-weight:800;line-height:1">20</span><span style="font-size:.72rem;font-weight:700">Litros</span>
+        </button>
+        <button type="button" class="btn-acao" style="min-height:64px" onclick="rippleBtnAcao(event);loteWizTamanho(10)">
+          <span style="font-size:1.4rem;font-weight:800;line-height:1">10</span><span style="font-size:.72rem;font-weight:700">Litros</span>
+        </button>
+      </div>
+      <button type="button" class="wizard-back" onclick="loteWizVoltar()">&larr; Voltar</button>
     </div>
-    <div class="form-group" id="lote-ano-wrap">
-      <label class="form-label">Ano de Validade</label>
-      <input class="form-control" id="lote-ano-validade" type="number" inputmode="numeric" min="2000" max="2100" maxlength="4" placeholder="2027">
+
+    <!-- Passo 3: Marca -->
+    <div class="wizard-step" id="lote-step-marca" style="display:none">
+      <div class="wizard-step-label">Qual marca?</div>
+      <div id="lote-marca-lista"></div>
+      <button type="button" class="wizard-back" onclick="loteWizVoltar()">&larr; Voltar</button>
     </div>
-    <div class="form-group" id="lote-vazio-origem-wrap" style="display:none">
-      <label class="form-label">Vazio a Reaproveitar</label>
-      <select class="form-control" id="lote-vazio-origem"></select>
+
+    <!-- Passo 4a: Ano de validade (vasilhame novo) -->
+    <div class="wizard-step" id="lote-step-ano" style="display:none">
+      <div class="wizard-step-label">Ano de validade do vasilhame novo</div>
+      <div class="form-group">
+        <input class="form-control" id="lote-ano-validade" type="number" inputmode="numeric" min="2000" max="2100" maxlength="4" placeholder="2027">
+      </div>
+      <button type="button" class="btn btn-primary btn-block" onclick="loteWizConfirmarAno()">Continuar</button>
+      <button type="button" class="wizard-back" onclick="loteWizVoltar()">&larr; Voltar</button>
     </div>
-    <div class="form-group">
-      <label class="form-label">Quantidade Recebida</label>
-      <input class="form-control" id="lote-qtd-cheios" type="number" min="1" placeholder="0">
+
+    <!-- Passo 4b: Vazio a reaproveitar -->
+    <div class="wizard-step" id="lote-step-vazio" style="display:none">
+      <div class="wizard-step-label">Qual vazio em estoque será reaproveitado?</div>
+      <div id="lote-vazio-lista"></div>
+      <button type="button" class="wizard-back" onclick="loteWizVoltar()">&larr; Voltar</button>
     </div>
-    <div class="form-group">
-      <label class="form-label">Data da Entrada</label>
-      <input class="form-control" id="lote-data-entrada" type="date">
+
+    <!-- Passo 5: Quantidade -->
+    <div class="wizard-step" id="lote-step-qtd" style="display:none">
+      <div class="wizard-step-label">Quantidade recebida</div>
+      <div class="form-group">
+        <input class="form-control" id="lote-qtd-cheios" type="number" min="1" placeholder="0">
+      </div>
+      <button type="button" class="btn btn-primary btn-block" onclick="loteWizConfirmarQtd()">Continuar</button>
+      <button type="button" class="wizard-back" onclick="loteWizVoltar()">&larr; Voltar</button>
     </div>
-    <button class="btn btn-primary btn-block" onclick="salvarLote()">Salvar</button>
+
+    <!-- Passo 6: Data da entrada -->
+    <div class="wizard-step" id="lote-step-data" style="display:none">
+      <div class="wizard-step-label">Data da entrada</div>
+      <div class="form-group">
+        <input class="form-control" id="lote-data-entrada" type="date">
+      </div>
+      <button type="button" class="btn btn-primary btn-block" id="lote-btn-salvar" onclick="salvarLote()">Salvar</button>
+      <button type="button" class="wizard-back" onclick="loteWizVoltar()">&larr; Voltar</button>
+    </div>
   </div>
 </div>
 
@@ -2089,39 +2159,124 @@ function preencherSelectLotes(selectEl, { somenteComCheios = false } = {}) {
   ).join('') || '<option value="">Nenhum lote disponível</option>';
 }
 
+let loteWiz = {};
+let loteWizStack = ['lote-step-origem'];
+
+function loteWizShow(stepId) {
+  document.querySelectorAll('#modal-lote .wizard-step').forEach(el => el.style.display = 'none');
+  document.getElementById(stepId).style.display = 'block';
+}
+
+function loteWizGoto(stepId) {
+  loteWizStack.push(stepId);
+  loteWizShow(stepId);
+  loteWizAtualizarResumo();
+}
+
+function loteWizVoltar() {
+  if (loteWizStack.length <= 1) return;
+  loteWizStack.pop();
+  loteWizShow(loteWizStack[loteWizStack.length - 1]);
+}
+
+function loteWizAtualizarResumo() {
+  const chips = [];
+  if (loteWiz.origem) chips.push({ label: loteWiz.origem === 'novo' ? 'Vasilhame Novo' : 'Reaproveitamento', step: 'lote-step-origem' });
+  if (loteWiz.tamanho) chips.push({ label: `${loteWiz.tamanho}L`, step: 'lote-step-tamanho' });
+  if (loteWiz.marca_id) {
+    const marca = allMarcas.find(m => m.id === loteWiz.marca_id);
+    if (marca) chips.push({ label: marca.nome, step: 'lote-step-marca' });
+  }
+  if (loteWiz.ano_validade) chips.push({ label: `Val. ${loteWiz.ano_validade}`, step: loteWiz.origem === 'novo' ? 'lote-step-ano' : 'lote-step-vazio' });
+  if (loteWiz.quantidade) chips.push({ label: `${loteWiz.quantidade} un.`, step: 'lote-step-qtd' });
+  document.getElementById('lote-resumo').innerHTML = chips
+    .map(c => `<button type="button" class="wizard-chip" onclick="loteWizJumpTo('${c.step}')">${c.label}</button>`).join('');
+}
+
+function loteWizJumpTo(stepId) {
+  const idx = loteWizStack.indexOf(stepId);
+  if (idx === -1) return;
+  loteWizStack = loteWizStack.slice(0, idx + 1);
+  loteWizShow(stepId);
+}
+
 function abrirNovoLote() {
-  const sel = document.getElementById('lote-marca');
-  sel.innerHTML = allMarcas.filter(m => m.ativo && m.tipo === 'agua').map(m => `<option value="${m.id}">${nomeMarcaComTamanho(m)}</option>`).join('')
-    || '<option value="">Nenhuma marca de água cadastrada</option>';
-  document.getElementById('lote-origem').value = 'novo';
-  document.getElementById('lote-ano-validade').value = new Date().getFullYear() + 3;
+  loteWiz = {};
+  loteWizStack = ['lote-step-origem'];
+  document.getElementById('lote-origem').value = '';
+  document.getElementById('lote-marca').value = '';
+  document.getElementById('lote-vazio-origem').value = '';
+  document.getElementById('lote-ano-validade').value = '';
   document.getElementById('lote-qtd-cheios').value = '';
-  document.getElementById('lote-data-entrada').value = new Date().toISOString().slice(0, 10);
-  atualizarOrigemLote();
+  document.getElementById('lote-data-entrada').value = '';
+  document.getElementById('lote-resumo').innerHTML = '';
+  loteWizShow('lote-step-origem');
   openModal('modal-lote');
 }
 
-function atualizarOrigemLote() {
-  const origem = document.getElementById('lote-origem').value;
-  document.getElementById('lote-ano-wrap').style.display = origem === 'novo' ? 'block' : 'none';
-  document.getElementById('lote-vazio-origem-wrap').style.display = origem === 'reaproveitado' ? 'block' : 'none';
-  if (origem === 'reaproveitado') {
-    const marca = allMarcas.find(m => m.id === document.getElementById('lote-marca').value);
-    const sel = document.getElementById('lote-vazio-origem');
-    if (!marca) { sel.innerHTML = '<option value="">Selecione a marca primeiro</option>'; return; }
+function loteWizOrigem(origem) {
+  loteWiz.origem = origem;
+  document.getElementById('lote-origem').value = origem;
+  loteWizGoto('lote-step-tamanho');
+}
+
+function loteWizTamanho(tamanho) {
+  loteWiz.tamanho = tamanho;
+  const marcas = allMarcas.filter(m => m.ativo && m.tipo === 'agua' && m.tamanho_litros === tamanho);
+  document.getElementById('lote-marca-lista').innerHTML = marcas.length
+    ? marcas.map(m => `<button type="button" class="wizard-option" onclick="loteWizMarca('${m.id}')"><span>${m.nome}</span></button>`).join('')
+    : `<div class="picker-empty">Nenhuma marca de água ${tamanho}L cadastrada</div>`;
+  loteWizGoto('lote-step-marca');
+}
+
+function loteWizMarca(marcaId) {
+  loteWiz.marca_id = marcaId;
+  document.getElementById('lote-marca').value = marcaId;
+  const marca = allMarcas.find(m => m.id === marcaId);
+  if (loteWiz.origem === 'novo') {
+    document.getElementById('lote-ano-validade').value = new Date().getFullYear() + 3;
+    loteWizGoto('lote-step-ano');
+  } else {
     const disponiveis = allEstoqueVazios
       .filter(v => v.quantidade > 0 && v.tamanho_litros === marca.tamanho_litros)
       .sort((a, b) => a.ano_validade - b.ano_validade);
-    sel.innerHTML = disponiveis.length
-      ? disponiveis.map(v => `<option value="${v.ano_validade}">Validade ${v.ano_validade} (${v.quantidade} disponíveis)</option>`).join('')
-      : `<option value="">Nenhum vazio de ${marca.tamanho_litros}L em estoque</option>`;
+    document.getElementById('lote-vazio-lista').innerHTML = disponiveis.length
+      ? disponiveis.map(v => `<button type="button" class="wizard-option" onclick="loteWizVazio(${v.ano_validade})"><span>Validade ${v.ano_validade}</span><span style="font-size:.75rem;font-weight:600">${v.quantidade} disponíveis</span></button>`).join('')
+      : `<div class="picker-empty">Nenhum vazio de ${marca.tamanho_litros}L em estoque</div>`;
+    loteWizGoto('lote-step-vazio');
   }
+}
+
+function loteWizVazio(ano) {
+  loteWiz.ano_validade = ano;
+  document.getElementById('lote-vazio-origem').value = ano;
+  loteWizIniciarQtd();
+}
+
+function loteWizConfirmarAno() {
+  const ano = parseInt(document.getElementById('lote-ano-validade').value || 0, 10);
+  if (String(ano).length !== 4) { toast('Informe um ano de validade com 4 números', true); return; }
+  loteWiz.ano_validade = ano;
+  loteWizIniciarQtd();
+}
+
+function loteWizIniciarQtd() {
+  document.getElementById('lote-qtd-cheios').value = '';
+  loteWizGoto('lote-step-qtd');
+}
+
+function loteWizConfirmarQtd() {
+  const qtd = parseInt(document.getElementById('lote-qtd-cheios').value || 0, 10);
+  if (qtd <= 0) { toast('Informe a quantidade', true); return; }
+  loteWiz.quantidade = qtd;
+  document.getElementById('lote-data-entrada').value = new Date().toISOString().slice(0, 10);
+  loteWizGoto('lote-step-data');
 }
 
 async function salvarLote() {
   if (_emAndamento.has('salvarLote')) return;
   _emAndamento.add('salvarLote');
-  const _btn = document.querySelector('.modal-overlay.open .btn-primary');
+  const _btn = document.getElementById('lote-btn-salvar');
   const _btnOrig = _btn?.textContent;
   if (_btn) { _btn.disabled = true; _btn.textContent = 'Aguarde...'; }
   try {
