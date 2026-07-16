@@ -528,7 +528,7 @@ select.form-control option { background: var(--surface); }
       <button class="btn btn-primary btn-sm" style="flex:1" onclick="abrirNovoLote()">+ Registrar Entrada</button>
       <button class="btn btn-outline btn-sm" style="flex:1" onclick="abrirAvaria()">Registrar Avaria</button>
     </div>
-    <button id="btn-ajuste-lote-dev" class="btn btn-outline btn-sm btn-block" style="display:none;margin-bottom:14px;color:#f59e0b;border-color:#f59e0b" onclick="abrirAjusteLote()">Ajuste Manual (Dev)</button>
+    <button id="btn-ajuste-lote-dev" class="btn btn-outline btn-sm btn-block" style="display:none;margin-bottom:14px;color:#f59e0b;border-color:#f59e0b" onclick="abrirAjusteLote()">Ajuste Manual</button>
     <div class="tabs" style="margin-bottom:14px">
       <button class="tab-btn active" id="tab-lotes-tamanho-todos" onclick="filterLotesPorTamanho('todos')">Todos</button>
       <button class="tab-btn" id="tab-lotes-tamanho-20" onclick="filterLotesPorTamanho(20)">20L</button>
@@ -922,7 +922,7 @@ select.form-control option { background: var(--surface); }
 <!-- ===== MODAL: Ajuste Manual de Lote (Desenvolvedor) ===== -->
 <div class="modal-overlay" id="modal-ajuste-lote">
   <div class="modal">
-    <div class="modal-title">Ajuste Manual — Cheios (Dev)</div>
+    <div class="modal-title">Ajuste Manual — Cheios</div>
     <div class="form-group">
       <label class="form-label">Lote</label>
       <select class="form-control" id="ajuste-lote-id"></select>
@@ -2005,7 +2005,7 @@ function renderLotesList() {
   if (!allLotes.length) { el.innerHTML = emptyStateHTML(SVG.estoque, 'Nenhum lote cadastrado'); return; }
   const podeExcluir = isAdminLevel();
   const btnDev = document.getElementById('btn-ajuste-lote-dev');
-  if (btnDev) btnDev.style.display = currentUserRole === 'desenvolvedor' ? '' : 'none';
+  if (btnDev) btnDev.style.display = isAdminLevel() ? '' : 'none';
   const filtrados = currentLoteFiltroTamanho === 'todos'
     ? allLotes
     : allLotes.filter(l => l.marcas && l.marcas.tamanho_litros === currentLoteFiltroTamanho);
