@@ -268,6 +268,23 @@ select.form-control option { background: var(--surface); }
   font-size: 0.8rem; cursor: pointer; transition: all .2s;
 }
 .tab-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+/* TABS: variante em pílulas que quebram linha (sem scroll horizontal) — usada
+   quando há muitos filtros com labels longos, ex. status de Pedidos */
+.tabs-wrap { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.tabs-wrap .tab-btn { flex-shrink: initial; }
+.tab-chip-yellow.active { background: var(--yellow); border-color: var(--yellow); color: #fff; }
+.tab-chip-green.active  { background: var(--green);  border-color: var(--green);  color: #fff; }
+.tab-chip-red.active    { background: var(--red);    border-color: var(--red);    color: #fff; }
+/* TABS: controle segmentado (2 opções lado a lado, ocupando a largura toda) —
+   usado pro filtro de escopo temporal (Hoje/Todos) em Pedidos */
+.tabs-seg { display: flex; gap: 8px; margin-bottom: 10px; }
+.tab-btn-seg {
+  flex: 1; padding: 9px 10px; border-radius: 10px;
+  border: 1.5px solid var(--border); background: var(--card); color: var(--muted);
+  font-size: 0.85rem; font-weight: 700; cursor: pointer; transition: all .2s;
+  -webkit-tap-highlight-color: transparent;
+}
+.tab-btn-seg.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 /* TOAST */
 .toast {
   position: fixed; bottom: 96px; left: 50%; transform: translateX(-50%) translateY(20px);
@@ -511,14 +528,16 @@ select.form-control option { background: var(--surface); }
     <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
     <input type="text" id="busca-pedido" placeholder="Buscar por cliente ou nº do pedido..." oninput="renderPedidosList()">
   </div>
-  <div class="tabs">
-    <button class="tab-btn active" id="tab-pedidos-hoje" onclick="filterPedidos('hoje')">Hoje</button>
-    <button class="tab-btn" id="tab-pedidos-todos" onclick="filterPedidos('todos')">Todos</button>
-    <button class="tab-btn" id="tab-pedidos-pendente" onclick="filterPedidos('pendente')">Entrega Pendente</button>
-    <button class="tab-btn" id="tab-pedidos-pagamento_pendente" onclick="filterPedidos('pagamento_pendente')">Pagamento Pendente</button>
-    <button class="tab-btn" id="tab-pedidos-pagos" onclick="filterPedidos('pagos')">Pagos</button>
-    <button class="tab-btn" id="tab-pedidos-entregue" onclick="filterPedidos('entregue')">Entregues</button>
-    <button class="tab-btn" id="tab-pedidos-cancelada" onclick="filterPedidos('cancelada')">Cancelados</button>
+  <div class="tabs-seg">
+    <button class="tab-btn-seg active" id="tab-pedidos-hoje" onclick="filterPedidos('hoje')">Hoje</button>
+    <button class="tab-btn-seg" id="tab-pedidos-todos" onclick="filterPedidos('todos')">Todos</button>
+  </div>
+  <div class="tabs-wrap">
+    <button class="tab-btn tab-chip-yellow" id="tab-pedidos-pendente" onclick="filterPedidos('pendente')">Entrega Pendente</button>
+    <button class="tab-btn tab-chip-yellow" id="tab-pedidos-pagamento_pendente" onclick="filterPedidos('pagamento_pendente')">Pagamento Pendente</button>
+    <button class="tab-btn tab-chip-green" id="tab-pedidos-pagos" onclick="filterPedidos('pagos')">Pagos</button>
+    <button class="tab-btn tab-chip-green" id="tab-pedidos-entregue" onclick="filterPedidos('entregue')">Entregues</button>
+    <button class="tab-btn tab-chip-red" id="tab-pedidos-cancelada" onclick="filterPedidos('cancelada')">Cancelados</button>
   </div>
   <div id="pedidos-filtro-periodo" class="card" style="display:none;align-items:center;justify-content:space-between;gap:10px;padding:10px 14px">
     <div class="card-sub" id="pedidos-filtro-periodo-texto" style="margin:0"></div>
