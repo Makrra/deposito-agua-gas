@@ -29,6 +29,7 @@
   --muted: #6b7280;
   --border: #e2e8f0;
   --radius: 12px;
+  --surface-rgb: 255,255,255;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
@@ -36,7 +37,7 @@ body {
   background: var(--bg);
   color: var(--text);
   min-height: 100vh;
-  padding-bottom: 80px;
+  padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px));
 }
 /* HEADER */
 .header {
@@ -56,18 +57,29 @@ body {
 /* NAV */
 .nav {
   position: fixed; bottom: 0; left: 0; right: 0;
-  background: var(--surface);
+  background: rgba(var(--surface-rgb), .86);
+  backdrop-filter: blur(18px) saturate(180%);
+  -webkit-backdrop-filter: blur(18px) saturate(180%);
   border-top: 1px solid var(--border);
   display: flex; z-index: 100;
-  box-shadow: 0 -2px 10px rgba(0,0,0,.04);
+  box-shadow: 0 -4px 20px rgba(0,0,0,.06);
+  padding: 6px 6px calc(6px + env(safe-area-inset-bottom, 0px));
+  /* força camada de composição própria — evita o bug clássico do iOS Safari
+     de elementos fixed "sumirem"/ficarem cobertos durante o scroll */
+  transform: translateZ(0);
+  -webkit-transform: translateZ(0);
+  backface-visibility: hidden;
 }
 .nav-btn {
-  flex: 1; padding: 10px 4px; border: none; background: none;
-  color: var(--muted); font-size: 0.75rem; cursor: pointer;
+  flex: 1; margin: 0 2px; padding: 7px 4px; border: none; background: none;
+  border-radius: 14px;
+  color: var(--muted); font-size: 0.68rem; font-weight: 600; cursor: pointer;
   display: flex; flex-direction: column; align-items: center; gap: 3px;
-  transition: color .2s;
+  transition: color .2s, background .25s;
+  -webkit-tap-highlight-color: transparent;
 }
-.nav-btn.active { color: var(--accent); }
+.nav-btn.active { color: var(--accent); background: rgba(var(--primary-rgb), .13); }
+.nav-btn:active { transform: scale(.95); }
 .nav-btn svg { width: 22px; height: 22px; }
 /* PAGES */
 .page { display: none; padding: 16px; }
@@ -191,11 +203,26 @@ select.form-control option { background: var(--surface); }
 }
 .modal-overlay.open { display: flex; }
 .modal {
+  position: relative;
   background: var(--surface); border-radius: 20px 20px 0 0;
   padding: 24px 20px 32px; width: 100%; max-width: 520px;
   max-height: 90vh; overflow-y: auto;
 }
 .modal-title { font-size: 1.1rem; font-weight: 700; margin-bottom: 20px; }
+.modal-close-btn {
+  position: absolute; top: 14px; right: 14px; z-index: 1;
+  width: 30px; height: 30px; border-radius: 50%;
+  border: none; background: var(--card); color: var(--muted);
+  font-size: 1.3rem; line-height: 1; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .2s, color .2s;
+  -webkit-tap-highlight-color: transparent;
+}
+.modal-close-btn:hover { background: var(--border); color: var(--text); }
+.historico-paginacao {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border);
+}
 /* LIST ITEMS */
 .list-item {
   display: flex; align-items: center; gap: 12px;
@@ -316,6 +343,7 @@ select.form-control option { background: var(--surface); }
     --text:    #f1f5f9;
     --muted:   #94a3b8;
     --border:  #334155;
+    --surface-rgb: 30,41,59;
   }
   .form-control { background: #0f172a; }
   .header { box-shadow: 0 1px 8px rgba(0,0,0,.4); }
@@ -484,7 +512,8 @@ select.form-control option { background: var(--surface); }
     <input type="text" id="busca-pedido" placeholder="Buscar por cliente ou nº do pedido..." oninput="renderPedidosList()">
   </div>
   <div class="tabs">
-    <button class="tab-btn active" id="tab-pedidos-todos" onclick="filterPedidos('todos')">Todos</button>
+    <button class="tab-btn active" id="tab-pedidos-hoje" onclick="filterPedidos('hoje')">Hoje</button>
+    <button class="tab-btn" id="tab-pedidos-todos" onclick="filterPedidos('todos')">Todos</button>
     <button class="tab-btn" id="tab-pedidos-pendente" onclick="filterPedidos('pendente')">Entrega Pendente</button>
     <button class="tab-btn" id="tab-pedidos-pagamento_pendente" onclick="filterPedidos('pagamento_pendente')">Pagamento Pendente</button>
     <button class="tab-btn" id="tab-pedidos-pagos" onclick="filterPedidos('pagos')">Pagos</button>
@@ -1308,12 +1337,13 @@ select.form-control option { background: var(--surface); }
   </div>
 </div>
 
-<!-- ===== MODAL: Histórico Completo (Comodato ou Pagamentos) ===== -->
+<!-- ===== MODAL: Histórico Completo (Comodato, Pagamentos ou Movimentos de Estoque) ===== -->
 <div class="modal-overlay" id="modal-historico-completo">
   <div class="modal">
-    <div class="modal-title" id="historico-completo-titulo">Histórico Completo</div>
+    <button type="button" class="modal-close-btn" onclick="closeModal('modal-historico-completo')" aria-label="Fechar">&times;</button>
+    <div class="modal-title" id="historico-completo-titulo" style="padding-right:34px">Histórico Completo</div>
     <div id="historico-completo-lista"></div>
-    <button class="btn btn-outline btn-block" style="margin-top:14px" onclick="closeModal('modal-historico-completo')">Fechar</button>
+    <div id="historico-completo-paginacao" style="display:none"></div>
   </div>
 </div>
 
@@ -1537,7 +1567,7 @@ let allEstoqueVazios = [];
 let allClientes = [];
 let allPedidos = [];
 let allEntregadores = [];
-let currentPedidoFilter = 'todos';
+let currentPedidoFilter = 'hoje';
 let pagamentosPorPedido = {};
 let dashboardPeriodo = 'hoje';
 let pendentesPorCliente = {};
@@ -2183,20 +2213,66 @@ function renderVaziosList() {
 
 const TIPO_MOVIMENTO_LABEL = { entrada_fabrica: 'Entrada', saida_venda: 'Saída (venda)', saida_vazio_venda: 'Saída (venda vazio)', ajuste: 'Ajuste', avaria: 'Avaria', retorno_vazio: 'Retorno de Vazio', reaproveitamento: 'Reaproveitamento' };
 
+const HISTORICO_MOV_POR_PAGINA = 50;
+let historicoMovimentosFull = []; // já ordenado do mais recente pro mais antigo, com saldoApos
+let historicoMovimentosPagina = 0;
+
 function renderHistoricoMovimentos(data, titulo) {
   document.getElementById('historico-completo-titulo').textContent = titulo;
   // data vem em ordem crescente; calcula saldo acumulado cronologicamente
   let saldo = 0;
   const comSaldo = (data || []).map(m => { saldo += m.quantidade; return { ...m, saldoApos: saldo }; });
   // exibe do mais recente para o mais antigo
-  const linhas = comSaldo.slice().reverse().map(m => `
+  historicoMovimentosFull = comSaldo.slice().reverse();
+  historicoMovimentosPagina = 0;
+  renderHistoricoMovimentosPagina();
+  openModal('modal-historico-completo');
+}
+
+function renderHistoricoMovimentosPagina() {
+  const totalPaginas = Math.max(1, Math.ceil(historicoMovimentosFull.length / HISTORICO_MOV_POR_PAGINA));
+  if (historicoMovimentosPagina >= totalPaginas) historicoMovimentosPagina = totalPaginas - 1;
+  const inicio = historicoMovimentosPagina * HISTORICO_MOV_POR_PAGINA;
+  const pagina = historicoMovimentosFull.slice(inicio, inicio + HISTORICO_MOV_POR_PAGINA);
+  const linhas = pagina.map(m => `
     <div class="list-item">
       <div class="item-info"><div class="item-name">${escapeHtml(TIPO_MOVIMENTO_LABEL[m.tipo] || m.tipo)}</div><div class="item-detail">${fmtData(m.data)}${m.observacao ? ' · ' + escapeHtml(m.observacao) : ''} · <span style="font-weight:600;color:var(--accent)">saldo: ${m.saldoApos}</span></div></div>
       <div class="item-value ${m.quantidade < 0 ? 'text-red' : 'text-green'}">${m.quantidade > 0 ? '+' : ''}${m.quantidade}</div>
     </div>
   `);
   document.getElementById('historico-completo-lista').innerHTML = linhas.length ? linhas.join('') : '<div class="empty-state">Sem movimentos registrados</div>';
-  openModal('modal-historico-completo');
+
+  const paginacaoEl = document.getElementById('historico-completo-paginacao');
+  if (historicoMovimentosFull.length > HISTORICO_MOV_POR_PAGINA) {
+    paginacaoEl.className = 'historico-paginacao';
+    paginacaoEl.style.display = 'flex';
+    paginacaoEl.innerHTML = `
+      <button type="button" class="btn btn-outline btn-sm" ${historicoMovimentosPagina === 0 ? 'disabled' : ''} onclick="historicoMovimentosIrPagina(-1)">&larr; Mais recentes</button>
+      <span class="card-sub" style="margin:0;white-space:nowrap">Página ${historicoMovimentosPagina + 1} de ${totalPaginas}</span>
+      <button type="button" class="btn btn-outline btn-sm" ${historicoMovimentosPagina >= totalPaginas - 1 ? 'disabled' : ''} onclick="historicoMovimentosIrPagina(1)">Mais antigas &rarr;</button>
+    `;
+  } else {
+    paginacaoEl.style.display = 'none';
+    paginacaoEl.innerHTML = '';
+  }
+}
+
+function historicoMovimentosIrPagina(delta) {
+  historicoMovimentosPagina += delta;
+  renderHistoricoMovimentosPagina();
+  const modalEl = document.querySelector('#modal-historico-completo .modal');
+  if (modalEl) modalEl.scrollTop = 0;
+}
+
+// Limpa a paginação de movimentos de estoque quando o modal genérico é
+// reaproveitado pra outro tipo de histórico (comodato, pagamentos, extrato
+// de caixa) — senão os controles de página anteriores ficavam visíveis.
+function limparPaginacaoHistorico() {
+  historicoMovimentosFull = [];
+  historicoMovimentosPagina = 0;
+  const el = document.getElementById('historico-completo-paginacao');
+  el.style.display = 'none';
+  el.innerHTML = '';
 }
 
 async function abrirHistoricoLote(loteId) {
@@ -3164,6 +3240,7 @@ function renderPagamentosLista(pagamentos, elId) {
 // VER TODAS (histórico completo arquivado)
 // ============================================================
 function abrirHistoricoCompleto(tipo) {
+  limparPaginacaoHistorico();
   if (tipo === 'comodato') {
     document.getElementById('historico-completo-titulo').textContent = 'Todas as Transações de Comodato';
     renderComodatoLista(currentComodatoFull, 'historico-completo-lista');
@@ -4029,7 +4106,7 @@ async function loadPedidos() {
 
 function filterPedidos(tipo) {
   currentPedidoFilter = tipo;
-  ['todos', 'pendente', 'pagamento_pendente', 'pagos', 'entregue', 'cancelada'].forEach(t =>
+  ['hoje', 'todos', 'pendente', 'pagamento_pendente', 'pagos', 'entregue', 'cancelada'].forEach(t =>
     document.getElementById('tab-pedidos-' + t).classList.toggle('active', t === tipo)
   );
   renderPedidosList();
@@ -4055,6 +4132,7 @@ function limparFiltroPeriodoPedidos() {
 function irParaPedidos() {
   limparFiltroPeriodoPedidos();
   goPage('pedidos');
+  filterPedidos('hoje');
 }
 
 async function irParaPedidosPagamentoPendente() {
@@ -4097,7 +4175,11 @@ function badgeStatusEntrega(status) {
 function renderPedidosList() {
   const el = document.getElementById('pedidos-list');
   let lista;
-  if (currentPedidoFilter === 'todos') {
+  if (currentPedidoFilter === 'hoje') {
+    const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+    const amanha = new Date(hoje); amanha.setDate(amanha.getDate() + 1);
+    lista = allPedidos.filter(p => { const t = new Date(p.data).getTime(); return t >= hoje.getTime() && t < amanha.getTime(); });
+  } else if (currentPedidoFilter === 'todos') {
     lista = allPedidos;
   } else if (currentPedidoFilter === 'pagamento_pendente') {
     lista = allPedidos.filter(p => p.status !== 'cancelado' && (pagamentosPorPedido[p.id] || 0) < p.total);
@@ -5580,6 +5662,7 @@ async function renderExtratoCaixa() {
 }
 
 function verTodoExtratoCaixa() {
+  limparPaginacaoHistorico();
   document.getElementById('historico-completo-titulo').textContent = 'Extrato Completo da Sessão';
   document.getElementById('historico-completo-lista').innerHTML = extratoCaixaCompleto.length
     ? extratoCaixaCompleto.map(htmlExtratoCaixaLinha).join('')
