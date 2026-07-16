@@ -919,24 +919,96 @@ select.form-control option { background: var(--surface); }
   </div>
 </div>
 
-<!-- ===== MODAL: Ajuste Manual de Lote (Desenvolvedor) ===== -->
+<!-- ===== MODAL: Ajuste Manual de Lote ===== -->
 <div class="modal-overlay" id="modal-ajuste-lote">
   <div class="modal">
     <div class="modal-title">Ajuste Manual — Cheios</div>
-    <div class="form-group">
-      <label class="form-label">Lote</label>
-      <select class="form-control" id="ajuste-lote-id"></select>
+    <div class="card-sub" style="margin-bottom:14px">Use pra corrigir o saldo de um lote específico. O motivo fica registrado no histórico do estoque.</div>
+
+    <div class="wizard-summary" id="ajuste-resumo"></div>
+
+    <input type="hidden" id="ajuste-lote-id">
+    <input type="hidden" id="ajuste-lote-quantidade">
+
+    <!-- Passo 1: Tamanho -->
+    <div class="wizard-step" id="ajuste-step-tamanho">
+      <div class="wizard-step-label">Qual tamanho de vasilhame?</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <button type="button" class="btn-acao" style="min-height:64px" onclick="rippleBtnAcao(event);ajusteWizTamanho(20)">
+          <span style="font-size:1.4rem;font-weight:800;line-height:1">20</span><span style="font-size:.72rem;font-weight:700">Litros</span>
+        </button>
+        <button type="button" class="btn-acao" style="min-height:64px" onclick="rippleBtnAcao(event);ajusteWizTamanho(10)">
+          <span style="font-size:1.4rem;font-weight:800;line-height:1">10</span><span style="font-size:.72rem;font-weight:700">Litros</span>
+        </button>
+      </div>
+      <div class="wizard-nav">
+        <button type="button" class="wizard-back" onclick="ajusteWizCancelar()">Cancelar</button>
+      </div>
     </div>
-    <div class="form-group">
-      <label class="form-label">Quantidade (negativo para reduzir)</label>
-      <input class="form-control" id="ajuste-lote-quantidade" type="number" placeholder="ex: -5 ou +10">
+
+    <!-- Passo 2: Marca -->
+    <div class="wizard-step" id="ajuste-step-marca" style="display:none">
+      <div class="wizard-step-label">Qual marca?</div>
+      <div id="ajuste-marca-lista"></div>
+      <div class="wizard-nav">
+        <button type="button" class="wizard-back" onclick="ajusteWizVoltar()">&larr; Voltar</button>
+        <button type="button" class="wizard-back" onclick="ajusteWizCancelar()">Cancelar</button>
+      </div>
     </div>
-    <div class="form-group">
-      <label class="form-label">Observação</label>
-      <input class="form-control" id="ajuste-lote-obs" type="text" placeholder="motivo do ajuste">
+
+    <!-- Passo 3: Lote (validade) -->
+    <div class="wizard-step" id="ajuste-step-lote" style="display:none">
+      <div class="wizard-step-label">Qual lote (validade)?</div>
+      <div id="ajuste-lote-lista"></div>
+      <div class="wizard-nav">
+        <button type="button" class="wizard-back" onclick="ajusteWizVoltar()">&larr; Voltar</button>
+        <button type="button" class="wizard-back" onclick="ajusteWizCancelar()">Cancelar</button>
+      </div>
     </div>
-    <button class="btn btn-primary btn-block" onclick="salvarAjusteLote()">Salvar Ajuste</button>
-    <button class="btn btn-outline btn-block" style="margin-top:8px" onclick="closeModal('modal-ajuste-lote')">Cancelar</button>
+
+    <!-- Passo 4: Tipo de ajuste -->
+    <div class="wizard-step" id="ajuste-step-tipo" style="display:none">
+      <div class="wizard-step-label">Aumentar ou reduzir o estoque desse lote?</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <button type="button" class="btn-acao" style="min-height:60px" onclick="rippleBtnAcao(event);ajusteWizTipo('aumentar')">
+          <span style="font-size:.85rem;font-weight:700">+ Aumentar</span>
+        </button>
+        <button type="button" class="btn-acao" style="min-height:60px" onclick="rippleBtnAcao(event);ajusteWizTipo('reduzir')">
+          <span style="font-size:.85rem;font-weight:700">&minus; Reduzir</span>
+        </button>
+      </div>
+      <div class="wizard-nav">
+        <button type="button" class="wizard-back" onclick="ajusteWizVoltar()">&larr; Voltar</button>
+        <button type="button" class="wizard-back" onclick="ajusteWizCancelar()">Cancelar</button>
+      </div>
+    </div>
+
+    <!-- Passo 5: Quantidade -->
+    <div class="wizard-step" id="ajuste-step-qtd" style="display:none">
+      <div class="wizard-step-label" id="ajuste-qtd-label">Quantidade</div>
+      <div class="card-sub" id="ajuste-qtd-hint" style="margin-bottom:10px;text-align:center"></div>
+      <div class="form-group">
+        <input class="form-control" id="ajuste-qtd-input" type="number" min="1" placeholder="0">
+      </div>
+      <button type="button" class="btn btn-primary btn-block" onclick="ajusteWizConfirmarQtd()">Continuar</button>
+      <div class="wizard-nav">
+        <button type="button" class="wizard-back" onclick="ajusteWizVoltar()">&larr; Voltar</button>
+        <button type="button" class="wizard-back" onclick="ajusteWizCancelar()">Cancelar</button>
+      </div>
+    </div>
+
+    <!-- Passo 6: Motivo e salvar -->
+    <div class="wizard-step" id="ajuste-step-obs" style="display:none">
+      <div class="wizard-step-label">Motivo do ajuste</div>
+      <div class="form-group">
+        <input class="form-control" id="ajuste-lote-obs" type="text" placeholder="Ex: contagem física, erro de lançamento...">
+      </div>
+      <button type="button" class="btn btn-primary btn-block" id="ajuste-btn-salvar" onclick="salvarAjusteLote()">Salvar Ajuste</button>
+      <div class="wizard-nav">
+        <button type="button" class="wizard-back" onclick="ajusteWizVoltar()">&larr; Voltar</button>
+        <button type="button" class="wizard-back" onclick="ajusteWizCancelar()">Cancelar</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -2397,17 +2469,117 @@ async function salvarAvaria() {
   }
 }
 
+let ajusteWiz = {};
+let ajusteWizStack = ['ajuste-step-tamanho'];
+
+function ajusteWizShow(stepId) {
+  document.querySelectorAll('#modal-ajuste-lote .wizard-step').forEach(el => el.style.display = 'none');
+  document.getElementById(stepId).style.display = 'block';
+}
+
+function ajusteWizGoto(stepId) {
+  ajusteWizStack.push(stepId);
+  ajusteWizShow(stepId);
+  ajusteWizAtualizarResumo();
+}
+
+function ajusteWizVoltar() {
+  if (ajusteWizStack.length <= 1) return;
+  ajusteWizStack.pop();
+  ajusteWizShow(ajusteWizStack[ajusteWizStack.length - 1]);
+}
+
+function ajusteWizCancelar() {
+  closeModal('modal-ajuste-lote');
+}
+
+function ajusteWizAtualizarResumo() {
+  const chips = [];
+  if (ajusteWiz.tamanho) chips.push({ label: `${ajusteWiz.tamanho}L`, step: 'ajuste-step-tamanho' });
+  if (ajusteWiz.marca_nome) chips.push({ label: ajusteWiz.marca_nome, step: 'ajuste-step-marca' });
+  if (ajusteWiz.ano_validade) chips.push({ label: `Val. ${ajusteWiz.ano_validade}`, step: 'ajuste-step-lote' });
+  if (ajusteWiz.tipo) chips.push({ label: ajusteWiz.tipo === 'aumentar' ? 'Aumentar' : 'Reduzir', step: 'ajuste-step-tipo' });
+  if (ajusteWiz.quantidade) chips.push({ label: `${Math.abs(ajusteWiz.quantidade)} un.`, step: 'ajuste-step-qtd' });
+  document.getElementById('ajuste-resumo').innerHTML = chips
+    .map(c => `<button type="button" class="wizard-chip" onclick="ajusteWizJumpTo('${c.step}')">${c.label}</button>`).join('');
+}
+
+function ajusteWizJumpTo(stepId) {
+  const idx = ajusteWizStack.indexOf(stepId);
+  if (idx === -1) return;
+  ajusteWizStack = ajusteWizStack.slice(0, idx + 1);
+  ajusteWizShow(stepId);
+}
+
 function abrirAjusteLote() {
-  preencherSelectLotes(document.getElementById('ajuste-lote-id'), {});
+  ajusteWiz = {};
+  ajusteWizStack = ['ajuste-step-tamanho'];
+  document.getElementById('ajuste-lote-id').value = '';
   document.getElementById('ajuste-lote-quantidade').value = '';
   document.getElementById('ajuste-lote-obs').value = '';
+  document.getElementById('ajuste-resumo').innerHTML = '';
+  ajusteWizShow('ajuste-step-tamanho');
   openModal('modal-ajuste-lote');
+}
+
+function ajusteWizTamanho(tamanho) {
+  ajusteWiz.tamanho = tamanho;
+  const porMarca = new Map();
+  allLotes.filter(l => l.marcas && l.marcas.tamanho_litros === tamanho).forEach(l => {
+    if (!porMarca.has(l.marca_id)) porMarca.set(l.marca_id, l.marcas.nome);
+  });
+  document.getElementById('ajuste-marca-lista').innerHTML = porMarca.size
+    ? [...porMarca.entries()].map(([id, nome]) => `<button type="button" class="wizard-option" onclick="ajusteWizMarca('${id}')"><span>${nome}</span></button>`).join('')
+    : `<div class="picker-empty">Nenhum lote de ${tamanho}L cadastrado</div>`;
+  ajusteWizGoto('ajuste-step-marca');
+}
+
+function ajusteWizMarca(marcaId) {
+  ajusteWiz.marca_id = marcaId;
+  const lotes = allLotes
+    .filter(l => l.marca_id === marcaId && l.marcas && l.marcas.tamanho_litros === ajusteWiz.tamanho)
+    .sort((a, b) => a.ano_validade - b.ano_validade);
+  ajusteWiz.marca_nome = lotes[0]?.marcas?.nome || '';
+  document.getElementById('ajuste-lote-lista').innerHTML = lotes.length
+    ? lotes.map(l => `<button type="button" class="wizard-option" onclick="ajusteWizLote('${l.id}')"><span>Validade ${l.ano_validade}</span><span style="font-size:.75rem;font-weight:600">${l.qtd_cheios} cheios</span></button>`).join('')
+    : `<div class="picker-empty">Nenhum lote encontrado</div>`;
+  ajusteWizGoto('ajuste-step-lote');
+}
+
+function ajusteWizLote(loteId) {
+  ajusteWiz.lote_id = loteId;
+  document.getElementById('ajuste-lote-id').value = loteId;
+  const lote = allLotes.find(l => l.id === loteId);
+  ajusteWiz.ano_validade = lote?.ano_validade;
+  ajusteWiz.qtd_atual = lote?.qtd_cheios ?? 0;
+  ajusteWizGoto('ajuste-step-tipo');
+}
+
+function ajusteWizTipo(tipo) {
+  ajusteWiz.tipo = tipo;
+  document.getElementById('ajuste-qtd-input').value = '';
+  document.getElementById('ajuste-qtd-label').textContent = tipo === 'aumentar' ? 'Quantidade a aumentar' : 'Quantidade a reduzir';
+  document.getElementById('ajuste-qtd-hint').textContent = `Estoque atual desse lote: ${ajusteWiz.qtd_atual} cheios`;
+  ajusteWizGoto('ajuste-step-qtd');
+}
+
+function ajusteWizConfirmarQtd() {
+  const mag = parseInt(document.getElementById('ajuste-qtd-input').value || 0, 10);
+  if (mag <= 0) { toast('Informe a quantidade', true); return; }
+  if (ajusteWiz.tipo === 'reduzir' && mag > ajusteWiz.qtd_atual) {
+    toast(`Só há ${ajusteWiz.qtd_atual} cheios nesse lote — informe no máximo esse valor`, true);
+    return;
+  }
+  ajusteWiz.quantidade = ajusteWiz.tipo === 'reduzir' ? -mag : mag;
+  document.getElementById('ajuste-lote-quantidade').value = ajusteWiz.quantidade;
+  document.getElementById('ajuste-lote-obs').value = '';
+  ajusteWizGoto('ajuste-step-obs');
 }
 
 async function salvarAjusteLote() {
   if (_emAndamento.has('salvarAjusteLote')) return;
   _emAndamento.add('salvarAjusteLote');
-  const _btn = document.querySelector('#modal-ajuste-lote .btn-primary');
+  const _btn = document.getElementById('ajuste-btn-salvar');
   const _btnOrig = _btn?.textContent;
   if (_btn) { _btn.disabled = true; _btn.textContent = 'Aguarde...'; }
   try {
