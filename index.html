@@ -1734,6 +1734,14 @@ document.addEventListener('click', e => {
   });
 });
 
+// Clicar em qualquer parte de um <input type="date"> abre o calendário
+// nativo — sem isso, alguns navegadores só abrem clicando bem no ícone,
+// deixando o resto do campo parecendo um texto editável comum.
+document.addEventListener('click', e => {
+  const el = e.target.closest('input[type="date"]');
+  if (el && el.showPicker) { try { el.showPicker(); } catch (_) {} }
+});
+
 // ============================================================
 // TOAST
 // ============================================================
@@ -5195,13 +5203,17 @@ async function calcularResumoPeriodoCaixa(inicio, fim, sessaoId = null) {
   const { data: pedidos } = await sb.from('pedidos').select('id, total, status, status_entrega').gte('data', inicio).lte('data', fim);
   const lista = pedidos || [];
   const naoCancelados = lista.filter(p => p.status !== 'cancelado');
-  const idsNaoCancelados = naoCancelados.map(p => p.id);
 
   // pagoPorPedido: qualquer confirmação (de qualquer perfil) — determina se
-  // o pedido está pago/pendente do ponto de vista do cliente.
+  // o pedido está pago/pendente do ponto de vista do cliente. Filtra via
+  // join em pedidos.data em vez de .in('pedido_id', ids) — uma lista grande
+  // de UUIDs na URL falha silenciosamente (mesmo problema já corrigido no
+  // dashboard; aqui o período normalmente é curto, mas o risco é o mesmo).
   let pagoPorPedido = {};
-  if (idsNaoCancelados.length) {
-    const { data: pagamentos } = await sb.from('pagamentos_pedido').select('pedido_id, valor').in('pedido_id', idsNaoCancelados);
+  {
+    const { data: pagamentos, error: errPagamentos } = await sb.from('pagamentos_pedido')
+      .select('pedido_id, valor, pedidos!inner(data)').gte('pedidos.data', inicio).lte('pedidos.data', fim);
+    if (errPagamentos) toastErro('carregar pagamentos do período do caixa', errPagamentos);
     (pagamentos || []).forEach(pg => {
       pagoPorPedido[pg.pedido_id] = roundMoeda((pagoPorPedido[pg.pedido_id] || 0) + parseFloat(pg.valor));
     });
@@ -5980,7 +5992,6 @@ async function loadDashboard() {
     .select('id, total, status, status_entrega, forma_pagamento, valor_dinheiro_misto, valor_pix_misto, parcelas_esperadas, cliente_id, data')
     .gte('data', inicioISO).lt('data', fimISO);
   const pedidosHoje = (pedidosHojeRaw || []).filter(p => p.status !== 'cancelado');
-  const idsHoje = pedidosHoje.map(p => p.id);
   const vendasHoje = roundMoeda(pedidosHoje.reduce((s, p) => s + parseFloat(p.total), 0));
 
   // Atualiza vendas, ticket médio e gráfico já — não precisam de mais dados.
@@ -6039,25 +6050,32 @@ async function loadDashboard() {
   const PERFIS = ['caixa', 'administrador', 'desenvolvedor'];
   const [
     { data: pagamentosPeriodo },
-    { data: pagamentosCohorteRaw },
+    { data: pagamentosCohorteRaw, error: errPagamentosCohorte },
     { data: entreguesPeriodoRaw },
     { data: movAgua },
-    { data: itensAguaRaw },
+    { data: itensAguaRaw, error: errItensAgua },
     { data: lotesAtuais },
     { data: movVazios },
     { data: itensGas },
     { data: clientesComodato },
   ] = await Promise.all([
     sb.from('pagamentos_pedido').select('forma, valor, pedidos(status), usuarios(role)').gte('data', inicioISO).lt('data', fimISO),
-    idsHoje.length ? sb.from('pagamentos_pedido').select('pedido_id, forma, valor').in('pedido_id', idsHoje) : Promise.resolve({ data: [] }),
+    // cohort dos pedidos do período: filtra via join em pedidos.data em vez
+    // de listar os IDs dos pedidos na URL com .in() — uma lista grande de
+    // UUIDs falha silenciosamente (mesma causa do bug corrigido antes nos
+    // pagamentos de pedidos; um período "Personalizado" longo tem bem mais
+    // pedidos do que o "Hoje", que nunca esbarrava nesse limite).
+    sb.from('pagamentos_pedido').select('pedido_id, forma, valor, pedidos!inner(data)').gte('pedidos.data', inicioISO).lt('pedidos.data', fimISO),
     sb.from('pedidos').select('id').neq('status', 'cancelado').gte('data_entrega', inicioISO).lt('data_entrega', fimISO),
     sb.from('movimentos_estoque').select('quantidade, referencia_pedido_id, pedidos(status), lotes_garrafao(marca_id, marcas(nome, tipo, tamanho_litros))').eq('tipo', 'saida_venda').gte('data', inicioISO).lt('data', fimISO),
-    idsHoje.length ? sb.from('itens_pedido').select('pedido_id, marca_id, quantidade, preco_unitario, preco_vasilhame, marcas(nome, tipo, tamanho_litros)').in('pedido_id', idsHoje) : Promise.resolve({ data: [] }),
+    sb.from('itens_pedido').select('pedido_id, marca_id, quantidade, preco_unitario, preco_vasilhame, marcas(nome, tipo, tamanho_litros), pedidos!inner(data)').gte('pedidos.data', inicioISO).lt('pedidos.data', fimISO),
     sb.from('lotes_garrafao').select('marca_id, qtd_cheios'),
     sb.from('movimentos_estoque').select('quantidade, ano_validade, tamanho_litros, referencia_pedido_id, pedidos(status)').eq('tipo', 'retorno_vazio').gte('data', inicioISO).lt('data', fimISO),
     sb.from('itens_pedido').select('quantidade, marcas(nome), pedidos!inner(status_entrega, data_entrega)').is('lote_id', null).eq('pedidos.status_entrega', 'entregue').gte('pedidos.data_entrega', inicioISO).lt('pedidos.data_entrega', fimISO),
     sb.from('clientes').select('nome, saldo_comodato_garrafoes').gt('saldo_comodato_garrafoes', 0).order('saldo_comodato_garrafoes', { ascending: false }),
   ]);
+  if (errPagamentosCohorte) toastErro('carregar pagamentos do período', errPagamentosCohorte);
+  if (errItensAgua) toastErro('carregar itens de água do período', errItensAgua);
 
   // FASE 3: processa tudo e atualiza DOM.
 
@@ -6310,12 +6328,13 @@ async function loadDashboard() {
 async function calcularPendentesPorClientePeriodo(inicioISO, fimISO) {
   const { data: pedidos } = await sb.from('pedidos').select('id, cliente_id, total')
     .neq('status', 'cancelado').gte('data', inicioISO).lt('data', fimISO);
-  const ids = (pedidos || []).map(p => p.id);
-  let pagamentos = [];
-  if (ids.length) {
-    const { data } = await sb.from('pagamentos_pedido').select('pedido_id, valor').in('pedido_id', ids);
-    pagamentos = data || [];
-  }
+  // filtra via join em pedidos.data em vez de .in('pedido_id', ids) — uma
+  // lista grande de UUIDs na URL falha silenciosamente pra períodos longos
+  // (mesmo problema já corrigido no resto do dashboard).
+  const { data: pagamentosRaw, error: errPagamentos } = await sb.from('pagamentos_pedido')
+    .select('pedido_id, valor, pedidos!inner(data)').gte('pedidos.data', inicioISO).lt('pedidos.data', fimISO);
+  if (errPagamentos) toastErro('carregar pagamentos do período', errPagamentos);
+  const pagamentos = pagamentosRaw || [];
   const pagoPorPedido = {};
   pagamentos.forEach(pg => { pagoPorPedido[pg.pedido_id] = roundMoeda((pagoPorPedido[pg.pedido_id] || 0) + parseFloat(pg.valor)); });
   const mapa = {};
