@@ -1586,14 +1586,15 @@ let allEstoqueVazios = [];
 let allClientes = [];
 let allPedidos = [];
 let allEntregadores = [];
-let currentPedidoFilter = 'hoje';
+let currentPedidoFilter = 'hoje'; // 'hoje' | 'todos' — dimensão de período
+let currentPedidoStatusFilter = null; // null | 'pendente' | 'pagamento_pendente' | 'pagos' | 'entregue' | 'cancelada' — dimensão de status, combinável com a de período
 let pagamentosPorPedido = {};
 let dashboardPeriodo = 'hoje';
 let pendentesPorCliente = {};
 
 async function calcularPendentesPorCliente() {
-  const { data: pedidos } = await fetchAllRows(() => sb.from('pedidos').select('id, cliente_id, total').neq('status', 'cancelado'));
-  const { data: pagamentos, error: errPagamentos } = await fetchAllRows(() => sb.from('pagamentos_totais_pedido').select('pedido_id, total_pago'));
+  const { data: pedidos } = await fetchAllRows(() => sb.from('pedidos').select('id, cliente_id, total').neq('status', 'cancelado').order('id'));
+  const { data: pagamentos, error: errPagamentos } = await fetchAllRows(() => sb.from('pagamentos_totais_pedido').select('pedido_id, total_pago').order('pedido_id'));
   if (errPagamentos) toastErro('carregar pagamentos pendentes', errPagamentos);
   const pagoPorPedido = {};
   (pagamentos || []).forEach(pg => { pagoPorPedido[pg.pedido_id] = roundMoeda(parseFloat(pg.total_pago)); });
@@ -1624,14 +1625,17 @@ const _emAndamento = new Set();
 // foi usado em outras linhas deste mesmo pedido, e descontamos do estoque
 // físico antes de validar.
 async function loadReservasPendentes(excludePedidoId) {
-  let query = sb.from('itens_pedido')
-    .select('lote_id, marca_id, quantidade, tipo_vasilhame, tamanho_litros_vazio, ano_validade_vazio, pedidos!inner(status_entrega)')
-    .eq('pedidos.status_entrega', 'pendente');
-  // Editando um pedido pendente: ele mesmo já está contado aqui (ainda não
-  // foi entregue), e os itens dele vão ser recolocados no formulário — sem
-  // excluir, a quantidade dele seria descontada em dobro do disponível.
-  if (excludePedidoId) query = query.neq('pedido_id', excludePedidoId);
-  const { data, error } = await query;
+  const buildQuery = () => {
+    let query = sb.from('itens_pedido')
+      .select('lote_id, marca_id, quantidade, tipo_vasilhame, tamanho_litros_vazio, ano_validade_vazio, pedidos!inner(status_entrega)')
+      .eq('pedidos.status_entrega', 'pendente');
+    // Editando um pedido pendente: ele mesmo já está contado aqui (ainda não
+    // foi entregue), e os itens dele vão ser recolocados no formulário — sem
+    // excluir, a quantidade dele seria descontada em dobro do disponível.
+    if (excludePedidoId) query = query.neq('pedido_id', excludePedidoId);
+    return query.order('id');
+  };
+  const { data, error } = await fetchAllRows(buildQuery);
   if (error) toastErro('carregar reservas de estoque', error);
   reservasLotePendentes = {};
   reservasGasPendentes = {};
@@ -4137,14 +4141,14 @@ async function salvarPedido() {
 // ============================================================
 async function loadPedidos() {
   await loadEntregadoresList();
-  const { data, error } = await sb.from('pedidos')
+  const { data, error } = await fetchAllRows(() => sb.from('pedidos')
     .select('*, clientes(nome), usuarios!pedidos_entregador_id_fkey(nome), criador:usuarios!pedidos_criado_por_fkey(nome, role), itens_pedido(quantidade, tipo_vasilhame, marcas(nome, tipo, tamanho_litros))')
-    .order('data', { ascending: false });
+    .order('data', { ascending: false }));
   if (error) { toastErro('carregar pedidos', error); return; }
   allPedidos = data || [];
 
   pagamentosPorPedido = {};
-  const { data: pagamentos, error: errPagamentos } = await fetchAllRows(() => sb.from('pagamentos_totais_pedido').select('pedido_id, total_pago'));
+  const { data: pagamentos, error: errPagamentos } = await fetchAllRows(() => sb.from('pagamentos_totais_pedido').select('pedido_id, total_pago').order('pedido_id'));
   if (errPagamentos) toastErro('carregar pagamentos', errPagamentos);
   (pagamentos || []).forEach(pg => {
     pagamentosPorPedido[pg.pedido_id] = roundMoeda(parseFloat(pg.total_pago));
@@ -4153,12 +4157,31 @@ async function loadPedidos() {
   renderPedidosList();
 }
 
+// 'hoje'/'todos' e os chips de status (pendente/pagamento_pendente/pagos/
+// entregue/cancelada) são duas dimensões independentes e combináveis — não
+// dá pra tratar como uma seleção única, senão escolher um chip de status
+// sempre desliga "Hoje"/"Todos" (e vice-versa), sem deixar combinar as
+// duas (ex: pedidos de hoje com pagamento pendente).
 function filterPedidos(tipo) {
-  currentPedidoFilter = tipo;
-  ['hoje', 'todos', 'pendente', 'pagamento_pendente', 'pagos', 'entregue', 'cancelada'].forEach(t =>
-    document.getElementById('tab-pedidos-' + t).classList.toggle('active', t === tipo)
-  );
+  if (tipo === 'hoje' || tipo === 'todos') {
+    currentPedidoFilter = tipo;
+    document.getElementById('tab-pedidos-hoje').classList.toggle('active', tipo === 'hoje');
+    document.getElementById('tab-pedidos-todos').classList.toggle('active', tipo === 'todos');
+  } else {
+    // clicar de novo no chip já ativo desliga o filtro de status
+    currentPedidoStatusFilter = currentPedidoStatusFilter === tipo ? null : tipo;
+    ['pendente', 'pagamento_pendente', 'pagos', 'entregue', 'cancelada'].forEach(t =>
+      document.getElementById('tab-pedidos-' + t).classList.toggle('active', t === currentPedidoStatusFilter)
+    );
+  }
   renderPedidosList();
+}
+
+function resetPedidosFiltroStatus() {
+  currentPedidoStatusFilter = null;
+  ['pendente', 'pagamento_pendente', 'pagos', 'entregue', 'cancelada'].forEach(t =>
+    document.getElementById('tab-pedidos-' + t).classList.remove('active')
+  );
 }
 
 // Filtro por período (data do pedido), usado pelo relatório do caixa pra
@@ -4181,6 +4204,7 @@ function limparFiltroPeriodoPedidos() {
 function irParaPedidos() {
   limparFiltroPeriodoPedidos();
   goPage('pedidos');
+  resetPedidosFiltroStatus();
   filterPedidos('hoje');
 }
 
@@ -4188,6 +4212,8 @@ async function irParaPedidosPagamentoPendente() {
   limparFiltroPeriodoPedidos();
   goPage('pedidos');
   await loadPedidos();
+  // Atalho do dashboard: pagamento pendente vale pra qualquer data, não só hoje.
+  filterPedidos('todos');
   filterPedidos('pagamento_pendente');
 }
 
@@ -4228,14 +4254,15 @@ function renderPedidosList() {
     const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
     const amanha = new Date(hoje); amanha.setDate(amanha.getDate() + 1);
     lista = allPedidos.filter(p => { const t = new Date(p.data).getTime(); return t >= hoje.getTime() && t < amanha.getTime(); });
-  } else if (currentPedidoFilter === 'todos') {
-    lista = allPedidos;
-  } else if (currentPedidoFilter === 'pagamento_pendente') {
-    lista = allPedidos.filter(p => p.status !== 'cancelado' && (pagamentosPorPedido[p.id] || 0) < p.total);
-  } else if (currentPedidoFilter === 'pagos') {
-    lista = allPedidos.filter(p => p.status !== 'cancelado' && (pagamentosPorPedido[p.id] || 0) >= p.total);
   } else {
-    lista = allPedidos.filter(p => p.status_entrega === currentPedidoFilter);
+    lista = allPedidos;
+  }
+  if (currentPedidoStatusFilter === 'pagamento_pendente') {
+    lista = lista.filter(p => p.status !== 'cancelado' && (pagamentosPorPedido[p.id] || 0) < p.total);
+  } else if (currentPedidoStatusFilter === 'pagos') {
+    lista = lista.filter(p => p.status !== 'cancelado' && (pagamentosPorPedido[p.id] || 0) >= p.total);
+  } else if (currentPedidoStatusFilter) {
+    lista = lista.filter(p => p.status_entrega === currentPedidoStatusFilter);
   }
   if (pedidosFiltroPeriodo) {
     const ini = new Date(pedidosFiltroPeriodo.inicio).getTime();
@@ -5949,6 +5976,7 @@ async function irParaPedidosDoCaixa() {
   goPage('pedidos');
   await loadPedidos();
   aplicarFiltroPeriodoPedidos(aberto_em, fim, `Pedidos do caixa de ${fmtDataHora(aberto_em)}`);
+  resetPedidosFiltroStatus();
   filterPedidos('todos');
 }
 
@@ -5960,6 +5988,7 @@ async function irParaEntregasDoCaixa() {
   goPage('pedidos');
   await loadPedidos();
   aplicarFiltroPeriodoPedidos(aberto_em, fim, `Entregas do caixa de ${fmtDataHora(aberto_em)}`);
+  filterPedidos('todos');
   filterPedidos('entregue');
 }
 
@@ -6081,19 +6110,18 @@ async function loadDashboard() {
     { data: itensGas },
     { data: clientesComodato },
   ] = await Promise.all([
-    sb.from('pagamentos_pedido').select('forma, valor, pedidos(status), usuarios(role)').gte('data', inicioISO).lt('data', fimISO),
-    // cohort dos pedidos do período: filtra via join em pedidos.data em vez
-    // de listar os IDs dos pedidos na URL com .in() — uma lista grande de
-    // UUIDs falha silenciosamente (mesma causa do bug corrigido antes nos
-    // pagamentos de pedidos; um período "Personalizado" longo tem bem mais
-    // pedidos do que o "Hoje", que nunca esbarrava nesse limite).
-    sb.from('pagamentos_pedido').select('pedido_id, forma, valor, pedidos!inner(data)').gte('pedidos.data', inicioISO).lt('pedidos.data', fimISO),
-    sb.from('pedidos').select('id').neq('status', 'cancelado').gte('data_entrega', inicioISO).lt('data_entrega', fimISO),
-    sb.from('movimentos_estoque').select('quantidade, referencia_pedido_id, pedidos(status), lotes_garrafao(marca_id, marcas(nome, tipo, tamanho_litros))').eq('tipo', 'saida_venda').gte('data', inicioISO).lt('data', fimISO),
-    sb.from('itens_pedido').select('pedido_id, marca_id, quantidade, preco_unitario, preco_vasilhame, marcas(nome, tipo, tamanho_litros), pedidos!inner(data)').gte('pedidos.data', inicioISO).lt('pedidos.data', fimISO),
+    // fetchAllRows nas 7 consultas abaixo: período "Personalizado" longo
+    // pode ter mais de 1000 linhas, e sem paginar o corte padrão de 1000
+    // linhas do PostgREST trunca silenciosamente (mesma causa raiz do
+    // .in() já corrigido antes, agora no limite de linhas por resposta).
+    fetchAllRows(() => sb.from('pagamentos_pedido').select('forma, valor, pedidos(status), usuarios(role)').gte('data', inicioISO).lt('data', fimISO).order('id')),
+    fetchAllRows(() => sb.from('pagamentos_pedido').select('pedido_id, forma, valor, pedidos!inner(data)').gte('pedidos.data', inicioISO).lt('pedidos.data', fimISO).order('id')),
+    fetchAllRows(() => sb.from('pedidos').select('id').neq('status', 'cancelado').gte('data_entrega', inicioISO).lt('data_entrega', fimISO).order('id')),
+    fetchAllRows(() => sb.from('movimentos_estoque').select('quantidade, referencia_pedido_id, pedidos(status), lotes_garrafao(marca_id, marcas(nome, tipo, tamanho_litros))').eq('tipo', 'saida_venda').gte('data', inicioISO).lt('data', fimISO).order('id')),
+    fetchAllRows(() => sb.from('itens_pedido').select('pedido_id, marca_id, quantidade, preco_unitario, preco_vasilhame, marcas(nome, tipo, tamanho_litros), pedidos!inner(data)').gte('pedidos.data', inicioISO).lt('pedidos.data', fimISO).order('id')),
     sb.from('lotes_garrafao').select('marca_id, qtd_cheios'),
-    sb.from('movimentos_estoque').select('quantidade, ano_validade, tamanho_litros, referencia_pedido_id, pedidos(status)').eq('tipo', 'retorno_vazio').gte('data', inicioISO).lt('data', fimISO),
-    sb.from('itens_pedido').select('quantidade, marcas(nome), pedidos!inner(status_entrega, data_entrega)').is('lote_id', null).eq('pedidos.status_entrega', 'entregue').gte('pedidos.data_entrega', inicioISO).lt('pedidos.data_entrega', fimISO),
+    fetchAllRows(() => sb.from('movimentos_estoque').select('quantidade, ano_validade, tamanho_litros, referencia_pedido_id, pedidos(status)').eq('tipo', 'retorno_vazio').gte('data', inicioISO).lt('data', fimISO).order('id')),
+    fetchAllRows(() => sb.from('itens_pedido').select('quantidade, marcas(nome), pedidos!inner(status_entrega, data_entrega)').is('lote_id', null).eq('pedidos.status_entrega', 'entregue').gte('pedidos.data_entrega', inicioISO).lt('pedidos.data_entrega', fimISO).order('id')),
     sb.from('clientes').select('nome, saldo_comodato_garrafoes').gt('saldo_comodato_garrafoes', 0).order('saldo_comodato_garrafoes', { ascending: false }),
   ]);
   if (errPagamentosCohorte) toastErro('carregar pagamentos do período', errPagamentosCohorte);
@@ -6348,13 +6376,14 @@ async function loadDashboard() {
 // (Período)"; o saldo total (todo o histórico) continua em
 // calcularPendentesPorCliente(), usado pela página de Clientes.
 async function calcularPendentesPorClientePeriodo(inicioISO, fimISO) {
-  const { data: pedidos } = await sb.from('pedidos').select('id, cliente_id, total')
-    .neq('status', 'cancelado').gte('data', inicioISO).lt('data', fimISO);
-  // filtra via join em pedidos.data em vez de .in('pedido_id', ids) — uma
-  // lista grande de UUIDs na URL falha silenciosamente pra períodos longos
-  // (mesmo problema já corrigido no resto do dashboard).
-  const { data: pagamentosRaw, error: errPagamentos } = await sb.from('pagamentos_pedido')
-    .select('pedido_id, valor, pedidos!inner(data)').gte('pedidos.data', inicioISO).lt('pedidos.data', fimISO);
+  // fetchAllRows: período "Personalizado" longo pode ter mais de 1000
+  // pedidos/pagamentos — sem paginar, o corte de 1000 linhas do PostgREST
+  // trunca silenciosamente (mesma causa raiz do .in() já corrigido antes,
+  // só que aqui é o limite padrão de linhas por resposta).
+  const { data: pedidos } = await fetchAllRows(() => sb.from('pedidos').select('id, cliente_id, total')
+    .neq('status', 'cancelado').gte('data', inicioISO).lt('data', fimISO).order('id'));
+  const { data: pagamentosRaw, error: errPagamentos } = await fetchAllRows(() => sb.from('pagamentos_pedido')
+    .select('pedido_id, valor, pedidos!inner(data)').gte('pedidos.data', inicioISO).lt('pedidos.data', fimISO).order('id'));
   if (errPagamentos) toastErro('carregar pagamentos do período', errPagamentos);
   const pagamentos = pagamentosRaw || [];
   const pagoPorPedido = {};
