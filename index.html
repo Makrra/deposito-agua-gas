@@ -1592,8 +1592,8 @@ let dashboardPeriodo = 'hoje';
 let pendentesPorCliente = {};
 
 async function calcularPendentesPorCliente() {
-  const { data: pedidos } = await sb.from('pedidos').select('id, cliente_id, total').neq('status', 'cancelado');
-  const { data: pagamentos, error: errPagamentos } = await sb.from('pagamentos_totais_pedido').select('pedido_id, total_pago');
+  const { data: pedidos } = await fetchAllRows(() => sb.from('pedidos').select('id, cliente_id, total').neq('status', 'cancelado'));
+  const { data: pagamentos, error: errPagamentos } = await fetchAllRows(() => sb.from('pagamentos_totais_pedido').select('pedido_id, total_pago'));
   if (errPagamentos) toastErro('carregar pagamentos pendentes', errPagamentos);
   const pagoPorPedido = {};
   (pagamentos || []).forEach(pg => { pagoPorPedido[pg.pedido_id] = roundMoeda(parseFloat(pg.total_pago)); });
@@ -1783,6 +1783,28 @@ function toastErro(acao, error) {
   }
   toast('Erro ao ' + acao + ': ' + (error?.message || ''), true);
   logErroApp(acao, error);
+}
+
+// O PostgREST/Supabase limita cada resposta a no máximo 1000 linhas por
+// padrão — uma query sem .range()/.limit() que devia trazer tudo passa a
+// vir truncada (silenciosamente, sem erro) assim que a tabela cresce além
+// disso. Mesma causa raiz do bug de pagamentos já corrigido antes (ali era
+// o .in() com lista de IDs grande demais pra URL; aqui é esse limite
+// implícito), agora batendo em calcularPendentesPorCliente()/loadPedidos()
+// com o histórico de pedidos/pagamentos passando de 1000 linhas. Busca em
+// páginas de 1000 até não sobrar mais nada, pra sempre trazer tudo.
+async function fetchAllRows(buildQuery) {
+  const PAGE = 1000;
+  let all = [];
+  let from = 0;
+  while (true) {
+    const { data, error } = await buildQuery().range(from, from + PAGE - 1);
+    if (error) return { data: all, error };
+    all = all.concat(data || []);
+    if (!data || data.length < PAGE) break;
+    from += PAGE;
+  }
+  return { data: all, error: null };
 }
 
 // Trilha de auditoria pro perfil "desenvolvedor" acompanhar ações de
@@ -4122,7 +4144,7 @@ async function loadPedidos() {
   allPedidos = data || [];
 
   pagamentosPorPedido = {};
-  const { data: pagamentos, error: errPagamentos } = await sb.from('pagamentos_totais_pedido').select('pedido_id, total_pago');
+  const { data: pagamentos, error: errPagamentos } = await fetchAllRows(() => sb.from('pagamentos_totais_pedido').select('pedido_id, total_pago'));
   if (errPagamentos) toastErro('carregar pagamentos', errPagamentos);
   (pagamentos || []).forEach(pg => {
     pagamentosPorPedido[pg.pedido_id] = roundMoeda(parseFloat(pg.total_pago));
