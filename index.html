@@ -2333,12 +2333,18 @@ async function abrirHistoricoLote(loteId) {
   const marcaNome = lote?.marcas?.nome || '';
   const tamanho = lote?.marcas?.tamanho_litros ? ` (${lote.marcas.tamanho_litros}L)` : '';
   const anoValidade = lote?.ano_validade || '';
-  const { data } = await sb.from('movimentos_estoque').select('*').eq('lote_id', loteId).order('data', { ascending: true });
+  // fetchAllRows: lote antigo/muito movimentado pode passar de 1000 linhas —
+  // sem paginar, o corte padrão do PostgREST trunca em ordem crescente de
+  // data, ou seja, corta exatamente os movimentos mais recentes (mesma
+  // causa raiz do bug de pagamentos já corrigido antes nesse app).
+  const { data, error } = await fetchAllRows(() => sb.from('movimentos_estoque').select('*').eq('lote_id', loteId).order('data', { ascending: true }).order('id'));
+  if (error) { toastErro('carregar histórico do lote', error); return; }
   renderHistoricoMovimentos(data, `${marcaNome}${tamanho} · validade ${anoValidade}`);
 }
 
 async function abrirHistoricoVazios(tamanhoLitros, anoValidade) {
-  const { data } = await sb.from('movimentos_estoque').select('*').eq('tamanho_litros', tamanhoLitros).eq('ano_validade', anoValidade).is('lote_id', null).order('data', { ascending: true });
+  const { data, error } = await fetchAllRows(() => sb.from('movimentos_estoque').select('*').eq('tamanho_litros', tamanhoLitros).eq('ano_validade', anoValidade).is('lote_id', null).order('data', { ascending: true }).order('id'));
+  if (error) { toastErro('carregar histórico de vazios', error); return; }
   renderHistoricoMovimentos(data, `Vazios · ${tamanhoLitros}L · validade ${anoValidade}`);
 }
 
