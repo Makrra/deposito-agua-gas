@@ -1570,6 +1570,30 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 // ============================================================
 let currentUserRole = null; // 'administrador' | 'caixa' | 'entregador' | 'desenvolvedor'
 let currentUserId = null;
+
+// currentUserId antes só era preenchido por sb.auth.getUser() (chamada de
+// rede) no init(). Se essa chamada falhasse uma vez (rede instável ao abrir
+// o PWA), o app seguia funcionando o dia todo — as requisições usam o token
+// da sessão local — mas gravando criado_por/aberto_por = NULL. A contabilidade
+// do caixa só conta pagamentos de quem tem role 'caixa' (join por criado_por),
+// então tudo que o caixa recebia sumia do Caixa. onAuthStateChange lê a
+// sessão local (sem rede) e mantém o id sempre atualizado.
+sb.auth.onAuthStateChange((_evento, session) => {
+  currentUserId = session?.user?.id || null;
+});
+
+async function exigirUsuarioLogado() {
+  if (!currentUserId) {
+    const { data: { session } } = await sb.auth.getSession();
+    currentUserId = session?.user?.id || null;
+  }
+  if (!currentUserId) {
+    toast('Não foi possível identificar o usuário logado. Saia e entre de novo.', true);
+    return false;
+  }
+  return true;
+}
+
 const PAGES_ADMIN_CAIXA = ['dash', 'caixa', 'pedidos', 'estoque', 'clientes', 'logs'];
 
 // Desenvolvedor tem o mesmo nível de acesso que administrador em tudo,
@@ -4457,6 +4481,7 @@ async function confirmarPagamentoPedido() {
     const valor = parseFloat(document.getElementById('pd-pagamento-valor').value || 0);
     if (valor <= 0) { toast('Informe um valor válido', true); return; }
     const forma = document.getElementById('pd-pagamento-forma').value;
+    if (!(await exigirUsuarioLogado())) return;
 
     if (forma === 'dinheiro') {
       await carregarCaixaSessaoAtual();
@@ -4486,6 +4511,7 @@ async function confirmarPagamentoParcela(forma, valor) {
     const id = currentPedidoDetalheId;
     const p = allPedidos.find(x => x.id === id);
     if (!p || !(valor > 0)) return;
+    if (!(await exigirUsuarioLogado())) return;
 
     if (forma === 'dinheiro') {
       await carregarCaixaSessaoAtual();
@@ -5766,6 +5792,7 @@ async function salvarAberturaCaixa() {
   const troco_inicial = parseFloat(document.getElementById('caixa-abertura-troco').value || -1);
   const observacao_abertura = document.getElementById('caixa-abertura-obs').value.trim() || null;
   if (!(troco_inicial >= 0)) { toast('Informe o troco inicial', true); return; }
+  if (!(await exigirUsuarioLogado())) return;
 
   const estoque_abertura = await snapshotEstoqueCompleto();
   const { error } = await sb.from('caixa_sessoes').insert({ troco_inicial, observacao_abertura, aberto_por: currentUserId, estoque_abertura });
@@ -5802,6 +5829,7 @@ async function salvarCaixaMovimento() {
   const motivo = document.getElementById('caixa-mov-motivo').value.trim();
   if (!(valor > 0)) { toast('Informe um valor válido', true); return; }
   if (!motivo) { toast('Informe o motivo', true); return; }
+  if (!(await exigirUsuarioLogado())) return;
 
   const { error } = await sb.from('caixa_movimentos').insert({ caixa_sessao_id: caixaSessaoAtual.id, tipo, valor, motivo, criado_por: currentUserId });
   if (error) { toastErro('registrar movimento', error); return; }
@@ -5839,6 +5867,7 @@ async function salvarFechamentoCaixa() {
   const valor_contado = parseFloat(document.getElementById('caixa-fechamento-contado').value || -1);
   if (!(valor_contado >= 0)) { toast('Informe o valor contado', true); return; }
   const observacao_fechamento = document.getElementById('caixa-fechamento-obs').value.trim() || null;
+  if (!(await exigirUsuarioLogado())) return;
 
   const totais = await calcularTotaisSessaoAtual();
   const diferenca = roundMoeda(valor_contado - totais.esperado);
@@ -6441,7 +6470,12 @@ document.getElementById('login-password').addEventListener('keydown', e => {
 // ROLE-AWARE INIT
 // ============================================================
 async function loadCurrentUserRole() {
-  const { data: { user } } = await sb.auth.getUser();
+  const { data: { session } } = await sb.auth.getSession();
+  let user = session?.user || null;
+  if (!user) {
+    const { data } = await sb.auth.getUser();
+    user = data?.user || null;
+  }
   if (!user) return null;
   currentUserId = user.id;
   const { data, error } = await sb.from('usuarios').select('role,nome').eq('id', user.id).single();
