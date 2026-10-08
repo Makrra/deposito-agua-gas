@@ -1477,6 +1477,28 @@ ON CONFLICT (chave) DO NOTHING;
 -- ALTER TABLE caixa_sessoes ADD COLUMN IF NOT EXISTS estoque_abertura JSONB;
 -- ALTER TABLE caixa_sessoes ADD COLUMN IF NOT EXISTS estoque_fechamento JSONB;
 
+-- ============================================================
+-- MIGRAÇÃO: histórico de entradas de gás (Dash Gestão: "Gás por Marca").
+-- Hoje a entrada de gás só soma no contador de estoque_gas, sem registro;
+-- esta tabela guarda cada entrada (compra) e cada reaproveitamento (encher
+-- vazio) a partir da data em que for criada. Sem ela o dashboard continua
+-- funcionando, só não mostra as entradas de gás. Rode no SQL Editor:
+-- ============================================================
+-- CREATE TABLE IF NOT EXISTS movimentos_gas (
+--   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+--   marca_id   UUID NOT NULL REFERENCES marcas(id) ON DELETE CASCADE,
+--   tipo       TEXT NOT NULL CHECK (tipo IN ('entrada','reaproveitamento')),
+--   quantidade INTEGER NOT NULL CHECK (quantidade > 0),
+--   data       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+--   criado_por UUID REFERENCES usuarios(id)
+-- );
+-- CREATE INDEX IF NOT EXISTS idx_movimentos_gas_data ON movimentos_gas(data);
+-- ALTER TABLE movimentos_gas ENABLE ROW LEVEL SECURITY;
+-- DROP POLICY IF EXISTS "movimentos_gas_admin_caixa_all" ON movimentos_gas;
+-- CREATE POLICY "movimentos_gas_admin_caixa_all" ON movimentos_gas FOR ALL
+--   USING (public.current_role() IN ('administrador','caixa','desenvolvedor'))
+--   WITH CHECK (public.current_role() IN ('administrador','caixa','desenvolvedor'));
+
 -- Após rodar este script, crie o primeiro usuário em:
 -- Authentication > Users > Add user (email + senha)
 -- e depois rode (substituindo o UUID pelo id do usuário criado):

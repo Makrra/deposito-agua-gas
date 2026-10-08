@@ -370,6 +370,76 @@ select.form-control option { background: var(--surface); }
   .search-box { background: #0f172a; }
   .tab-btn { background: transparent; }
 }
+
+/* ===== Dash: movimentação de estoque, perfis, gás e ranking ===== */
+.mv-resumo { display:grid; grid-template-columns:repeat(2,1fr); gap:8px; margin-bottom:12px; }
+.mv-kpi { background:var(--card); border:1px solid var(--border); border-left:4px solid var(--mv-cor,var(--accent)); border-radius:10px; padding:10px 12px; display:flex; flex-direction:column; }
+.mv-kpi span { font-size:.68rem; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); font-weight:600; }
+.mv-kpi strong { font-size:1.35rem; color:var(--mv-cor,var(--text)); line-height:1.15; }
+.mv-kpi small { font-size:.7rem; color:var(--muted); }
+.alert-soft { background:rgba(var(--primary-rgb),.08); border:1px solid rgba(var(--primary-rgb),.2); border-radius:10px; padding:9px 12px; font-size:.78rem; line-height:1.4; margin-bottom:8px; }
+.alert-soft.alert-red { background:rgba(220,38,38,.08); border-color:rgba(220,38,38,.25); }
+.alert-soft.alert-yellow { background:rgba(217,119,6,.08); border-color:rgba(217,119,6,.25); }
+.mv-grupo { border:1px solid var(--border); border-radius:14px; padding:10px; margin-bottom:10px; background:rgba(var(--primary-rgb),.04); }
+.mv-grupo-top { display:flex; justify-content:space-between; align-items:center; padding:2px 4px 10px; }
+.mv-grupo-top .mv-nome { font-size:.95rem; }
+.mv-aninhada { margin-bottom:6px; }
+.mv-aninhada:last-child { margin-bottom:0; }
+.mv-sec { font-size:.72rem; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); font-weight:700; margin:14px 0 2px; }
+.mv-row { border:1px solid var(--border); border-radius:12px; padding:11px 12px; margin-bottom:8px; background:var(--card); }
+.mv-row-top { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px; }
+.mv-nome { font-weight:700; font-size:.88rem; }
+.mv-saldo { font-weight:800; font-size:1.15rem; text-align:right; line-height:1; color:var(--muted); }
+.mv-saldo.pos { color:var(--green); } .mv-saldo.neg { color:var(--red); }
+.mv-saldo small { display:block; font-size:.6rem; font-weight:600; text-transform:uppercase; color:var(--muted); margin-top:2px; }
+.mv-chips { display:grid; grid-template-columns:repeat(5,1fr); gap:6px; }
+.mv-chip { display:flex; flex-direction:column; gap:2px; min-width:0; }
+.mv-chip.zero { opacity:.45; }
+.mv-chip-rot { font-size:.58rem; color:var(--muted); font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.mv-chip strong { font-size:.95rem; }
+.mv-bar { height:5px; border-radius:3px; background:var(--border); overflow:hidden; }
+.mv-bar > span { display:block; height:100%; border-radius:3px; background:var(--mv-cor,var(--accent)); }
+.mv-bar.grande { height:9px; border-radius:5px; flex:1; }
+.gas-linha { display:flex; align-items:center; gap:8px; margin-top:5px; font-size:.75rem; }
+.gas-linha > span { width:62px; color:var(--muted); }
+.gas-linha > b { min-width:28px; text-align:right; }
+.pf-card { border:1px solid var(--border); border-radius:12px; padding:12px; margin-bottom:8px; background:var(--card); }
+.pf-card.zero { opacity:.55; }
+.pf-top { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+.pf-avatar { width:38px; height:38px; border-radius:50%; background:rgba(var(--primary-rgb),.14); color:var(--accent); font-weight:800; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+.pf-info { flex:1; min-width:0; } .pf-nome { font-weight:700; font-size:.9rem; }
+.pf-total { font-weight:800; font-size:1.05rem; }
+.pf-pilha { display:flex; height:12px; border-radius:6px; overflow:hidden; background:var(--border); }
+.pf-pilha > span { display:block; height:100%; }
+.pf-leg { display:flex; flex-wrap:wrap; gap:4px 14px; margin-top:8px; font-size:.72rem; color:var(--muted); }
+.pf-leg i { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:5px; }
+.pf-leg b { color:var(--text); }
+.dv-total { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:12px; }
+.dv-total > div { background:rgba(220,38,38,.07); border:1px solid rgba(220,38,38,.22); border-radius:10px; padding:8px 10px; display:flex; flex-direction:column; }
+.dv-total span { font-size:.62rem; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); font-weight:600; }
+.dv-total strong { font-size:1.05rem; color:var(--red); }
+.dv-podio { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; align-items:end; margin-bottom:14px; }
+.dv-pod { border:1px solid var(--border); border-radius:12px; padding:10px 6px; text-align:center; background:var(--card); min-width:0; }
+.dv-pos1 { padding-top:16px; padding-bottom:16px; background:linear-gradient(180deg,rgba(220,38,38,.20),transparent); border-color:rgba(220,38,38,.6); }
+.dv-pos2 { background:linear-gradient(180deg,rgba(234,88,12,.16),transparent); border-color:rgba(234,88,12,.45); }
+.dv-pos3 { background:linear-gradient(180deg,rgba(217,119,6,.14),transparent); border-color:rgba(217,119,6,.4); }
+.dv-pos1 .rk-valor { color:var(--red); font-size:1rem; }
+.dv-pos1 .rk-medalha { font-size:2rem; }
+.rk-podio { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; align-items:end; margin-bottom:14px; }
+.rk-pod { border:1px solid var(--border); border-radius:12px; padding:10px 6px; text-align:center; background:var(--card); min-width:0; }
+.rk-pos1 { padding-top:16px; padding-bottom:16px; background:linear-gradient(180deg,rgba(234,179,8,.16),transparent); border-color:rgba(234,179,8,.5); }
+.rk-pos2 { background:linear-gradient(180deg,rgba(148,163,184,.16),transparent); }
+.rk-pos3 { background:linear-gradient(180deg,rgba(180,83,9,.12),transparent); }
+.rk-medalha { font-size:1.6rem; line-height:1; margin-bottom:4px; }
+.rk-pos1 .rk-medalha { font-size:2rem; }
+.rk-nome { font-weight:700; font-size:.78rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.rk-valor { font-weight:800; font-size:.92rem; margin:2px 0; }
+.rk-linha { display:flex; gap:10px; align-items:flex-start; padding:9px 0; border-bottom:1px solid var(--border); }
+.rk-linha:last-of-type { border-bottom:none; }
+.rk-pos { width:30px; font-weight:800; color:var(--muted); font-size:.85rem; padding-top:1px; }
+.rk-meio { flex:1; min-width:0; }
+.rk-topo { display:flex; justify-content:space-between; gap:8px; margin-bottom:5px; font-size:.85rem; }
+.rk-nome-l { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 </style>
 </head>
 <body>
@@ -483,23 +553,15 @@ select.form-control option { background: var(--surface); }
   </div>
 
   <div class="card">
-    <div class="card-title" style="margin-bottom:10px">Estoque Cheios por Marca (Período)</div>
-    <div id="dash-estoque-agua" class="loading"><div class="spinner"></div>Carregando...</div>
+    <div class="card-title" style="margin-bottom:4px">Movimentação do Estoque (Período)</div>
+    <div class="card-sub" style="margin-bottom:12px">Tudo o que entrou e saiu de garrafões no período: por marca, ano de validade e tamanho do vasilhame.</div>
+    <div id="dash-mov-estoque" class="loading"><div class="spinner"></div>Carregando...</div>
   </div>
 
   <div class="card">
-    <div class="card-title" style="margin-bottom:10px">Vazios Devolvidos por Tamanho e Validade (Período)</div>
-    <div id="dash-estoque-vazios" class="loading"><div class="spinner"></div>Carregando...</div>
-  </div>
-
-  <div class="card">
-    <div class="card-title" style="margin-bottom:10px">Gás Vendido por Marca (Período)</div>
+    <div class="card-title" style="margin-bottom:4px">Gás por Marca (Período)</div>
+    <div class="card-sub" style="margin-bottom:12px">Botijões vendidos, botijões que entraram no estoque e o saldo atual de cada marca.</div>
     <div id="dash-estoque-gas" class="loading"><div class="spinner"></div>Carregando...</div>
-  </div>
-
-  <div class="card">
-    <div class="card-title" style="margin-bottom:10px">Quem Está Devendo (Período)</div>
-    <div id="dash-devedores" class="loading"><div class="spinner"></div>Carregando...</div>
   </div>
 
   <div class="card">
@@ -511,8 +573,15 @@ select.form-control option { background: var(--surface); }
   </div>
 
   <div class="card">
-    <div class="card-title" style="margin-bottom:10px">Top 5 Clientes por Faturamento (Período)</div>
-    <div id="chart-clientes-wrap" style="position:relative;height:200px"><canvas id="chart-clientes"></canvas></div>
+    <div class="card-title" style="margin-bottom:4px">Ranking de Clientes (Período)</div>
+    <div class="card-sub" style="margin-bottom:12px">Quem mais comprou no período. O pódio mostra os 3 primeiros; a barra compara os demais com o 1º colocado.</div>
+    <div id="dash-ranking-clientes" class="loading"><div class="spinner"></div>Carregando...</div>
+  </div>
+
+  <div class="card">
+    <div class="card-title" style="margin-bottom:4px">Ranking de Devedores (Período)</div>
+    <div class="card-sub" style="margin-bottom:12px">Quem mais está devendo nos pedidos do período (o que foi vendido e ainda não foi pago). A barra compara cada devedor com o maior.</div>
+    <div id="dash-devedores" class="loading"><div class="spinner"></div>Carregando...</div>
   </div>
 
   <div class="card">
@@ -1838,6 +1907,15 @@ async function fetchAllRows(buildQuery) {
 // Trilha de auditoria pro perfil "desenvolvedor" acompanhar ações de
 // caixa/admin (não erros — isso é o erros_app). Cada chamada já carrega
 // usuário/role atuais; nunca deixa uma falha de log quebrar a ação real.
+async function registrarMovimentoGas(marca_id, tipo, quantidade) {
+  try {
+    const { error } = await sb.from('movimentos_gas').insert({ marca_id, tipo, quantidade, criado_por: currentUserId });
+    if (error) console.warn('movimentos_gas indisponível (migração pendente?):', error.message);
+  } catch (e) {
+    console.warn('Falha ao registrar movimento de gás:', e);
+  }
+}
+
 async function logAtividade(acao, detalhe) {
   try {
     await sb.from('atividades_app').insert({
@@ -2136,6 +2214,7 @@ async function salvarEntradaGas() {
       p_marca_id: marca_id, p_qtd: quantidade, p_usuario_id: currentUserId,
     });
     if (errReap) { toastErro('registrar reaproveitamento de gás', errReap); return; }
+    registrarMovimentoGas(marca_id, 'reaproveitamento', quantidade);
     closeModal('modal-entrada-gas');
     toast('Reaproveitamento de gás registrado!');
   } else {
@@ -2149,6 +2228,7 @@ async function salvarEntradaGas() {
       ({ error: errGas } = await sb.from('estoque_gas').insert({ marca_id, qtd_cheios: quantidade }));
     }
     if (errGas) { toastErro('registrar entrada de gás', errGas); return; }
+    registrarMovimentoGas(marca_id, 'entrada', quantidade);
     closeModal('modal-entrada-gas');
     toast('Entrada de gás registrada!');
   }
@@ -6031,6 +6111,356 @@ async function irParaEntregasDoCaixa() {
 // ============================================================
 // DASHBOARD
 // ============================================================
+// ------------------------------------------------------------
+// Dash: Movimentação do Estoque (cheios e vazios) por marca, ano de
+// validade e tamanho. Funções de renderização sem acesso ao banco — recebem
+// os dados já carregados por loadDashboard().
+// ------------------------------------------------------------
+let mvAbaAtual = 'marca';
+let _mvItens = [];
+const MV_ABAS = [
+  { id: 'marca', titulo: 'Por água' },
+  { id: 'ano', titulo: 'Por vencimento' },
+  { id: 'tamanho', titulo: 'Por tamanho' },
+  { id: 'marca_ano', titulo: 'Água × vencimento' },
+];
+const MV_COLS_CHEIOS = [
+  { k: 'ent', rot: 'Fábrica', cor: 'var(--green)' },
+  { k: 'reench', rot: 'Reenchidos', cor: 'var(--accent)' },
+  { k: 'venda', rot: 'Vendas', cor: 'var(--accent2)' },
+  { k: 'av', rot: 'Avarias', cor: 'var(--red)' },
+  { k: 'aj', rot: 'Ajustes', cor: 'var(--yellow)' },
+];
+const MV_COLS_VAZIOS = [
+  { k: 'ent', rot: 'Devolvidos', cor: 'var(--green)' },
+  { k: 'venda', rot: 'Vendidos', cor: 'var(--accent2)' },
+  { k: 'reap', rot: 'Reaprov.', cor: 'var(--accent)' },
+  { k: 'av', rot: 'Avarias', cor: 'var(--red)' },
+  { k: 'aj', rot: 'Ajustes', cor: 'var(--yellow)' },
+];
+
+// Converte movimentos_estoque em itens simples. Pedido cancelado fica de
+// fora (a 'saida_venda' original e o 'ajuste' de reversão se anulam).
+function mvNormalizar(movs) {
+  const itens = [];
+  (movs || []).forEach(m => {
+    if (m.pedidos?.status === 'cancelado') return;
+    const qtd = Number(m.quantidade) || 0;
+    if (!qtd) return;
+    const lote = m.lotes_garrafao;
+    const campo = (lote
+      ? { entrada_fabrica: 'ent', reaproveitamento: 'reench', saida_venda: 'venda', avaria: 'av', ajuste: 'aj' }
+      : { retorno_vazio: 'ent', saida_vazio_venda: 'venda', reaproveitamento: 'reap', avaria: 'av', ajuste: 'aj' })[m.tipo];
+    if (!campo) return;
+    itens.push({
+      cheio: !!lote, campo, valor: campo === 'aj' ? qtd : Math.abs(qtd),
+      ano: m.ano_validade ?? lote?.ano_validade ?? null,
+      tam: m.tamanho_litros ?? lote?.marcas?.tamanho_litros ?? null,
+      marcaId: lote?.marca_id || null,
+      marcaLabel: lote?.marcas ? nomeMarcaComTamanho(lote.marcas) : null,
+    });
+  });
+  return itens;
+}
+
+function mvAgrupar(itens, cheio, aba) {
+  const grupos = {};
+  itens.filter(i => i.cheio === cheio).forEach(i => {
+    let chave, rotulo, ordem, anoNum = null;
+    if (aba === 'marca') {
+      if (!cheio) return; // vazio não tem marca
+      chave = i.marcaId || '—'; rotulo = i.marcaLabel || '—'; ordem = rotulo;
+    } else if (aba === 'ano') {
+      chave = i.ano == null ? 'sem' : String(i.ano);
+      rotulo = i.ano == null ? 'Sem ano' : String(i.ano); ordem = i.ano ?? 9999; anoNum = i.ano;
+    } else {
+      chave = i.tam == null ? 'sem' : String(i.tam);
+      rotulo = i.tam == null ? 'Sem tamanho' : i.tam + 'L'; ordem = i.tam ?? 9999;
+    }
+    const g = grupos[chave] || (grupos[chave] = { rotulo, ordem, anoNum, ent: 0, reench: 0, venda: 0, reap: 0, av: 0, aj: 0 });
+    g[i.campo] += i.valor;
+  });
+  const lista = Object.values(grupos);
+  lista.forEach(g => {
+    g.saldo = cheio ? g.ent + g.reench - g.venda - g.av + g.aj : g.ent - g.venda - g.reap - g.av + g.aj;
+  });
+  lista.sort((a, b) => (typeof a.ordem === 'number' && typeof b.ordem === 'number')
+    ? a.ordem - b.ordem : String(a.ordem).localeCompare(String(b.ordem), 'pt-BR'));
+  return lista;
+}
+
+function mvMaximos(lista, cols) {
+  const max = {};
+  cols.forEach(c => { max[c.k] = Math.max(1, ...lista.map(g => Math.abs(g[c.k]))); });
+  return max;
+}
+
+function mvLinha(g, cols, max, comBadgeAno, aninhada) {
+  const anoAtual = new Date().getFullYear();
+  const badge = comBadgeAno && g.anoNum != null
+    ? (g.anoNum < anoAtual ? '<span class="badge badge-red">Vencido</span>' : g.anoNum === anoAtual ? '<span class="badge badge-yellow">Vence este ano</span>' : '')
+    : '';
+  return `
+    <div class="mv-row ${aninhada ? 'mv-aninhada' : ''}">
+      <div class="mv-row-top">
+        <div class="mv-nome">${g.rotulo} ${badge}</div>
+        <div class="mv-saldo ${g.saldo > 0 ? 'pos' : g.saldo < 0 ? 'neg' : ''}">${g.saldo > 0 ? '+' : ''}${g.saldo}<small>saldo</small></div>
+      </div>
+      <div class="mv-chips">
+        ${cols.map(c => `
+          <div class="mv-chip ${g[c.k] ? '' : 'zero'}" style="--mv-cor:${c.cor}">
+            <span class="mv-chip-rot">${c.rot}</span>
+            <strong>${g[c.k] > 0 && c.k === 'aj' ? '+' : ''}${g[c.k]}</strong>
+            <div class="mv-bar"><span style="width:${Math.round(Math.abs(g[c.k]) / max[c.k] * 100)}%"></span></div>
+          </div>`).join('')}
+      </div>
+    </div>`;
+}
+
+function mvBloco(titulo, ajuda, lista, cols, abaId) {
+  if (!lista.length) return '';
+  const max = mvMaximos(lista, cols);
+  return `
+    <div class="mv-sec">${titulo}</div>
+    <div class="card-sub" style="margin-bottom:8px">${ajuda}</div>
+    ${lista.map(g => mvLinha(g, cols, max, abaId === 'ano')).join('')}`;
+}
+
+// Água × vencimento: cada marca com suas linhas por ano de validade.
+function mvAgruparMarcaAno(itens) {
+  const marcas = {};
+  itens.filter(i => i.cheio).forEach(i => {
+    const m = marcas[i.marcaId || '—'] || (marcas[i.marcaId || '—'] = { rotulo: i.marcaLabel || '—', anos: {} });
+    const ak = i.ano == null ? 'sem' : String(i.ano);
+    const g = m.anos[ak] || (m.anos[ak] = {
+      rotulo: i.ano == null ? 'Sem ano' : 'Validade ' + i.ano, anoNum: i.ano, ordem: i.ano ?? 9999,
+      ent: 0, reench: 0, venda: 0, reap: 0, av: 0, aj: 0 });
+    g[i.campo] += i.valor;
+  });
+  return Object.values(marcas).map(m => {
+    const anos = Object.values(m.anos).sort((a, b) => a.ordem - b.ordem);
+    anos.forEach(g => { g.saldo = g.ent + g.reench - g.venda - g.av + g.aj; });
+    return { rotulo: m.rotulo, anos, saldo: anos.reduce((s, g) => s + g.saldo, 0) };
+  }).sort((a, b) => String(a.rotulo).replace(/<[^>]*>/g, '').localeCompare(String(b.rotulo).replace(/<[^>]*>/g, ''), 'pt-BR'));
+}
+
+function mvBlocoCruzado(lista) {
+  if (!lista.length) return '';
+  const max = mvMaximos(lista.flatMap(m => m.anos), MV_COLS_CHEIOS);
+  return `
+    <div class="mv-sec">Cheios</div>
+    <div class="card-sub" style="margin-bottom:8px">Cada marca com o saldo por ano de validade — mostra de qual lote os garrafões estão saindo.</div>
+    ${lista.map(m => `
+      <div class="mv-grupo">
+        <div class="mv-grupo-top">
+          <div class="mv-nome">${m.rotulo}</div>
+          <div class="mv-saldo ${m.saldo > 0 ? 'pos' : m.saldo < 0 ? 'neg' : ''}">${m.saldo > 0 ? '+' : ''}${m.saldo}<small>saldo da marca</small></div>
+        </div>
+        ${m.anos.map(g => mvLinha(g, MV_COLS_CHEIOS, max, true, true)).join('')}
+      </div>`).join('')}`;
+}
+
+function mvSetAba(aba) {
+  mvAbaAtual = aba;
+  renderMovEstoque();
+}
+
+function renderMovEstoque() {
+  const el = document.getElementById('dash-mov-estoque');
+  if (!el) return;
+  const itens = _mvItens;
+  if (!itens.length) {
+    el.innerHTML = '<div class="empty-state">Nenhuma movimentação de estoque no período</div>';
+    return;
+  }
+  const soma = (cheio, campo) => itens.filter(i => i.cheio === cheio && i.campo === campo).reduce((s, i) => s + i.valor, 0);
+  const ent = soma(true, 'ent'), reench = soma(true, 'reench'), venda = soma(true, 'venda');
+  const avTotal = soma(true, 'av') + soma(false, 'av');
+  const devolvidos = soma(false, 'ent');
+  const saldoCheios = ent + reench - venda - soma(true, 'av') + soma(true, 'aj');
+  const anoAtual = new Date().getFullYear();
+  const vendaPorAno = {};
+  itens.filter(i => i.cheio && i.campo === 'venda' && i.ano != null).forEach(i => { vendaPorAno[i.ano] = (vendaPorAno[i.ano] || 0) + i.valor; });
+  const vendidosVencidos = Object.entries(vendaPorAno).filter(([a]) => +a < anoAtual).reduce((s, [, v]) => s + v, 0);
+  const vendidosEsteAno = vendaPorAno[anoAtual] || 0;
+
+  const semMarca = mvAbaAtual === 'marca' || mvAbaAtual === 'marca_ano';
+  const blocoCheios = mvAbaAtual === 'marca_ano'
+    ? mvBlocoCruzado(mvAgruparMarcaAno(itens))
+    : mvBloco('Cheios', 'Garrafões cheios: entram da fábrica ou reenchidos e saem nas vendas.', mvAgrupar(itens, true, mvAbaAtual), MV_COLS_CHEIOS, mvAbaAtual);
+  const blocoVazios = semMarca ? '' : mvBloco('Vazios', 'Vasilhames vazios: voltam dos clientes e saem quando são vendidos ou reaproveitados.', mvAgrupar(itens, false, mvAbaAtual), MV_COLS_VAZIOS, mvAbaAtual);
+  const notaMarca = semMarca
+    ? '<div class="alert-soft" style="margin-top:12px">Vasilhame vazio não tem marca: veja os vazios nas abas <strong>Por vencimento</strong> e <strong>Por tamanho</strong>.</div>' : '';
+
+  el.innerHTML = `
+    <div class="mv-resumo">
+      <div class="mv-kpi" style="--mv-cor:var(--green)"><span>Entraram cheios</span><strong>+${ent + reench}</strong><small>${ent} fábrica · ${reench} reenchidos</small></div>
+      <div class="mv-kpi" style="--mv-cor:var(--accent2)"><span>Saíram (vendas)</span><strong>−${venda}</strong><small>garrafões entregues</small></div>
+      <div class="mv-kpi" style="--mv-cor:var(--green)"><span>Vazios devolvidos</span><strong>+${devolvidos}</strong><small>voltaram dos clientes</small></div>
+      <div class="mv-kpi" style="--mv-cor:var(--red)"><span>Avarias</span><strong>${avTotal}</strong><small>quebrados ou perdidos</small></div>
+    </div>
+    <div class="alert-soft">💡 <strong>Em resumo:</strong> o estoque de cheios ${saldoCheios >= 0 ? `<b class="text-green">aumentou ${saldoCheios}</b>` : `<b class="text-red">diminuiu ${-saldoCheios}</b>`} no período (entraram ${ent + reench}, saíram ${venda}${avTotal ? `, ${avTotal} avaria${avTotal !== 1 ? 's' : ''}` : ''}).</div>
+    ${vendidosVencidos ? `<div class="alert-soft alert-red">⛔ <strong>${vendidosVencidos}</strong> garrafão(ões) com validade anterior a ${anoAtual} foram vendidos. Confira a validade.</div>` : ''}
+    ${vendidosEsteAno ? `<div class="alert-soft alert-yellow">⚠ <strong>${vendidosEsteAno}</strong> garrafão(ões) que vencem em ${anoAtual} foram vendidos — bom, os mais antigos estão saindo primeiro.</div>` : ''}
+    <div class="tabs-wrap" style="margin:14px 0 6px">
+      ${MV_ABAS.map(a => `<button class="tab-btn ${a.id === mvAbaAtual ? 'active' : ''}" onclick="mvSetAba('${a.id}')">${a.titulo}</button>`).join('')}
+    </div>
+    ${blocoCheios || '<div class="empty-state">Sem movimentação de cheios nesta visão</div>'}
+    ${blocoVazios}
+    ${notaMarca}
+  `;
+}
+
+// ------------------------------------------------------------
+// Dash: Pagamentos por Perfil — quem recebeu quanto e de que forma.
+// ------------------------------------------------------------
+function renderPagamentosPerfil(efetuadoPorPerfil, perfis) {
+  const label = { caixa: 'Caixa', administrador: 'Administrador', desenvolvedor: 'Desenvolvedor' };
+  const FORM = [
+    { k: 'dinheiro', nome: 'Dinheiro', cor: '#22c55e' },
+    { k: 'pix', nome: 'Pix', cor: '#0ea5c4' },
+    { k: 'cartao_credito', nome: 'Cartão', cor: '#9333ea' },
+  ];
+  const lista = perfis.map(p => {
+    const v = efetuadoPorPerfil[p];
+    return { perfil: p, v, total: roundMoeda(FORM.reduce((s, f) => s + v[f.k], 0)) };
+  }).sort((a, b) => b.total - a.total);
+  const geral = roundMoeda(lista.reduce((s, x) => s + x.total, 0));
+  if (!geral) return '<div class="empty-state">Nenhum pagamento recebido no período</div>';
+  const topo = lista[0];
+  return `
+    <div class="alert-soft" style="margin-bottom:12px">💡 <strong>${label[topo.perfil]}</strong> recebeu a maior parte: <strong>${fmtMoeda(topo.total)}</strong> (${Math.round(topo.total / geral * 100)}% do total de ${fmtMoeda(geral)}).</div>
+    ${lista.map(x => {
+      const pctGeral = geral ? Math.round(x.total / geral * 100) : 0;
+      return `
+      <div class="pf-card ${x.total ? '' : 'zero'}">
+        <div class="pf-top">
+          <div class="pf-avatar">${label[x.perfil].charAt(0)}</div>
+          <div class="pf-info"><div class="pf-nome">${label[x.perfil]}</div><div class="card-sub" style="margin-top:0">${pctGeral}% do que entrou</div></div>
+          <div class="pf-total">${fmtMoeda(x.total)}</div>
+        </div>
+        <div class="pf-pilha">${x.total ? FORM.map(f => x.v[f.k] > 0 ? `<span style="width:${x.v[f.k] / x.total * 100}%;background:${f.cor}" title="${f.nome}: ${fmtMoeda(x.v[f.k])}"></span>` : '').join('') : ''}</div>
+        <div class="pf-leg">${FORM.map(f => `<span><i style="background:${f.cor}"></i>${f.nome} <b>${fmtMoeda(x.v[f.k])}</b></span>`).join('')}</div>
+      </div>`;
+    }).join('')}`;
+}
+
+// ------------------------------------------------------------
+// Dash: Gás por marca — vendidos, entradas de estoque e saldo atual.
+// ------------------------------------------------------------
+function renderGasPorMarca(itensGas, movGas, erroMovGas, estoqueGas) {
+  const marcas = {};
+  const marca = (id, nome) => marcas[id || nome] || (marcas[id || nome] = { nome: nome || '—', vendidos: 0, entradas: 0, reaprov: 0, cheios: null, vazios: null });
+  (itensGas || []).forEach(it => { marca(it.marca_id, it.marcas?.nome).vendidos += it.quantidade; });
+  (movGas || []).forEach(m => {
+    const g = marca(m.marca_id, m.marcas?.nome);
+    if (m.tipo === 'entrada') g.entradas += m.quantidade;
+    else if (m.tipo === 'reaproveitamento') g.reaprov += m.quantidade;
+  });
+  (estoqueGas || []).forEach(e => {
+    const g = marca(e.marca_id, e.marcas?.nome);
+    g.cheios = e.qtd_cheios; g.vazios = e.qtd_vazios;
+  });
+  const lista = Object.values(marcas).filter(g => g.vendidos || g.entradas || g.reaprov || g.cheios || g.vazios)
+    .sort((a, b) => b.vendidos - a.vendidos || a.nome.localeCompare(b.nome, 'pt-BR'));
+  if (!lista.length) return '<div class="empty-state">Nenhuma venda ou entrada de gás no período</div>';
+  const totV = lista.reduce((s, g) => s + g.vendidos, 0);
+  const totE = lista.reduce((s, g) => s + g.entradas + g.reaprov, 0);
+  const max = Math.max(1, ...lista.map(g => Math.max(g.vendidos, g.entradas + g.reaprov)));
+  return `
+    <div class="mv-resumo" style="grid-template-columns:repeat(2,1fr)">
+      <div class="mv-kpi" style="--mv-cor:var(--accent2)"><span>Botijões vendidos</span><strong>${totV}</strong><small>entregues no período</small></div>
+      <div class="mv-kpi" style="--mv-cor:var(--green)"><span>Entraram no estoque</span><strong>+${totE}</strong><small>compras e reenchimentos</small></div>
+    </div>
+    ${lista.map(g => `
+      <div class="mv-row">
+        <div class="mv-row-top">
+          <div class="mv-nome">${escapeHtml(g.nome)}</div>
+          <div class="item-detail">${g.cheios != null ? `estoque: ${g.cheios} cheios · ${g.vazios} vazios` : ''}</div>
+        </div>
+        <div class="gas-linha"><span>Vendidos</span><div class="mv-bar grande" style="--mv-cor:var(--accent2)"><span style="width:${Math.round(g.vendidos / max * 100)}%"></span></div><b>${g.vendidos}</b></div>
+        <div class="gas-linha"><span>Entradas</span><div class="mv-bar grande" style="--mv-cor:var(--green)"><span style="width:${Math.round((g.entradas + g.reaprov) / max * 100)}%"></span></div><b>${g.entradas + g.reaprov}</b></div>
+        ${g.reaprov ? `<div class="card-sub">sendo ${g.entradas} compra(s) e ${g.reaprov} reenchimento(s)</div>` : ''}
+      </div>`).join('')}
+    ${erroMovGas ? '<div class="alert-soft alert-yellow" style="margin-top:10px">As entradas de gás só aparecem depois de rodar a migração "movimentos_gas" no Supabase (ver schema.sql).</div>' : ''}`;
+}
+
+// ------------------------------------------------------------
+// Dash: Ranking de clientes — pódio dos 3 primeiros + lista até o 10º.
+// ------------------------------------------------------------
+function renderRankingClientes(lista, totalGeral) {
+  if (!lista.length) return '<div class="empty-state">Nenhum pedido de clientes no período</div>';
+  const maior = lista[0].total;
+  const medalhas = ['🥇', '🥈', '🥉'];
+  const podio = lista.slice(0, 3);
+  const ordemVisual = podio.length === 3 ? [1, 0, 2] : podio.map((_, i) => i);
+  const top3 = roundMoeda(podio.reduce((s, c) => s + c.total, 0));
+  return `
+    <div class="rk-podio">
+      ${ordemVisual.map(i => { const c = podio[i]; return `
+        <div class="rk-pod rk-pos${i + 1}">
+          <div class="rk-medalha">${medalhas[i]}</div>
+          <div class="rk-nome" title="${escapeHtml(c.nome)}">${escapeHtml(c.nome)}</div>
+          <div class="rk-valor">${fmtMoeda(c.total)}</div>
+          <div class="card-sub">${c.pedidos} pedido${c.pedidos !== 1 ? 's' : ''}</div>
+        </div>`; }).join('')}
+    </div>
+    ${lista.slice(3).map((c, i) => `
+      <div class="rk-linha">
+        <div class="rk-pos">${i + 4}º</div>
+        <div class="rk-meio">
+          <div class="rk-topo"><span class="rk-nome-l">${escapeHtml(c.nome)}</span><b>${fmtMoeda(c.total)}</b></div>
+          <div class="mv-bar grande" style="--mv-cor:var(--accent)"><span style="width:${Math.round(c.total / maior * 100)}%"></span></div>
+          <div class="card-sub">${c.pedidos} pedido${c.pedidos !== 1 ? 's' : ''} · ticket médio ${fmtMoeda(roundMoeda(c.total / c.pedidos))} · ${totalGeral ? Math.round(c.total / totalGeral * 100) : 0}% do faturamento</div>
+        </div>
+      </div>`).join('')}
+    <div class="alert-soft" style="margin-top:12px">💡 Os 3 primeiros respondem por <strong>${totalGeral ? Math.round(top3 / totalGeral * 100) : 0}%</strong> do faturamento do período. Vale cuidar bem desses clientes.</div>`;
+}
+
+// ------------------------------------------------------------
+// Dash: Ranking de Devedores — mesmo desenho do ranking de clientes, mas em
+// tons de alerta (vermelho/laranja/âmbar) pra sinalizar dívida.
+// ------------------------------------------------------------
+function renderRankingDevedores(lista, vendidoPeriodo) {
+  if (!lista.length) return '<div class="empty-state">🎉 Nenhum cliente devendo no período</div>';
+  const totalDivida = roundMoeda(lista.reduce((s, c) => s + c.valor, 0));
+  const maior = lista[0].valor;
+  const sinais = ['🔴', '🟠', '🟡'];
+  const podio = lista.slice(0, 3);
+  const ordemVisual = podio.length === 3 ? [1, 0, 2] : podio.map((_, i) => i);
+  const top3 = roundMoeda(podio.reduce((s, c) => s + c.valor, 0));
+  const hoje = new Date();
+  const diasAberto = c => Math.max(0, Math.floor((hoje - new Date(c.desde)) / 86400000));
+  const textoDias = d => d === 0 ? 'desde hoje' : d === 1 ? 'há 1 dia' : `há ${d} dias`;
+  const pctNaoPago = vendidoPeriodo > 0 ? Math.round(totalDivida / vendidoPeriodo * 100) : 0;
+  return `
+    <div class="dv-total">
+      <div><span>Total em aberto</span><strong>${fmtMoeda(totalDivida)}</strong></div>
+      <div><span>Devedores</span><strong>${lista.length}</strong></div>
+      <div><span>Do vendido no período</span><strong>${pctNaoPago}%</strong></div>
+    </div>
+    <div class="dv-podio">
+      ${ordemVisual.map(i => { const c = podio[i]; return `
+        <div class="dv-pod dv-pos${i + 1}">
+          <div class="rk-medalha">${sinais[i]}</div>
+          <div class="rk-nome" title="${escapeHtml(c.nome)}">${escapeHtml(c.nome)}</div>
+          <div class="rk-valor">${fmtMoeda(c.valor)}</div>
+          <div class="card-sub">${c.pedidos} pedido${c.pedidos !== 1 ? 's' : ''} · ${textoDias(diasAberto(c))}</div>
+        </div>`; }).join('')}
+    </div>
+    ${lista.slice(3, 10).map((c, i) => `
+      <div class="rk-linha">
+        <div class="rk-pos" style="color:var(--red)">${i + 4}º</div>
+        <div class="rk-meio">
+          <div class="rk-topo"><span class="rk-nome-l">${escapeHtml(c.nome)}</span><b class="text-red">${fmtMoeda(c.valor)}</b></div>
+          <div class="mv-bar grande" style="--mv-cor:var(--red)"><span style="width:${Math.round(c.valor / maior * 100)}%"></span></div>
+          <div class="card-sub">${c.pedidos} pedido${c.pedidos !== 1 ? 's' : ''} em aberto · ${textoDias(diasAberto(c))} · ${Math.round(c.valor / totalDivida * 100)}% da dívida</div>
+        </div>
+      </div>`).join('')}
+    ${lista.length > 10 ? `<div class="card-sub" style="margin-top:8px">e mais ${lista.length - 10} cliente${lista.length - 10 !== 1 ? 's' : ''} com valores menores</div>` : ''}
+    <div class="alert-soft alert-red" style="margin-top:12px">⚠ Os 3 maiores devedores concentram <strong>${Math.round(top3 / totalDivida * 100)}%</strong> do que está em aberto. Comece a cobrança por eles.</div>`;
+}
+
 function dashboardSetPeriodo(periodo) {
   dashboardPeriodo = periodo;
   ['hoje', 'semana', 'mes', 'personalizado'].forEach(p =>
@@ -6067,7 +6497,6 @@ function calcularIntervaloDashboard() {
 
 let _chartFaturamento = null;
 let _chartFormas = null;
-let _chartClientes = null;
 
 async function loadDashboard() {
   const { inicio, fim } = calcularIntervaloDashboard();
@@ -6139,29 +6568,28 @@ async function loadDashboard() {
     { data: pagamentosPeriodo },
     { data: pagamentosCohorteRaw, error: errPagamentosCohorte },
     { data: entreguesPeriodoRaw },
-    { data: movAgua },
-    { data: itensAguaRaw, error: errItensAgua },
-    { data: lotesAtuais },
-    { data: movVazios },
     { data: itensGas },
     { data: clientesComodato },
+    { data: movTodos, error: errMovTodos },
+    { data: movGasRaw, error: errMovGas },
+    { data: estoqueGasAtual },
   ] = await Promise.all([
-    // fetchAllRows nas 7 consultas abaixo: período "Personalizado" longo
+    // fetchAllRows nas consultas abaixo: período "Personalizado" longo
     // pode ter mais de 1000 linhas, e sem paginar o corte padrão de 1000
     // linhas do PostgREST trunca silenciosamente (mesma causa raiz do
     // .in() já corrigido antes, agora no limite de linhas por resposta).
     fetchAllRows(() => sb.from('pagamentos_pedido').select('forma, valor, pedidos(status), usuarios(role)').gte('data', inicioISO).lt('data', fimISO).order('id')),
     fetchAllRows(() => sb.from('pagamentos_pedido').select('pedido_id, forma, valor, pedidos!inner(data)').gte('pedidos.data', inicioISO).lt('pedidos.data', fimISO).order('id')),
     fetchAllRows(() => sb.from('pedidos').select('id').neq('status', 'cancelado').gte('data_entrega', inicioISO).lt('data_entrega', fimISO).order('id')),
-    fetchAllRows(() => sb.from('movimentos_estoque').select('quantidade, referencia_pedido_id, pedidos(status), lotes_garrafao(marca_id, marcas(nome, tipo, tamanho_litros))').eq('tipo', 'saida_venda').gte('data', inicioISO).lt('data', fimISO).order('id')),
-    fetchAllRows(() => sb.from('itens_pedido').select('pedido_id, marca_id, quantidade, preco_unitario, preco_vasilhame, marcas(nome, tipo, tamanho_litros), pedidos!inner(data)').gte('pedidos.data', inicioISO).lt('pedidos.data', fimISO).order('id')),
-    sb.from('lotes_garrafao').select('marca_id, qtd_cheios'),
-    fetchAllRows(() => sb.from('movimentos_estoque').select('quantidade, ano_validade, tamanho_litros, referencia_pedido_id, pedidos(status)').eq('tipo', 'retorno_vazio').gte('data', inicioISO).lt('data', fimISO).order('id')),
-    fetchAllRows(() => sb.from('itens_pedido').select('quantidade, marcas(nome), pedidos!inner(status_entrega, data_entrega)').is('lote_id', null).eq('pedidos.status_entrega', 'entregue').gte('pedidos.data_entrega', inicioISO).lt('pedidos.data_entrega', fimISO).order('id')),
+    fetchAllRows(() => sb.from('itens_pedido').select('quantidade, marca_id, marcas(nome), pedidos!inner(status_entrega, data_entrega)').is('lote_id', null).eq('pedidos.status_entrega', 'entregue').gte('pedidos.data_entrega', inicioISO).lt('pedidos.data_entrega', fimISO).order('id')),
     sb.from('clientes').select('nome, saldo_comodato_garrafoes').gt('saldo_comodato_garrafoes', 0).order('saldo_comodato_garrafoes', { ascending: false }),
+    fetchAllRows(() => sb.from('movimentos_estoque').select('tipo, quantidade, ano_validade, tamanho_litros, pedidos(status), lotes_garrafao(marca_id, ano_validade, marcas(nome, tipo, tamanho_litros))').gte('data', inicioISO).lt('data', fimISO).order('id')),
+    // movimentos_gas pode ainda não existir (migração pendente): o erro só desliga o recorte de entradas de gás.
+    fetchAllRows(() => sb.from('movimentos_gas').select('tipo, quantidade, marca_id, marcas(nome)').gte('data', inicioISO).lt('data', fimISO).order('id')),
+    sb.from('estoque_gas').select('marca_id, qtd_cheios, qtd_vazios, marcas(nome)'),
   ]);
   if (errPagamentosCohorte) toastErro('carregar pagamentos do período', errPagamentosCohorte);
-  if (errItensAgua) toastErro('carregar itens de água do período', errItensAgua);
+  if (errMovTodos) toastErro('carregar movimentação de estoque do período', errMovTodos);
 
   // FASE 3: processa tudo e atualiza DOM.
 
@@ -6222,110 +6650,14 @@ async function loadDashboard() {
   inadEl.className = 'stat-val ' + (inadimplenciaPct > 30 ? 'text-red' : inadimplenciaPct > 10 ? 'text-yellow' : 'text-green');
 
   // — Pagamentos por perfil —
-  const labelPerfil = { caixa: 'Caixa', administrador: 'Administrador', desenvolvedor: 'Desenvolvedor' };
-  document.getElementById('dash-pagamentos-perfil').innerHTML = PERFIS.map(perfil => {
-    const v = efetuadoPorPerfil[perfil];
-    const total = roundMoeda(v.dinheiro + v.pix + v.cartao_credito);
-    return `
-      <div class="card" style="margin-bottom:8px;padding:12px">
-        <div class="card-sub" style="font-weight:700;margin-bottom:8px;display:flex;justify-content:space-between">
-          <span>${labelPerfil[perfil]}</span><span>${fmtMoeda(total)}</span>
-        </div>
-        <div class="stats" style="grid-template-columns:repeat(3,1fr);margin-bottom:0">
-          <div class="stat-card"><div class="stat-val" style="font-size:1.05rem">${fmtMoeda(v.dinheiro)}</div><div class="stat-lbl">Dinheiro</div></div>
-          <div class="stat-card"><div class="stat-val" style="font-size:1.05rem">${fmtMoeda(v.pix)}</div><div class="stat-lbl">Pix</div></div>
-          <div class="stat-card"><div class="stat-val" style="font-size:1.05rem">${fmtMoeda(v.cartao_credito)}</div><div class="stat-lbl">Cartão</div></div>
-        </div>
-      </div>
-    `;
-  }).join('');
+  document.getElementById('dash-pagamentos-perfil').innerHTML = renderPagamentosPerfil(efetuadoPorPerfil, PERFIS);
 
-  // — Cheios por marca —
-  const porMarcaAgua = {};
-  const novaMarcaAgua = () => ({ label: '—', vendidos: 0, recebidoPorForma: { dinheiro: 0, pix: 0, cartao_credito: 0 }, pendente: 0 });
-  (movAgua || []).filter(m => m.pedidos?.status !== 'cancelado').forEach(m => {
-    const marcaId = m.lotes_garrafao?.marca_id || '—';
-    const marca = m.lotes_garrafao?.marcas;
-    if (!porMarcaAgua[marcaId]) porMarcaAgua[marcaId] = novaMarcaAgua();
-    if (marca) porMarcaAgua[marcaId].label = nomeMarcaComTamanho(marca);
-    porMarcaAgua[marcaId].vendidos += Math.abs(m.quantidade);
-  });
-  const totalPedidoPorId = {};
-  pedidosHoje.forEach(p => { totalPedidoPorId[p.id] = parseFloat(p.total); });
-  (itensAguaRaw || []).filter(it => it.marcas?.tipo === 'agua').forEach(it => {
-    const subtotal = roundMoeda((parseFloat(it.preco_unitario) + parseFloat(it.preco_vasilhame)) * it.quantidade);
-    const totalPedido = totalPedidoPorId[it.pedido_id] || 0;
-    const ratioItem = totalPedido > 0 ? Math.min(1, subtotal / totalPedido) : 0;
-    const pagoPedidoForma = pagoPorPedidoForma[it.pedido_id] || {};
-    const marcaId = it.marca_id;
-    if (!porMarcaAgua[marcaId]) { porMarcaAgua[marcaId] = novaMarcaAgua(); porMarcaAgua[marcaId].label = it.marcas ? nomeMarcaComTamanho(it.marcas) : '—'; }
-    let recebidoItem = 0;
-    FORMAS.forEach(f => {
-      const recebidoFormaItem = roundMoeda((pagoPedidoForma[f] || 0) * ratioItem);
-      porMarcaAgua[marcaId].recebidoPorForma[f] = roundMoeda(porMarcaAgua[marcaId].recebidoPorForma[f] + recebidoFormaItem);
-      recebidoItem = roundMoeda(recebidoItem + recebidoFormaItem);
-    });
-    porMarcaAgua[marcaId].pendente = roundMoeda(porMarcaAgua[marcaId].pendente + Math.max(0, subtotal - recebidoItem));
-  });
-  const estoqueAtualPorMarca = {};
-  (lotesAtuais || []).forEach(l => { estoqueAtualPorMarca[l.marca_id] = (estoqueAtualPorMarca[l.marca_id] || 0) + l.qtd_cheios; });
-  const corForma = { dinheiro: 'var(--green)', pix: 'var(--accent)', cartao_credito: '#9333ea' };
-  const labelFormaCurta = { dinheiro: 'dinheiro', pix: 'pix', cartao_credito: 'cartão' };
-  const idsAgua = Object.keys(porMarcaAgua);
-  const totalVendidosAgua = idsAgua.reduce((s, id) => s + porMarcaAgua[id].vendidos, 0);
-  document.getElementById('dash-estoque-agua').innerHTML = idsAgua.length ? `
-    <div class="card-sub" style="margin-bottom:4px">${totalVendidosAgua} vendidos no período</div>
-    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px;font-size:.72rem">
-      ${FORMAS.map(f => `<span><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${corForma[f]};margin-right:4px"></span>${labelFormaCurta[f].charAt(0).toUpperCase() + labelFormaCurta[f].slice(1)}</span>`).join('')}
-      <span><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--muted);margin-right:4px"></span>Pendente</span>
-    </div>
-    ${idsAgua.map(id => {
-      const m = porMarcaAgua[id];
-      const totalDinheiro = roundMoeda(FORMAS.reduce((s, f) => s + m.recebidoPorForma[f], 0) + m.pendente);
-      const partes = totalDinheiro > 0
-        ? FORMAS.map(f => ({ pct: roundMoeda((m.recebidoPorForma[f] / totalDinheiro) * 100), cor: corForma[f] }))
-            .concat([{ pct: roundMoeda((m.pendente / totalDinheiro) * 100), cor: 'var(--muted)' }])
-        : [];
-      return `
-      <div style="margin-bottom:14px">
-        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">
-          <div class="item-name">${m.label}</div>
-          <div class="item-detail">${m.vendidos} vendidos / ${estoqueAtualPorMarca[id] || 0} estoque</div>
-        </div>
-        <div style="height:10px;border-radius:5px;background:var(--border);overflow:hidden;display:flex">
-          ${partes.map(p => p.pct > 0 ? `<div style="width:${p.pct}%;background:${p.cor}"></div>` : '').join('')}
-        </div>
-        <div class="card-sub" style="margin-top:5px;font-size:.72rem">
-          ${FORMAS.map(f => `${fmtMoeda(m.recebidoPorForma[f])} ${labelFormaCurta[f]}`).join(' · ')} · ${fmtMoeda(m.pendente)} pendente
-        </div>
-      </div>
-    `;
-    }).join('')}
-  ` : '<div class="empty-state">Nenhum movimento de cheios no período</div>';
-
-  // — Vazios —
-  const porChaveVazio = {};
-  (movVazios || []).filter(m => m.pedidos?.status !== 'cancelado').forEach(m => {
-    const chave = `${m.tamanho_litros}-${m.ano_validade}`;
-    if (!porChaveVazio[chave]) porChaveVazio[chave] = { tamanho: m.tamanho_litros, ano: m.ano_validade, quantidade: 0 };
-    porChaveVazio[chave].quantidade += m.quantidade;
-  });
-  const chavesVazio = Object.keys(porChaveVazio).sort((a, b) => porChaveVazio[a].tamanho - porChaveVazio[b].tamanho || porChaveVazio[a].ano - porChaveVazio[b].ano);
-  const totalVazios = chavesVazio.reduce((s, c) => s + porChaveVazio[c].quantidade, 0);
-  document.getElementById('dash-estoque-vazios').innerHTML = chavesVazio.length ? `
-    <div class="list-item"><div class="item-info"><div class="item-name">Total</div></div><div class="item-value">${totalVazios}</div></div>
-    ${chavesVazio.map(c => `<div class="list-item"><div class="item-info"><div class="item-name">${porChaveVazio[c].tamanho}L · Validade ${porChaveVazio[c].ano}</div></div><div class="item-detail">${porChaveVazio[c].quantidade} devolvidos</div></div>`).join('')}
-  ` : '<div class="empty-state">Nenhum vazio devolvido no período</div>';
+  // — Movimentação do estoque (marca / validade / tamanho) —
+  _mvItens = mvNormalizar(movTodos);
+  renderMovEstoque();
 
   // — Gás —
-  const porMarcaGas = {};
-  (itensGas || []).forEach(it => { const nome = it.marcas ? it.marcas.nome : '—'; porMarcaGas[nome] = (porMarcaGas[nome] || 0) + it.quantidade; });
-  const nomesGas = Object.keys(porMarcaGas);
-  const totalGas = nomesGas.reduce((s, n) => s + porMarcaGas[n], 0);
-  document.getElementById('dash-estoque-gas').innerHTML = nomesGas.length ? `
-    <div class="list-item"><div class="item-info"><div class="item-name">Total Vendido</div></div><div class="item-value">${totalGas}</div></div>
-    ${nomesGas.map(nome => `<div class="list-item"><div class="item-info"><div class="item-name">${escapeHtml(nome)}</div></div><div class="item-detail">${porMarcaGas[nome]} vendidos</div></div>`).join('')}
-  ` : '<div class="empty-state">Nenhuma venda de gás no período</div>';
+  document.getElementById('dash-estoque-gas').innerHTML = renderGasPorMarca(itensGas, movGasRaw, errMovGas, estoqueGasAtual);
 
   // — Comodatos —
   const totalComodatos = (clientesComodato || []).reduce((s, c) => s + c.saldo_comodato_garrafoes, 0);
@@ -6341,13 +6673,10 @@ async function loadDashboard() {
   // — Devedores (loadClientes é cacheado após primeira chamada) —
   if (!allClientes.length) await loadClientes();
   const pendentesPeriodo = await calcularPendentesPorClientePeriodo(inicioISO, fimISO);
-  const devedores = allClientes.filter(c => (pendentesPeriodo[c.id] || 0) > 0);
-  document.getElementById('dash-devedores').innerHTML = devedores.length ? devedores.map(c => `
-    <div class="list-item">
-      <div class="item-info"><div class="item-name">${escapeHtml(c.nome)}</div></div>
-      <div class="item-value text-red">${fmtMoeda(pendentesPeriodo[c.id] || 0)}</div>
-    </div>
-  `).join('') : '<div class="empty-state">Nenhum cliente devendo no período</div>';
+  const devedores = allClientes.filter(c => pendentesPeriodo[c.id])
+    .map(c => ({ nome: c.nome, ...pendentesPeriodo[c.id] }))
+    .sort((a, b) => b.valor - a.valor);
+  document.getElementById('dash-devedores').innerHTML = renderRankingDevedores(devedores, vendasHoje);
 
   // — Doughnut formas de pagamento —
   const formaLabels = ['Dinheiro', 'Pix', 'Cartão'];
@@ -6377,34 +6706,16 @@ async function loadDashboard() {
     </div>`;
   }).join('') + (formaTotal === 0 ? '<div class="empty-state">Nenhum pagamento no período</div>' : '');
 
-  // — Top 5 Clientes —
-  const faturamentoPorCliente = {};
+  // — Ranking de clientes —
+  const porCliente = {};
   pedidosHoje.forEach(p => {
-    if (p.cliente_id) faturamentoPorCliente[p.cliente_id] = roundMoeda((faturamentoPorCliente[p.cliente_id] || 0) + parseFloat(p.total));
+    if (!p.cliente_id) return;
+    const c = porCliente[p.cliente_id] || (porCliente[p.cliente_id] = { id: p.cliente_id, total: 0, pedidos: 0 });
+    c.total = roundMoeda(c.total + parseFloat(p.total)); c.pedidos++;
   });
-  const top5 = Object.entries(faturamentoPorCliente).sort(([, a], [, b]) => b - a).slice(0, 5);
-  if (_chartClientes) _chartClientes.destroy();
-  _chartClientes = null;
-  const wrapClientes = document.getElementById('chart-clientes-wrap');
-  if (top5.length) {
-    const nomes = top5.map(([id]) => { const c = allClientes.find(x => x.id === id); const n = c?.nome || '—'; return n.length > 17 ? n.slice(0, 16) + '…' : n; });
-    const valores = top5.map(([, v]) => v);
-    wrapClientes.style.height = Math.max(140, top5.length * 46 + 20) + 'px';
-    _chartClientes = new Chart(document.getElementById('chart-clientes').getContext('2d'), {
-      type: 'bar',
-      data: { labels: nomes, datasets: [{ data: valores, backgroundColor: '#0ea5c4', borderRadius: 5 }] },
-      options: {
-        responsive: true, maintainAspectRatio: false, indexAxis: 'y',
-        plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ' ' + fmtMoeda(ctx.parsed.x) } } },
-        scales: {
-          x: { ticks: { font: { size: 9 }, callback: v => v >= 1000 ? 'R$' + (v / 1000).toFixed(1) + 'k' : 'R$' + v }, grid: { color: 'rgba(0,0,0,0.04)' }, beginAtZero: true },
-          y: { ticks: { font: { size: 11 } }, grid: { display: false } }
-        }
-      }
-    });
-  } else {
-    wrapClientes.innerHTML = '<canvas id="chart-clientes" style="display:none"></canvas><div class="empty-state">Nenhum pedido de clientes no período</div>';
-  }
+  const ranking = Object.values(porCliente).sort((a, b) => b.total - a.total).slice(0, 10)
+    .map(c => ({ ...c, nome: allClientes.find(x => x.id === c.id)?.nome || '—' }));
+  document.getElementById('dash-ranking-clientes').innerHTML = renderRankingClientes(ranking, vendasHoje);
 }
 
 // Igual a calcularPendentesPorCliente(), mas só considera pedidos criados
@@ -6416,7 +6727,7 @@ async function calcularPendentesPorClientePeriodo(inicioISO, fimISO) {
   // pedidos/pagamentos — sem paginar, o corte de 1000 linhas do PostgREST
   // trunca silenciosamente (mesma causa raiz do .in() já corrigido antes,
   // só que aqui é o limite padrão de linhas por resposta).
-  const { data: pedidos } = await fetchAllRows(() => sb.from('pedidos').select('id, cliente_id, total')
+  const { data: pedidos } = await fetchAllRows(() => sb.from('pedidos').select('id, cliente_id, total, data')
     .neq('status', 'cancelado').gte('data', inicioISO).lt('data', fimISO).order('id'));
   const { data: pagamentosRaw, error: errPagamentos } = await fetchAllRows(() => sb.from('pagamentos_pedido')
     .select('pedido_id, valor, pedidos!inner(data)').gte('pedidos.data', inicioISO).lt('pedidos.data', fimISO).order('id'));
@@ -6428,7 +6739,12 @@ async function calcularPendentesPorClientePeriodo(inicioISO, fimISO) {
   (pedidos || []).forEach(p => {
     const pago = pagoPorPedido[p.id] || 0;
     const pendente = Math.max(0, roundMoeda(parseFloat(p.total) - pago));
-    if (pendente > 0) mapa[p.cliente_id] = roundMoeda((mapa[p.cliente_id] || 0) + pendente);
+    if (pendente > 0) {
+      const d = mapa[p.cliente_id] || (mapa[p.cliente_id] = { valor: 0, pedidos: 0, desde: p.data });
+      d.valor = roundMoeda(d.valor + pendente);
+      d.pedidos++;
+      if (p.data < d.desde) d.desde = p.data;
+    }
   });
   return mapa;
 }
