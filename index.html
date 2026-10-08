@@ -3862,10 +3862,10 @@ async function loadEntregadoresList() {
 }
 
 async function abrirNovoPedido() {
-  if (currentUserRole === 'caixa') {
-    await carregarCaixaSessaoAtual();
-    if (!caixaSessaoAtual) { toast('Abra o caixa antes de criar pedidos.', true); return; }
-  }
+  // Pedido novo só com caixa aberto, pra qualquer perfil (admin incluso) —
+  // senão o dinheiro recebido depois fica sem sessão de caixa pra contabilizar.
+  await carregarCaixaSessaoAtual();
+  if (!caixaSessaoAtual) { toast('Abra o caixa antes de criar pedidos.', true); return; }
 
   document.getElementById('np-pedido-id').value = '';
   document.getElementById('np-modal-titulo').textContent = 'Novo Pedido';
@@ -4002,7 +4002,8 @@ async function salvarPedido() {
   try {
   const editId = document.getElementById('np-pedido-id').value || null;
 
-  if (currentUserRole === 'caixa') {
+  // Criar exige caixa aberto pra qualquer perfil; editar só pro perfil caixa.
+  if (!editId || currentUserRole === 'caixa') {
     await carregarCaixaSessaoAtual();
     if (!caixaSessaoAtual) { toast(`Abra o caixa antes de ${editId ? 'editar' : 'criar'} pedidos.`, true); return; }
   }
