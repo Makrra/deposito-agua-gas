@@ -384,6 +384,9 @@ select.form-control option { background: var(--surface); }
 .mv-grupo-top { display:flex; justify-content:space-between; align-items:center; padding:2px 4px 10px; }
 .mv-grupo-top .mv-nome { font-size:.95rem; }
 .mv-aninhada { margin-bottom:6px; }
+.mv-total { background:rgba(var(--primary-rgb),.12); border-color:rgba(var(--primary-rgb),.45); border-width:1.5px; }
+.mv-total .mv-bar { display:none; }
+.mv-total .mv-nome { color:var(--accent); }
 .mv-aninhada:last-child { margin-bottom:0; }
 .mv-sec { font-size:.72rem; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); font-weight:700; margin:14px 0 2px; }
 .mv-row { border:1px solid var(--border); border-radius:12px; padding:11px 12px; margin-bottom:8px; background:var(--card); }
@@ -6195,13 +6198,13 @@ function mvMaximos(lista, cols) {
   return max;
 }
 
-function mvLinha(g, cols, max, comBadgeAno, aninhada) {
+function mvLinha(g, cols, max, comBadgeAno, aninhada, total) {
   const anoAtual = new Date().getFullYear();
   const badge = comBadgeAno && g.anoNum != null
     ? (g.anoNum < anoAtual ? '<span class="badge badge-red">Vencido</span>' : g.anoNum === anoAtual ? '<span class="badge badge-yellow">Vence este ano</span>' : '')
     : '';
   return `
-    <div class="mv-row ${aninhada ? 'mv-aninhada' : ''}">
+    <div class="mv-row ${aninhada ? 'mv-aninhada' : ''} ${total ? 'mv-total' : ''}">
       <div class="mv-row-top">
         <div class="mv-nome">${g.rotulo} ${badge}</div>
         <div class="mv-saldo ${g.saldo > 0 ? 'pos' : g.saldo < 0 ? 'neg' : ''}">${g.saldo > 0 ? '+' : ''}${g.saldo}<small>saldo</small></div>
@@ -6240,7 +6243,10 @@ function mvAgruparMarcaAno(itens) {
   return Object.values(marcas).map(m => {
     const anos = Object.values(m.anos).sort((a, b) => a.ordem - b.ordem);
     anos.forEach(g => { g.saldo = g.ent + g.reench - g.venda - g.av + g.aj; });
-    return { rotulo: m.rotulo, anos, saldo: anos.reduce((s, g) => s + g.saldo, 0) };
+    const soma = k => anos.reduce((s, g) => s + g[k], 0);
+    const totais = { ent: soma('ent'), reench: soma('reench'), venda: soma('venda'), reap: 0, av: soma('av'), aj: soma('aj') };
+    totais.saldo = totais.ent + totais.reench - totais.venda - totais.av + totais.aj;
+    return { rotulo: m.rotulo, anos, totais, saldo: totais.saldo };
   }).sort((a, b) => String(a.rotulo).replace(/<[^>]*>/g, '').localeCompare(String(b.rotulo).replace(/<[^>]*>/g, ''), 'pt-BR'));
 }
 
@@ -6257,6 +6263,7 @@ function mvBlocoCruzado(lista) {
           <div class="mv-saldo ${m.saldo > 0 ? 'pos' : m.saldo < 0 ? 'neg' : ''}">${m.saldo > 0 ? '+' : ''}${m.saldo}<small>saldo da marca</small></div>
         </div>
         ${m.anos.map(g => mvLinha(g, MV_COLS_CHEIOS, max, true, true)).join('')}
+        ${mvLinha({ ...m.totais, rotulo: 'Total · todos os vencimentos' }, MV_COLS_CHEIOS, max, false, true, true)}
       </div>`).join('')}`;
 }
 
