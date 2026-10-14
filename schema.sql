@@ -1504,3 +1504,38 @@ ON CONFLICT (chave) DO NOTHING;
 -- e depois rode (substituindo o UUID pelo id do usuário criado):
 --
 -- INSERT INTO usuarios (id, nome, role) VALUES ('<uuid-do-usuario>', 'Seu Nome', 'administrador');
+
+-- ============================================================
+-- MIGRAÇÃO: autor preenchido pelo servidor (auth.uid())
+-- ============================================================
+-- Versões antigas do app (PWA aberto por dias em segundo plano) mandavam
+-- criado_por/aberto_por = NULL quando não conseguiam identificar o usuário,
+-- e a contabilidade do caixa (que só conta confirmações do perfil 'caixa',
+-- via join por criado_por) descartava esses pagamentos. Este gatilho
+-- completa o autor no banco, independente da versão do cliente.
+CREATE OR REPLACE FUNCTION public.preencher_autor() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+  IF TG_TABLE_NAME = 'caixa_sessoes' THEN
+    NEW.aberto_por := COALESCE(NEW.aberto_por, auth.uid());
+  ELSE
+    NEW.criado_por := COALESCE(NEW.criado_por, auth.uid());
+  END IF;
+  RETURN NEW;
+END $$;
+
+DROP TRIGGER IF EXISTS trg_autor_pagamentos_pedido ON pagamentos_pedido;
+CREATE TRIGGER trg_autor_pagamentos_pedido BEFORE INSERT ON pagamentos_pedido
+  FOR EACH ROW EXECUTE FUNCTION public.preencher_autor();
+
+DROP TRIGGER IF EXISTS trg_autor_caixa_sessoes ON caixa_sessoes;
+CREATE TRIGGER trg_autor_caixa_sessoes BEFORE INSERT ON caixa_sessoes
+  FOR EACH ROW EXECUTE FUNCTION public.preencher_autor();
+
+DROP TRIGGER IF EXISTS trg_autor_caixa_movimentos ON caixa_movimentos;
+CREATE TRIGGER trg_autor_caixa_movimentos BEFORE INSERT ON caixa_movimentos
+  FOR EACH ROW EXECUTE FUNCTION public.preencher_autor();
+
+DROP TRIGGER IF EXISTS trg_autor_pedidos ON pedidos;
+CREATE TRIGGER trg_autor_pedidos BEFORE INSERT ON pedidos
+  FOR EACH ROW EXECUTE FUNCTION public.preencher_autor();

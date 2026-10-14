@@ -471,7 +471,7 @@ select.form-control option { background: var(--surface); }
 <div class="header">
   <div>
     <h1>Depósito do Mago</h1>
-    <div class="subtitle">Gestão de pedidos e entrega</div>
+    <div class="subtitle">Gestão de pedidos e entrega · v<span id="app-versao"></span></div>
   </div>
   <div style="display:flex;align-items:center;gap:8px">
     <span class="role-badge" id="header-role-badge"></span>
@@ -732,6 +732,7 @@ select.form-control option { background: var(--surface); }
       <div class="card-title">Valor Esperado na Gaveta</div>
       <div class="stat-val" id="caixa-valor-esperado" style="font-size:1.6rem">—</div>
     </div>
+    <div id="caixa-fora-gaveta"></div>
 
     <div style="display:flex;gap:8px;margin:14px 0">
       <button class="btn btn-outline btn-sm" style="flex:1" onclick="abrirModalCaixaMovimento('sangria')">- Sangria</button>
@@ -1642,6 +1643,29 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 // ============================================================
 let currentUserRole = null; // 'administrador' | 'caixa' | 'entregador' | 'desenvolvedor'
 let currentUserId = null;
+
+// Incrementar a cada deploy. Um PWA que fica aberto em segundo plano por
+// dias nunca recarrega sozinho e seguia rodando código antigo (foi assim que
+// o caixa continuou gravando sem autor depois da correção). A checagem abaixo
+// compara esta constante com a do index.html publicado e recarrega o app.
+const APP_VERSION = '2026-10-14.1';
+
+async function checarVersaoNova() {
+  if (!navigator.onLine) return;
+  try {
+    const res = await fetch('index.html', { cache: 'no-store' });
+    if (!res.ok) return;
+    const m = (await res.text()).match(/const APP_VERSION = '(\d{4}-\d{2}-\d{2}\.\d+)'/);
+    if (!m || m[1] === APP_VERSION) return;
+    // não recarrega com formulário/modal aberto pra não perder o que está sendo digitado
+    if (document.querySelector('.modal-overlay.open')) return;
+    toast('Nova versão do app disponível. Atualizando...');
+    setTimeout(() => location.reload(), 1500);
+  } catch (_) { /* sem rede: tenta de novo na próxima checagem */ }
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checarVersaoNova(); });
+window.addEventListener('focus', checarVersaoNova);
+setInterval(checarVersaoNova, 10 * 60 * 1000);
 
 // currentUserId antes só era preenchido por sb.auth.getUser() (chamada de
 // rede) no init(). Se essa chamada falhasse uma vez (rede instável ao abrir
@@ -5785,8 +5809,30 @@ async function calcularTotaisSessaoAtual() {
   // "caixa" — admin/desenvolvedor podem confirmar um pagamento (corrige
   // pendência do cliente) sem que isso entre na contabilidade da sessão,
   // já que o dinheiro provavelmente não passou pela gaveta de hoje.
-  const { data: pagamentos } = await sb.from('pagamentos_pedido').select('valor, pedidos(status), usuarios(role)').eq('caixa_sessao_id', sessaoId).eq('forma', 'dinheiro');
-  const dinheiroRecebido = roundMoeda((pagamentos || []).filter(p => p.pedidos?.status !== 'cancelado' && p.usuarios?.role === 'caixa').reduce((s, p) => s + parseFloat(p.valor), 0));
+  const { data: pagamentos, error: errPagamentos } = await sb.from('pagamentos_pedido').select('valor, criado_por, pedidos(status), usuarios(role)').eq('caixa_sessao_id', sessaoId).eq('forma', 'dinheiro');
+  if (errPagamentos) toastErro('carregar pagamentos do caixa', errPagamentos);
+  const validos = (pagamentos || []).filter(p => p.pedidos?.status !== 'cancelado');
+  const dinheiroRecebido = roundMoeda(validos.filter(p => p.usuarios?.role === 'caixa').reduce((s, p) => s + parseFloat(p.valor), 0));
+
+  // Dinheiro que está nesta sessão mas não entra na gaveta (confirmado por
+  // outro perfil ou sem autor registrado): antes sumia em silêncio e o
+  // operador achava que o sistema "não contabilizava". Agora aparece com o motivo.
+  const foraGaveta = validos.filter(p => p.usuarios?.role !== 'caixa');
+  const foraEl = document.getElementById('caixa-fora-gaveta');
+  if (foraEl) {
+    if (foraGaveta.length) {
+      const totalFora = roundMoeda(foraGaveta.reduce((s, p) => s + parseFloat(p.valor), 0));
+      const semAutor = foraGaveta.filter(p => !p.criado_por).length;
+      const outroPerfil = foraGaveta.length - semAutor;
+      const motivos = [
+        semAutor ? `${semAutor} sem autor registrado` : '',
+        outroPerfil ? `${outroPerfil} confirmado(s) por administrador/desenvolvedor` : '',
+      ].filter(Boolean).join(' · ');
+      foraEl.innerHTML = `<div class="card"><div class="card-title text-yellow">Dinheiro fora da gaveta: ${fmtMoeda(totalFora)}</div><div class="card-sub">${foraGaveta.length} pagamento(s) em dinheiro desta sessão não entram no Valor Esperado — ${motivos}.</div></div>`;
+    } else {
+      foraEl.innerHTML = '';
+    }
+  }
 
   const { data: movimentos } = await sb.from('caixa_movimentos').select('tipo, valor').eq('caixa_sessao_id', sessaoId);
   const suprimentos = roundMoeda((movimentos || []).filter(m => m.tipo === 'suprimento').reduce((s, m) => s + parseFloat(m.valor), 0));
@@ -6846,6 +6892,8 @@ function applyRoleUI(role) {
 }
 
 async function init() {
+  document.getElementById('app-versao').textContent = APP_VERSION;
+  checarVersaoNova();
   const usuario = await loadCurrentUserRole();
   if (!usuario) {
     toast('Usuário sem perfil cadastrado em "usuarios". Avise o administrador.', true);
